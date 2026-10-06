@@ -1529,7 +1529,9 @@ async function runFlow({ parsed, executable, log, observations }) {
       const tree = parseXwininfoTree(tool('xwininfo', ['-root', '-tree']).stdout);
       const node = tree.find((entry) => entry.id === info.xid);
       const wmClass = parseXpropWmClass(tool('xprop', ['-id', hex, 'WM_CLASS']).stdout);
-      const iconOutput = tool('xprop', ['-id', hex, '_NET_WM_ICON'], { timeoutMs: 60000 });
+      // xprop reads at most 500,000 bytes of a property by default and prints nothing for an icon cut short by that limit;
+      // the 256 px icon is set twice (window and application icon, about 524 KB), so the limit is raised.
+      const iconOutput = tool('xprop', ['-len', String(16 * 1024 * 1024), '-id', hex, '_NET_WM_ICON'], { timeoutMs: 60000 });
       const icon = parseNetWmIconSize(iconOutput.stdout || iconOutput.stderr);
       // Diagnosis only: whether the main process can decode the packaged PNG at all (from the path and from the bytes).
       const mainIcon = await app.evaluate(({ app: electronApp, nativeImage }) => {

@@ -592,6 +592,7 @@ test('simulated: ELF header, PNG size, X11 tool output and fuse wire parsing', (
   assert.deepEqual(smoke.parseNetWmIconSize(`_NET_WM_ICON(CARDINAL) = 2, 2, ${pixels(4)}, 1, 1, ${pixels(1)}`), { sizes: [{ width: 2, height: 2 }, { width: 1, height: 1 }], truncated: false, found: true });
   assert.deepEqual(smoke.parseNetWmIconSize('_NET_WM_ICON(CARDINAL) = \tIcon (256 x 256):\n\t(ascii art)\n\tIcon (16 x 16):\n'), { sizes: [{ width: 256, height: 256 }, { width: 16, height: 16 }], truncated: false, found: true });
   assert.equal(smoke.parseNetWmIconSize('_NET_WM_ICON:  not found.').found, false);
+  assert.equal(smoke.parseNetWmIconSize('_NET_WM_ICON(CARDINAL) = \n').found, false);
   assert.equal(smoke.parseNetWmIconSize(`_NET_WM_ICON(CARDINAL) = 4, 4, ${pixels(3)}`).truncated, true);
 
   const info = 'xwininfo: Window id: 0x1a00003 "TRACE Boardviewer"\n\n  Absolute upper-left X:  580\n  Absolute upper-left Y:  420\n  Relative upper-left X:  0\n  Width: 440\n  Height: 160\n  Map State: IsViewable\n';
