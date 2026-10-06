@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SchematicViewer harness</title>
+  <style>
+    .h-root{display:flex;flex-direction:column;height:100%;background:var(--bg)}
+    .h-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 10px;background:var(--panel);border-bottom:1px solid var(--line);font-size:12px}
+    .h-bar button{padding:5px 10px;border:1px solid var(--line);border-radius:7px;color:var(--muted);background:var(--raised)}
+    .h-bar button:hover{color:var(--text);background:var(--hover)}
+    .h-bar label{display:flex;align-items:center;gap:5px;color:var(--muted)}
+    .h-main{flex:1;min-height:0;display:flex;justify-content:center;background:var(--bg)}
+    .h-main>.h-viewer{flex:1;min-width:0;min-height:0}
+    .h-main.h-narrow>.h-viewer{flex:0 0 420px}
+    .h-log{height:96px;overflow:auto;padding:6px 10px;border-top:1px solid var(--line);background:var(--panel);color:var(--muted);font-size:11px;line-height:1.5}
+  </style>
+</head>
+<body><div id="root"></div><script type="module" src="/harness/schematic-viewer.tsx"></script></body>
+</html>

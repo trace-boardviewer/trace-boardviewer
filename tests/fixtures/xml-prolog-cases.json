@@ -1,0 +1,22 @@
+[
+  { "label": "bare root", "text": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"4\" height=\"4\"><rect width=\"4\" height=\"4\"/></svg>", "root": "svg" },
+  { "label": "XML declaration", "text": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<svg xmlns=\"http://www.w3.org/2000/svg\"/>", "root": "svg" },
+  { "label": "comment first", "text": "<!-- drawn by hand -->\n<svg xmlns=\"http://www.w3.org/2000/svg\"/>", "root": "svg" },
+  { "label": "declaration then comment", "text": "<?xml version=\"1.0\"?>\n<!-- generator: none -->\n<svg xmlns=\"http://www.w3.org/2000/svg\"/>", "root": "svg" },
+  { "label": "public DOCTYPE then comment", "text": "<!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\" \"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd\">\n<!-- c -->\n<svg xmlns=\"http://www.w3.org/2000/svg\"/>", "root": "svg" },
+  { "label": "BOM then comment", "bom": true, "text": "<!-- c -->\n<svg xmlns=\"http://www.w3.org/2000/svg\"/>", "root": "svg" },
+  { "label": "stylesheet instruction first", "text": "<?xml-stylesheet href=\"style.css\" type=\"text/css\"?>\n<svg xmlns=\"http://www.w3.org/2000/svg\"/>", "root": "svg" },
+  { "label": "comment naming another root", "text": "<!-- <eagle> --><svg xmlns=\"http://www.w3.org/2000/svg\"/>", "root": "svg" },
+  { "label": "whitespace before the prolog", "text": "\n\t  <?xml version=\"1.0\"?>\n\n<svg xmlns=\"http://www.w3.org/2000/svg\"/>", "root": "svg" },
+  { "label": "DOCTYPE with an internal subset without entities", "text": "<!DOCTYPE svg [ <!ELEMENT svg ANY> ]><svg xmlns=\"http://www.w3.org/2000/svg\"/>", "root": "svg" },
+  { "label": "EAGLE schematic after a comment", "text": "<!-- exported -->\n<eagle version=\"9.6.2\"><drawing><schematic><sheets/></schematic></drawing></eagle>", "root": "eagle" },
+  { "label": "EAGLE schematic with declaration and DOCTYPE", "text": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<!DOCTYPE eagle SYSTEM \"eagle.dtd\">\n<eagle version=\"9.6.2\"><drawing><schematic><sheets/></schematic></drawing></eagle>", "root": "eagle" },
+  { "label": "uppercase root", "text": "<SVG xmlns=\"http://www.w3.org/2000/svg\"></SVG>", "root": null },
+  { "label": "HTML document", "text": "<!DOCTYPE html><html><body><svg/></body></html>", "root": null },
+  { "label": "root with a longer name", "text": "<svgx/>", "root": null },
+  { "label": "unterminated comment", "text": "<!-- never closed <svg/>", "root": null },
+  { "label": "unterminated declaration", "text": "<?xml version=\"1.0\" <svg/>", "root": null },
+  { "label": "DOCTYPE declaring an entity", "text": "<!DOCTYPE svg [ <!ENTITY e \"x\"> ]><svg xmlns=\"http://www.w3.org/2000/svg\">&e;</svg>", "root": null },
+  { "label": "only a declaration", "text": "<?xml version=\"1.0\"?>", "root": null },
+  { "label": "not markup", "text": "svg", "root": null }
+]

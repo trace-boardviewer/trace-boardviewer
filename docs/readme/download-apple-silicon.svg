@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="248" height="56" viewBox="0 0 248 56" role="img" aria-label="Download for macOS, experimental">
+  <rect x="0.5" y="0.5" width="247" height="55" rx="11" fill="#2f3b4d" stroke="#1f2937"/>
+  <g fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" transform="translate(16 16)">
+    <path d="M12 2v13M6 9.5l6 6 6-6M4 21h16"/>
+  </g>
+  <text x="52" y="25" fill="#ffffff" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="16" font-weight="700">Download for macOS</text>
+  <text x="52" y="43" fill="#c9d3df" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12">Apple silicon, experimental</text>
+</svg>

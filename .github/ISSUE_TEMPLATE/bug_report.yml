@@ -1,0 +1,63 @@
+name: Bug report
+description: Something in TRACE Boardviewer does not work as it should. Thank you for testing and telling us!
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you very much for testing TRACE and sharing your opinion. If you found a bug, this form is the fastest way to tell us.
+
+        **Please do not attach proprietary, licensed or customer boardview, schematic or PDF files.** Describe the file instead (format, vendor, size), or reproduce the problem with a small file you made yourself or with an open-design board.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect and what did you see instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The shortest list of steps that shows the problem. Screenshots of the app window are welcome if they show no private data.
+      placeholder: |
+        1. Open ...
+        2. Click ...
+        3. See ...
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: TRACE version
+      description: The version in the file name of the download, for example 1.2.0.
+      placeholder: "1.2.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: system
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Linux
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: format
+    attributes:
+      label: File format involved (if any)
+      description: For example Landrex BRD, BVR, KiCad PCB, EAGLE. Only the format name, not the file.
+    validations:
+      required: false
+  - type: checkboxes
+    id: no-private-files
+    attributes:
+      label: Privacy
+      options:
+        - label: I did not attach or paste any proprietary, licensed or customer file or data.
+          required: true

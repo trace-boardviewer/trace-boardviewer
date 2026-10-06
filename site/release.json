@@ -1,0 +1,9 @@
+{
+  "status": "unreleased",
+  "statusText": "preview — not released yet",
+  "version": "1.2.0",
+  "date": "",
+  "releasesUrl": "https://github.com/trace-boardviewer/trace-boardviewer/releases",
+  "windows": { "file": "TRACE-Boardviewer-1.2.0.exe", "url": "", "sha256": "", "bytes": 0 },
+  "macos": { "file": "", "url": "", "sha256": "", "bytes": 0, "note": "experimental, unsigned, Apple silicon only, validated on an Apple M3" }
+}

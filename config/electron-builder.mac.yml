@@ -1,0 +1,73 @@
+# TRACE Boardviewer - macOS packaging BASELINE (unsigned, not notarized, not a release).
+#
+# Use only through an explicit --config; one run builds exactly one architecture:
+#   electron-builder --mac zip --arm64 --config config/electron-builder.mac.yml --publish never
+#   electron-builder --mac zip --x64   --config config/electron-builder.mac.yml --publish never
+#
+# With --config, electron-builder reads ONLY this file and ignores the "build" block of package.json
+# (app-builder-lib out/util/config/load.js: getConfig). `extends` cannot reuse that block either, so appId,
+# productName, asar and files below are copies and tests/mac-config-checks.cjs guards them against drift.
+# This file must stay out of the repository root: a root electron-builder.* name is auto-discovered.
+#
+# Written and statically checked on Linux. It has never been run on macOS (see docs/MAC_VALIDATION.md).
+appId: hu.trace.boardviewer
+productName: TRACE Boardviewer
+directories:
+  # Separate from the Windows output directory ("release").
+  output: release-mac
+# Nothing is published and no auto-update metadata is embedded. Without this, electron-builder derives a GitHub
+# provider from the git remote and writes resources/app-update.yml (owner and repository name) into the app.
+publish: null
+# No "electronDist" here, on purpose. package.json points it at node_modules/electron/dist, which is the HOST
+# Electron: on a Mac it would be copied unchanged whatever --arm64/--x64 says (a wrong-architecture app with a
+# correct-looking name). Without it the builder downloads the darwin Electron zip that matches the requested arch.
+files:
+  - dist/**/*
+  - electron/**/*
+  - package.json
+  - assets/**/*
+  - LICENSE
+  - THIRD_PARTY_NOTICES.md
+  # Not required at runtime: only pdfjs-dist's Node-only canvas path refers to it and the renderer is sandboxed.
+  # Without this line the HOST's prebuilt .node binary is bundled and unpacked (reproduced on Linux).
+  - '!node_modules/@napi-rs/**'
+asar: true
+# Electron fuses, flipped in the binary right before signing (app-builder-lib platformPackager.doAddElectronFuses). The same set
+# as the "build" block of package.json (tests/mac-config-checks.cjs keeps them equal) plus the ad-hoc signature reset at the end.
+# A fuse not listed keeps Electron's default.
+electronFuses:
+  # No ELECTRON_RUN_AS_NODE: the binary cannot serve another program as a plain Node.js runtime.
+  runAsNode: false
+  # NODE_OPTIONS and NODE_EXTRA_CA_CERTS from the environment are ignored.
+  enableNodeOptionsEnvironmentVariable: false
+  # --inspect stays available: scripts/mac-smoke.cjs, like every Playwright launch of a packaged build, attaches to the main
+  # process through it and waits for the inspector before it does anything else.
+  enableNodeCliInspectArguments: true
+  # Application code only from app.asar, checked against the hash the builder embeds in the binary.
+  onlyLoadAppFromAsar: true
+  enableEmbeddedAsarIntegrityValidation: true
+  enableCookieEncryption: true
+  # The UI and the pdf.js assets are loaded over file:// and fetch sibling files, which needs the extra privileges.
+  grantFileProtocolExtraPrivileges: true
+  # Flipping the fuses invalidates the ad-hoc signature of the downloaded Electron bundle: re-sign ad hoc right away, before
+  # the builder's own ad-hoc signing pass (identity '-' below), so no step ever handles an unsigned arm64 binary.
+  resetAdHocDarwinSignature: true
+mac:
+  # zip only: a plain archive of the .app. dmg needs macOS tooling (hdiutil) and adds nothing to validation.
+  target:
+    - zip
+  # The builder converts this 1024x1024 PNG to .icns itself, so no binary icon is committed.
+  icon: assets/icon.png
+  # Always contains the arch: with the default pattern the builder drops it for x64.
+  artifactName: 'TRACE-Boardviewer-${version}-mac-${arch}.${ext}'
+  # Ad-hoc signature ("-"), an explicit opt-in: no Apple identity, no certificate, no secret. Packaging modifies the
+  # downloaded Electron bundle, and Apple silicon requires arm64 code to carry at least an ad-hoc signature.
+  # Caveat: the builder still lists the keychain (security find-identity) and matches "-" as a substring of
+  # identity names, so build on a runner or account without code signing identities; the workflow verifies the
+  # result (Signature=adhoc, TeamIdentifier not set).
+  identity: '-'
+  # Hardened runtime plus ad-hoc signing makes library validation reject the bundled frameworks.
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  # Never notarize. This is also the guard against APPLE_ID / APPLE_API_KEY style variables in the environment.
+  notarize: false

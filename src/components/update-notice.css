@@ -1,0 +1,9 @@
+/* Update notification (src/components/UpdateNotice.tsx): a slim strip under the top bar and the Check now row of the Settings dialog. */
+.update-strip{display:flex;align-items:center;gap:10px;padding:6px 18px;background:var(--accent-bg);border-bottom:1px solid var(--line);color:var(--text);font-size:12px;flex-shrink:0;min-width:0}
+.update-strip>svg{color:var(--accent)}
+.update-strip-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.update-strip-download{padding:4px 11px;font-size:11px;flex-shrink:0}
+.update-strip-dismiss{margin-left:auto;width:26px;height:26px}
+.update-check{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:2px 0 12px}
+.update-check .outline-button,.update-check .primary-button{padding:6px 12px;font-size:11px}
+.update-check-status{font-size:11px;color:var(--muted);min-width:0}

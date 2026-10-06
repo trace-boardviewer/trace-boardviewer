@@ -1,0 +1,24 @@
+# Sensitive paths: every change here is requested for review from the owner. With the "Protect main" ruleset
+# (.github/rulesets/) nothing reaches main except through a pull request, so these files cannot change unnoticed.
+
+# Release and CI: what gets built, signed and published, and with which permissions.
+/.github/                       @trace-boardviewer/maintainers
+/config/                        @trace-boardviewer/maintainers
+/scripts/                       @trace-boardviewer/maintainers
+/RELEASING.md                   @trace-boardviewer/maintainers
+
+# Supply chain: dependencies, the builder patch, the package manifest and its build settings.
+/package.json                   @trace-boardviewer/maintainers
+/pnpm-lock.yaml                 @trace-boardviewer/maintainers
+/pnpm-workspace.yaml            @trace-boardviewer/maintainers
+/patches/                       @trace-boardviewer/maintainers
+
+# Main process: the only code that opens links, reads and writes files and talks to the network.
+/electron/                      @trace-boardviewer/maintainers
+
+# Where money and updates point: the support links, the update check and the public pages.
+/src/lib/support-notice.ts      @trace-boardviewer/maintainers
+/src/lib/update-check.ts        @trace-boardviewer/maintainers
+/site/                          @trace-boardviewer/maintainers
+/LICENSE                        @trace-boardviewer/maintainers
+/SECURITY.md                    @trace-boardviewer/maintainers

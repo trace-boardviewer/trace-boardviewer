@@ -1,0 +1,92 @@
+{
+  "name": "trace-boardviewer",
+  "version": "1.2.0",
+  "private": true,
+  "type": "module",
+  "description": "TRACE — offline desktop GENCAD boardviewer",
+  "author": "TRACE",
+  "license": "MIT",
+  "main": "electron/main.cjs",
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "vite",
+    "dev:desktop": "node scripts/start-dev.cjs",
+    "setup:electron": "install-electron",
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run",
+    "test:desktop": "node --test tests/desktop-checks.cjs tests/store-checks.cjs tests/workspace-checks.cjs tests/portable-config-checks.cjs tests/portable-isolation-checks.cjs tests/payload-manifest-checks.cjs tests/portable-startup-measurement-checks.cjs",
+    "qa:browser": "node scripts/qa-smoke.cjs --browser",
+    "qa:electron": "node scripts/qa-smoke.cjs --electron",
+    "qa:packaged": "node scripts/qa-smoke.cjs --packaged",
+    "qa:races": "node scripts/qa-races.cjs",
+    "qa:localization": "node scripts/qa-localization.cjs",
+    "qa:renderer": "node scripts/qa-renderer.cjs",
+    "qa:performance": "node scripts/qa-performance.cjs",
+    "qa:workspace": "node scripts/qa-workspace-ui.cjs",
+    "qa:e2e": "node scripts/qa-workspace-e2e.cjs",
+    "start": "electron .",
+    "package": "pnpm run build && electron-builder --win portable --x64 --publish never",
+    "package:dir": "pnpm run build && electron-builder --win dir --x64 --publish never"
+  },
+  "dependencies": {
+    "@fontsource/ibm-plex-mono": "5.3.0",
+    "@fontsource/manrope": "5.3.0",
+    "cfb": "1.2.2",
+    "fast-xml-parser": "5.11.2",
+    "fflate": "0.8.3",
+    "lucide-react": "1.52.0",
+    "pdfjs-dist": "6.4.299",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3",
+    "playwright": "1.62.1",
+    "typescript": "7.0.2",
+    "vite": "8.3.2",
+    "vitest": "5.0.3"
+  },
+  "build": {
+    "appId": "hu.trace.boardviewer",
+    "productName": "TRACE Boardviewer",
+    "directories": {
+      "output": "release"
+    },
+    "electronDist": "node_modules/electron/dist",
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json",
+      "assets/**/*",
+      "LICENSE",
+      "THIRD_PARTY_NOTICES.md"
+    ],
+    "asar": true,
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": true,
+      "onlyLoadAppFromAsar": true,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "enableCookieEncryption": true,
+      "grantFileProtocolExtraPrivileges": true
+    },
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "icon": "assets/icon.ico",
+      "signExecutable": false
+    },
+    "portable": {
+      "artifactName": "TRACE-Boardviewer-${version}.exe",
+      "unpackDirName": true
+    }
+  }
+}

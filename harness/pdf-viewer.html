@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" href="data:," />
+  <title>PdfViewer harness</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    /* Harness only: pdf.js 6.4 uses Map#getOrInsertComputed (Chromium 145+, shipped by the Electron target). The sandbox's
+       Playwright Chromium is older, so the main-thread API gets this tiny polyfill; the worker uses pdf.js' legacy build (see the .tsx). */
+    for (const Collection of [Map, WeakMap]) {
+      const proto = Collection.prototype;
+      if (!proto.getOrInsert) Object.defineProperty(proto, 'getOrInsert', { configurable: true, writable: true, value(key, value) { if (!this.has(key)) this.set(key, value); return this.get(key); } });
+      if (!proto.getOrInsertComputed) Object.defineProperty(proto, 'getOrInsertComputed', { configurable: true, writable: true, value(key, compute) { if (!this.has(key)) this.set(key, compute(key)); return this.get(key); } });
+    }
+  </script>
+  <script type="module" src="./pdf-viewer.tsx"></script>
+</body>
+</html>

@@ -1,0 +1,229 @@
+/* PdfViewer: every selector is prefixed pdfv-; colours come from the shared theme tokens in styles.css. */
+.pdfv {
+  /* Pages are white paper in both themes, so overlay colours are the theme accents pulled darker to stay readable on white. */
+  --pdfv-hit: color-mix(in srgb, var(--accent) 72%, #1c1000);
+  --pdfv-net: color-mix(in srgb, var(--net) 66%, #001f1e);
+  /* fills are paler than the rings so the black page text stays legible under them in both themes */
+  --pdfv-hit-fill: color-mix(in srgb, var(--accent) 55%, #ffe9a8);
+  --pdfv-net-fill: color-mix(in srgb, var(--net) 60%, #c9fffb);
+  --pdfv-desk: color-mix(in srgb, var(--bg) 84%, var(--subtle));
+  --pdfv-ctl: 28px;
+  container-type: inline-size;
+  container-name: pdfv;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.pdfv[data-compact='true'] { --pdfv-ctl: 26px; }
+.pdfv-bare { align-items: center; justify-content: center; }
+
+/* ---------- toolbar */
+.pdfv-toolbar {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 6px 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.pdfv-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.pdfv-bar-end { flex: 1 1 320px; justify-content: flex-end; flex-wrap: nowrap; }
+.pdfv-group { display: flex; align-items: center; gap: 1px; padding: 2px; background: var(--raised); border-radius: 8px; flex-shrink: 0; }
+.pdfv-btn {
+  display: grid; place-items: center; width: var(--pdfv-ctl); height: var(--pdfv-ctl); padding: 0; flex-shrink: 0;
+  background: none; border: 0; border-radius: 6px; color: var(--muted);
+}
+.pdfv-btn:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+.pdfv-btn[aria-pressed='true'] { background: var(--accent-bg); color: var(--accent); }
+.pdfv-btn:disabled { opacity: 0.38; }
+.pdfv-num {
+  height: calc(var(--pdfv-ctl) - 4px); min-width: 0; padding: 0 4px; text-align: center; font-size: 12px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 5px; color: var(--text);
+}
+.pdfv-num { width: calc(var(--pdfv-ctl) + 12px); }
+.pdfv-zoom { width: 54px; }
+.pdfv-of { padding: 0 6px 0 4px; color: var(--muted); font-size: 11px; white-space: nowrap; }
+
+.pdfv-search {
+  display: flex; align-items: center; gap: 2px; flex: 1 1 200px; min-width: 150px; max-width: 460px; padding: 2px 3px 2px 8px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px; height: calc(var(--pdfv-ctl) + 4px);
+}
+.pdfv-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent); }
+.pdfv-search[data-disabled='true'] { opacity: 0.6; }
+.pdfv-search-icon { color: var(--subtle); flex-shrink: 0; margin-right: 4px; }
+.pdfv-search-input { flex: 1 1 60px; min-width: 40px; height: 100%; padding: 0; border: 0; background: none; color: var(--text); outline: none; font-size: 12.5px; }
+.pdfv-search-input:focus-visible { outline: none; box-shadow: none; }
+.pdfv-count { flex-shrink: 0; min-width: 4.5em; padding: 0 6px; text-align: right; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.pdfv-search .pdfv-btn { width: 24px; height: 24px; }
+.pdfv-mini {
+  display: grid; place-items: center; width: 24px; height: 24px; padding: 0; flex-shrink: 0; background: none; border: 0; border-radius: 5px; color: var(--muted);
+}
+.pdfv-mini:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+.pdfv-mini[aria-pressed='true'] { background: var(--accent-bg); color: var(--accent); }
+
+.pdfv-notices { flex-shrink: 0; display: flex; flex-direction: column; }
+.pdfv-notice {
+  display: flex; align-items: center; gap: 8px; margin: 0; padding: 5px 12px; font-size: 11.5px; color: var(--muted);
+  background: var(--panel); border-bottom: 1px solid var(--line);
+}
+.pdfv-notice svg { flex-shrink: 0; }
+.pdfv-notice.is-warn { background: var(--accent-bg); color: var(--text); }
+.pdfv-notice.is-warn svg { color: var(--accent); }
+.pdfv-progress { margin-left: auto; flex: 0 0 90px; height: 4px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.pdfv-progress > span { display: block; height: 100%; background: var(--accent); }
+
+/* ---------- body / sidebar */
+.pdfv-body { position: relative; flex: 1; min-height: 0; display: flex; }
+.pdfv-sidebar { flex: 0 0 232px; width: 232px; min-height: 0; display: flex; flex-direction: column; background: var(--panel); border-right: 1px solid var(--line); }
+.pdfv[data-compact='true'] .pdfv-sidebar {
+  position: absolute; z-index: 30; top: 0; bottom: 0; left: 0; width: min(280px, 88%); flex: none; box-shadow: var(--shadow);
+}
+.pdfv-tabs { flex-shrink: 0; display: flex; gap: 2px; padding: 6px 6px 0; border-bottom: 1px solid var(--line); }
+.pdfv-tab {
+  position: relative; flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px; height: 30px; padding: 0 6px;
+  background: none; border: 0; border-radius: 6px 6px 0 0; color: var(--muted); border-bottom: 2px solid transparent;
+}
+.pdfv-tab:hover { color: var(--text); background: var(--hover); }
+.pdfv-tab.is-active { color: var(--text); border-bottom-color: var(--accent); }
+.pdfv-badge { font-size: 9.5px; line-height: 1; padding: 2px 4px; border-radius: 8px; background: var(--raised); color: var(--muted); }
+.pdfv-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.pdfv-scroll { flex: 1; min-height: 0; overflow: auto; }
+.pdfv-empty { margin: 0; padding: 18px 14px; color: var(--muted); font-size: 12px; }
+.pdfv-list { list-style: none; margin: 0; padding: 4px 4px 12px; }
+.pdfv-row {
+  display: flex; align-items: center; gap: 6px; width: 100%; min-height: 28px; padding: 4px 10px; text-align: left; background: none; border: 0;
+  border-radius: 6px; color: var(--text); font-size: 12px; content-visibility: auto; contain-intrinsic-size: auto 28px;
+}
+.pdfv-row:hover { background: var(--hover); }
+.pdfv-row.is-active { background: var(--accent-bg); }
+.pdfv-row svg { color: var(--muted); }
+.pdfv-row-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pdfv-row-page { flex-shrink: 0; color: var(--muted); font-size: 10.5px; }
+.pdfv-bm { display: flex; align-items: center; gap: 1px; }
+.pdfv-bm .pdfv-row { flex: 1; min-width: 0; }
+.pdfv-rename {
+  flex: 1; min-width: 0; height: 28px; margin: 0 2px; padding: 0 8px; background: var(--bg); border: 1px solid var(--accent); border-radius: 6px; color: var(--text);
+}
+.pdfv-bookmarks { display: flex; flex-direction: column; }
+.pdfv-add { margin: 8px 8px 4px; }
+.pdfv-chip {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 28px; padding: 0 10px; background: var(--raised);
+  border: 1px solid var(--line); border-radius: 7px; color: var(--text); font-size: 12px; font-weight: 600; white-space: nowrap;
+}
+.pdfv-chip:hover:not(:disabled) { background: var(--hover); }
+.pdfv-chip-primary { background: var(--accent-bg); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); color: var(--text); }
+.pdfv-chip-danger { color: var(--danger); }
+
+/* thumbnails */
+.pdfv-thumbs { position: relative; }
+.pdfv-thumbs-spacer { position: relative; width: 100%; }
+.pdfv-thumb {
+  position: absolute; left: 50%; display: flex; flex-direction: column; align-items: center; gap: 3px; width: calc(100% - 20px); max-width: 160px; padding: 0;
+  transform: translateX(-50%); background: none; border: 0; border-radius: 6px; color: var(--muted);
+}
+.pdfv-thumb-image { position: relative; background: #fff; border-radius: 2px; box-shadow: 0 1px 3px #0005, 0 0 0 1px var(--line); overflow: hidden; }
+.pdfv-thumb:hover .pdfv-thumb-image { box-shadow: 0 1px 3px #0005, 0 0 0 2px var(--subtle); }
+.pdfv-thumb.is-active .pdfv-thumb-image { box-shadow: 0 0 0 2px var(--accent); }
+.pdfv-thumb.is-active { color: var(--text); }
+.pdfv-thumb-label { font-size: 10.5px; line-height: 16px; }
+
+/* ---------- pages */
+.pdfv-main { position: relative; flex: 1; min-width: 0; min-height: 0; }
+.pdfv-scroller { position: absolute; inset: 0; overflow: auto; background: var(--pdfv-desk); outline: none; overscroll-behavior: contain; }
+.pdfv-scroller:focus-visible { outline: 2px solid var(--net); outline-offset: -2px; }
+.pdfv-pages { position: relative; }
+.pdfv-page { position: absolute; background: #fff; box-shadow: 0 1px 4px #0006, 0 0 0 1px color-mix(in srgb, var(--line) 70%, transparent); user-select: none; contain: layout style; }
+.pdfv-scroller[data-note-mode='true'] .pdfv-page { cursor: crosshair; }
+.pdfv-canvas-host { position: absolute; inset: 0; overflow: hidden; }
+.pdfv-canvas { display: block; width: 100%; height: 100%; }
+.pdfv-page-ph { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; pointer-events: none; color: #0000001f; }
+.pdfv-page-ph > .mono { font-size: clamp(24px, 8%, 72px); font-weight: 500; }
+.pdfv-page-fail { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 6px; background: #fff; border: 1px solid var(--danger); color: #8a2c22; font-size: 12px; }
+
+.pdfv-text { position: absolute; left: 0; top: 0; z-index: 2; transform-origin: 0 0; line-height: 1; user-select: text; }
+.pdfv-text > span { position: absolute; white-space: pre; transform-origin: 0 0; line-height: 1; color: transparent; font-family: Arial, Helvetica, 'Liberation Sans', sans-serif; cursor: text; }
+.pdfv-text ::selection { background: color-mix(in srgb, var(--pdfv-net) 38%, transparent); color: transparent; }
+.pdfv-scroller[data-note-mode='true'] .pdfv-text, .pdfv-scroller[data-note-mode='true'] .pdfv-probe { pointer-events: none; }
+
+.pdfv-hl { position: absolute; inset: 0; z-index: 1; pointer-events: none; mix-blend-mode: multiply; } /* multiply keeps the page's black text black under a fill */
+.pdfv-hit { position: absolute; border-radius: 2px; background: color-mix(in srgb, var(--pdfv-hit-fill) 42%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--pdfv-hit) 45%, transparent); }
+.pdfv-hit.is-active {
+  background: color-mix(in srgb, var(--pdfv-hit-fill) 66%, transparent); box-shadow: 0 0 0 2px var(--pdfv-hit), 0 0 0 5px color-mix(in srgb, var(--pdfv-hit) 25%, transparent);
+}
+.pdfv-xhl { position: absolute; border-radius: 2px; }
+.pdfv-xhl-search { background: color-mix(in srgb, var(--pdfv-hit-fill) 42%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--pdfv-hit) 45%, transparent); }
+.pdfv-xhl-search.is-active { background: color-mix(in srgb, var(--pdfv-hit-fill) 66%, transparent); box-shadow: 0 0 0 2px var(--pdfv-hit), 0 0 0 5px color-mix(in srgb, var(--pdfv-hit) 25%, transparent); }
+.pdfv-xhl-probe { background: color-mix(in srgb, var(--pdfv-net-fill) 34%, transparent); box-shadow: 0 0 0 1.5px var(--pdfv-net); }
+.pdfv-xhl-probe.is-active { background: color-mix(in srgb, var(--pdfv-net-fill) 55%, transparent); box-shadow: 0 0 0 2px var(--pdfv-net), 0 0 0 6px color-mix(in srgb, var(--pdfv-net) 28%, transparent); }
+.pdfv-xhl-selection { background: color-mix(in srgb, var(--pdfv-net-fill) 55%, transparent); box-shadow: 0 0 0 2px var(--pdfv-net), 0 0 0 6px color-mix(in srgb, var(--pdfv-net) 30%, transparent); }
+
+.pdfv-ui { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
+.pdfv-probe {
+  position: absolute; min-width: 10px; min-height: 10px; padding: 0; pointer-events: auto; cursor: pointer; border-radius: 3px;
+  background: transparent; border: 1.5px dashed var(--pdfv-net);
+}
+.pdfv-probe:hover { border-style: solid; box-shadow: 0 0 0 1px var(--pdfv-net); }
+.pdfv-probe:focus-visible { outline: 2px solid var(--net); outline-offset: 2px; }
+.pdfv-note {
+  position: absolute; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; transform: translate(-50%, -50%); pointer-events: auto; cursor: pointer;
+  background: var(--accent); color: var(--bg); border: 2px solid #fff; border-radius: 50%; box-shadow: 0 1px 4px #0007;
+}
+.pdfv-note:hover, .pdfv-note.is-open { transform: translate(-50%, -50%) scale(1.12); }
+.pdfv-popover {
+  position: absolute; z-index: 6; width: 248px; padding: 8px; display: flex; flex-direction: column; gap: 8px; pointer-events: auto; cursor: default;
+  background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); user-select: text;
+}
+.pdfv-popover textarea {
+  width: 100%; min-height: 84px; resize: vertical; padding: 7px 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 7px; color: var(--text); font-size: 12.5px; line-height: 1.45;
+}
+.pdfv-popover-actions { display: flex; justify-content: space-between; gap: 8px; }
+
+/* ---------- states */
+.pdfv-state { display: flex; flex-direction: column; align-items: center; gap: 10px; max-width: 380px; padding: 32px 24px; text-align: center; }
+.pdfv-state h2 { margin: 0; font-size: 15px; font-weight: 700; }
+.pdfv-state p { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
+.pdfv-state-icon { color: var(--accent); }
+.pdfv-state-icon-bad { color: var(--danger); }
+.pdfv-state-code { font-size: 11px; color: var(--subtle); }
+.pdfv-state-error { min-height: 1.4em; color: var(--danger) !important; }
+.pdfv-field { display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left; font-size: 11.5px; color: var(--muted); }
+.pdfv-field input { height: 34px; padding: 0 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; color: var(--text); font-size: 13px; }
+.pdfv-field input[aria-invalid='true'] { border-color: var(--danger); }
+.pdfv-primary {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 120px; height: 34px; padding: 0 16px; border: 0; border-radius: 8px;
+  background: var(--accent); color: var(--bg); font-weight: 700;
+}
+.pdfv-primary:disabled { opacity: 0.45; }
+.pdfv-spin { animation: pdfv-spin 0.9s linear infinite; }
+@keyframes pdfv-spin { to { transform: rotate(360deg); } }
+
+/* ---------- narrow panes */
+@container pdfv (max-width: 560px) {
+  .pdfv-toolbar { gap: 4px 8px; padding: 5px 8px; }
+  .pdfv-bar { gap: 4px; }
+  .pdfv-bar-end { flex: 1 1 100%; }
+  .pdfv-search { max-width: none; }
+  .pdfv-of { display: none; }
+}
+@container pdfv (max-width: 400px) {
+  .pdfv-zoom { width: 46px; }
+  .pdfv-count { min-width: 0; }
+}
+
+/* ---------- motion */
+.pdfv[data-motion='off'] *, .pdfv[data-motion='off'] *::before, .pdfv[data-motion='off'] *::after { animation: none !important; transition: none !important; }
+:root[data-motion='off'] .pdfv * { animation: none !important; transition: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  .pdfv *, .pdfv *::before, .pdfv *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}

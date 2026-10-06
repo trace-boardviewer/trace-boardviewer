@@ -1,0 +1,24 @@
+{
+  "extensions": [
+    ".cad", ".gcd",
+    ".brd",
+    ".bdv",
+    ".bvr",
+    ".fz", ".cae",
+    ".asc",
+    ".pcb",
+    ".cst",
+    ".kicad_pcb",
+    ".pcbdoc", ".cmpcbdoc", ".cspcbdoc",
+    ".neu",
+    ".tvw",
+    ".gbr",
+    ".tgz",
+    ".xml", ".cvg"
+  ],
+  "companions": {
+    "format.asc": ["pins.asc", "nails.asc"],
+    "pins.asc": ["format.asc", "nails.asc"],
+    "nails.asc": ["format.asc", "pins.asc"]
+  }
+}

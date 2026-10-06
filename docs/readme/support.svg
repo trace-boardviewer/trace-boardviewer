@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="248" height="56" viewBox="0 0 248 56" role="img" aria-label="Support TRACE">
+  <rect x="0.5" y="0.5" width="247" height="55" rx="11" fill="#f2b84b" stroke="#c98f1f"/>
+  <path transform="translate(15 15) scale(1.1)" fill="#7a1f2b" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+  <text x="52" y="25" fill="#1b1f24" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="16" font-weight="700">Support TRACE</text>
+  <text x="52" y="43" fill="#3a2f12" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12">Free and stays free</text>
+</svg>

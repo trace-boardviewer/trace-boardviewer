@@ -1,0 +1,45 @@
+name: GitHub Pages (site/)
+
+# Publishes the static site in site/ to GitHub Pages. Runs only on pushes to main that touch site/ or this file,
+# and on manual dispatch. No build step: the folder is uploaded as-is. Actions are pinned to commits; the
+# comment names the tag they were resolved from (git ls-remote, 2026-10-05).
+
+on:
+  push:
+    branches: [main]
+    paths: ['site/**', '.github/workflows/pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # GitHub Pages is only available for public repositories on a free plan: while the repository is private the job is skipped
+    # instead of failing. After the repository is made public, run it once by hand (Actions, GitHub Pages, Run workflow).
+    if: ${{ !github.event.repository.private }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Configure Pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
+      - name: Upload site/
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
+        with:
+          path: site
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5

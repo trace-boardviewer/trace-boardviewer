@@ -1,0 +1,14 @@
+* text=auto
+*.ts text eol=lf
+*.tsx text eol=lf
+*.cjs text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+*.svg text eol=lf
+*.patch text eol=lf
+*.png binary
+*.ico binary
+*.woff binary
+*.woff2 binary

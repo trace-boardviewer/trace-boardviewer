@@ -1,0 +1,663 @@
+name: Build and draft release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    outputs:
+      version:
+        description: Version read from package.json
+        value: ${{ jobs.build.outputs.version }}
+      artifact_name:
+        description: Artifact containing the portable EXE and SHA256 file
+        value: ${{ jobs.build.outputs.artifact_name }}
+      mac_artifact_name:
+        description: Artifact containing the macOS zip and SHA256 file
+        value: ${{ jobs.mac.outputs.artifact_name }}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      artifact_name: ${{ steps.metadata.outputs.artifact_name }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          cache: true
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Prepare Electron runtime
+        run: pnpm setup:electron
+      - name: Validate release metadata
+        id: metadata
+        env:
+          TRACE_REF: ${{ github.ref }}
+          TRACE_TAG: ${{ github.ref_name }}
+        run: |
+          $tracePackage = Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json
+          $traceVersion = $tracePackage.version
+          if ($traceVersion -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
+            throw 'package.json must contain a valid release version.'
+          }
+          if ($env:TRACE_REF.StartsWith('refs/tags/') -and $env:TRACE_TAG -ne "v$traceVersion") {
+            throw 'Release tag must match the version in package.json.'
+          }
+          "version=$traceVersion" >> $env:GITHUB_OUTPUT
+          "artifact_name=TRACE-Boardviewer-$traceVersion-windows-x64" >> $env:GITHUB_OUTPUT
+      - name: Run parser and geometry tests
+        run: pnpm test
+      - name: Run desktop boundary and persistence tests
+        run: pnpm test:desktop
+      - name: Build portable Windows EXE
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: pnpm package
+      - name: Generate EXE checksum
+        env:
+          TRACE_VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          $traceExe = Join-Path release "TRACE-Boardviewer-$env:TRACE_VERSION.exe"
+          if (-not (Test-Path -LiteralPath $traceExe -PathType Leaf)) { throw 'Portable EXE is missing.' }
+          $traceHash = (Get-FileHash -LiteralPath $traceExe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$traceHash  $([IO.Path]::GetFileName($traceExe))" | Set-Content -LiteralPath "$traceExe.sha256" -Encoding ascii
+      - name: Generate payload manifest of the unpacked app
+        # Per-file SHA-256 manifest of release/win-unpacked (the tree electron-builder packs into the portable EXE). The portable-isolation
+        # job compares it with the runtime the wrapper extracts and runs. Written OUTSIDE release/, so the release artifact is unchanged.
+        run: |
+          $traceUnpacked = Join-Path release 'win-unpacked'
+          if (-not (Test-Path -LiteralPath $traceUnpacked -PathType Container)) { throw "release/win-unpacked is missing: electron-builder did not leave the unpacked app directory, so the payload manifest cannot be generated." }
+          node scripts/payload-manifest.cjs --dir $traceUnpacked --out payload-manifest.json
+          if ($LASTEXITCODE -ne 0) { throw "Payload manifest generation failed with exit code $LASTEXITCODE." }
+          $traceManifest = Get-Content -LiteralPath payload-manifest.json -Raw | ConvertFrom-Json
+          if (-not $traceManifest.exeSha256 -or -not $traceManifest.asarSha256) { throw 'The payload manifest lists no main EXE (TRACE Boardviewer.exe) or no resources/app.asar.' }
+          $traceLines = @("files: $($traceManifest.fileCount), bytes: $($traceManifest.totalBytes)", "manifest digest: $($traceManifest.manifestDigest)", "TRACE Boardviewer.exe sha256: $($traceManifest.exeSha256)", "resources/app.asar sha256: $($traceManifest.asarSha256)")
+          $traceLines | ForEach-Object { Write-Host $_ }
+          (@('### Payload manifest (release/win-unpacked)', '', '```text') + $traceLines + @('```')) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+      - name: Upload portable EXE and checksum
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ steps.metadata.outputs.artifact_name }}
+          path: |
+            release/TRACE-Boardviewer-${{ steps.metadata.outputs.version }}.exe
+            release/TRACE-Boardviewer-${{ steps.metadata.outputs.version }}.exe.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Upload payload manifest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: portable-payload-manifest-${{ steps.metadata.outputs.version }}
+          path: payload-manifest.json
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+
+  portable-isolation:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Download build artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ needs.build.outputs.artifact_name }}
+          path: release
+      - name: Download payload manifest
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: portable-payload-manifest-${{ needs.build.outputs.version }}
+          path: payload-manifest
+      - name: Verify the downloaded EXE is the uploaded payload
+        env:
+          TRACE_VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          $traceExe = Join-Path release "TRACE-Boardviewer-$env:TRACE_VERSION.exe"
+          $traceChecksum = "$traceExe.sha256"
+          if (-not (Test-Path -LiteralPath $traceExe -PathType Leaf)) { throw 'Downloaded portable EXE is missing.' }
+          if (-not (Test-Path -LiteralPath $traceChecksum -PathType Leaf)) { throw 'Downloaded checksum file is missing.' }
+          $traceExpected = ((Get-Content -LiteralPath $traceChecksum -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+          if ($traceExpected -notmatch '^[0-9a-f]{64}$') { throw 'The checksum file does not contain a SHA-256 value.' }
+          $traceActual = (Get-FileHash -LiteralPath $traceExe -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($traceActual -ne $traceExpected) { throw 'Downloaded EXE checksum mismatch: the tested payload is not the uploaded one.' }
+          Write-Host "Tested payload: $([IO.Path]::GetFileName($traceExe)) sha256 $traceActual"
+      - name: Verify the downloaded payload manifest
+        run: |
+          $traceManifestFile = Join-Path 'payload-manifest' 'payload-manifest.json'
+          if (-not (Test-Path -LiteralPath $traceManifestFile -PathType Leaf)) { throw 'Downloaded payload manifest is missing.' }
+          $traceManifest = Get-Content -LiteralPath $traceManifestFile -Raw | ConvertFrom-Json
+          if ($traceManifest.schema -ne 'trace-payload-manifest/1') { throw 'The downloaded payload manifest has an unexpected schema.' }
+          Write-Host "Payload manifest to compare with the extracted runtime: $($traceManifest.fileCount) files, $($traceManifest.totalBytes) bytes, digest $($traceManifest.manifestDigest)"
+      - name: Check portable instance isolation
+        env:
+          TRACE_VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          node scripts/check-portable-isolation.cjs --exe "release/TRACE-Boardviewer-$env:TRACE_VERSION.exe" --payload-manifest "payload-manifest/payload-manifest.json" --repeat 2 --out portable-isolation-evidence.json --max-total-sec 2100
+          if ($LASTEXITCODE -ne 0) { throw "Portable instance isolation check failed with exit code $LASTEXITCODE (1 = failed assertion, 2 = infrastructure failure)." }
+      - name: Show Portable instance isolation summary
+        if: always()
+        env:
+          TRACE_EVIDENCE: portable-isolation-evidence.json
+        run: |
+          if (-not (Test-Path -LiteralPath $env:TRACE_EVIDENCE -PathType Leaf)) {
+            Write-Host "No evidence file $env:TRACE_EVIDENCE was produced."
+          } else {
+            $traceEvidence = Get-Content -LiteralPath $env:TRACE_EVIDENCE -Raw | ConvertFrom-Json
+            $traceKilled = @($traceEvidence.cleanupKilledPids) -join ', '
+            $traceLines = @("Portable instance isolation: $($traceEvidence.verdict) (expect=$($traceEvidence.options.expect), exit $($traceEvidence.exitCode), forcedKill=$($traceEvidence.forcedKill) [success path], cleanupKilled=$($traceEvidence.cleanupKilled) [pids: $traceKilled])")
+            $traceManifestText = 'none (parity not requested)'
+            if ($traceEvidence.payload) { $traceManifestText = "digest $($traceEvidence.payload.manifestDigest) ($($traceEvidence.payload.fileCount) files)" }
+            $traceLines += "repeat=$($traceEvidence.options.repeat) (each stagger runs that many times, alternating the close order), payload manifest: $traceManifestText"
+            if ($traceEvidence.baseline -and $traceEvidence.baseline.launcher) {
+              $traceLines += "baseline (one launch alone): $($traceEvidence.baseline.launcher.outcome), passed=$($traceEvidence.baseline.passed)"
+            }
+            if ($traceEvidence.baseline -and $traceEvidence.baseline.payloadParity) {
+              $traceLines += "baseline payload parity: $($traceEvidence.baseline.payloadParity.text)"
+            }
+            foreach ($traceScenario in @($traceEvidence.concurrency)) {
+              $traceLine = "$($traceScenario.name): stagger nominal $($traceScenario.stagger.nominalMs) ms from $($traceScenario.stagger.from), achieved $($traceScenario.stagger.achievedMs) ms; signature $($traceScenario.observed.signature)"
+              if ($traceScenario.observed.expectedSignature) { $traceLine += " (expected $($traceScenario.observed.expectedSignature), matchesReference=$($traceScenario.observed.matchesReference))" }
+              $traceLines += $traceLine
+              if ($traceScenario.closeOrder) {
+                $traceLines += "  close order $($traceScenario.closeOrder) (attempt $($traceScenario.attempt.index)/$($traceScenario.attempt.of)): $($traceScenario.closedFirst) closes first, survivor $($traceScenario.survivor)"
+                if ($traceScenario.preservation) { $traceLines += "  $($traceScenario.preservation.text)" }
+              }
+              if ($traceScenario.payloadParity) {
+                foreach ($traceSide in @('A', 'B')) { $traceLines += "  payload parity $($traceSide): $($traceScenario.payloadParity.$traceSide.text)" }
+              }
+              if ($traceScenario.gpuRestart -and $traceScenario.gpuRestart.injected) {
+                $traceLines += "  INJECTED gpu restart: performed=$($traceScenario.gpuRestart.performed), gpu pids before [$($traceScenario.gpuRestart.pidsBefore -join ',')] after [$($traceScenario.gpuRestart.pidsAfter -join ',')], respawned=$($traceScenario.gpuRestart.respawned)"
+              }
+            }
+            if ($traceEvidence.scenario2 -and $traceEvidence.scenario2.preservation) { $traceLines += "second-instance C: $($traceEvidence.scenario2.preservation.text)" }
+            if ($traceEvidence.scenario2 -and $traceEvidence.scenario2.forwardedBoard) { $traceLines += "forwardedBoardRecorded=$($traceEvidence.forwardedBoardRecorded): $($traceEvidence.scenario2.forwardedBoard.text)" }
+            if ($traceEvidence.payloadParity) {
+              $traceLines += "payload parity vs manifest $($traceEvidence.payloadParity.manifestDigest): passed=$($traceEvidence.payloadParity.passed)"
+              foreach ($traceSubject in @($traceEvidence.payloadParity.subjects)) { $traceLines += "  $($traceSubject.subject): $($traceSubject.text)" }
+            }
+            if ($traceEvidence.detection) { $traceLines += "old defect detected: $($traceEvidence.detection.any) (structural=$($traceEvidence.detection.structural), supplementary=$($traceEvidence.detection.supplementary))" }
+            if ($traceEvidence.detection -and $traceEvidence.detection.byCloseOrder) {
+              $traceOrder = $traceEvidence.detection.byCloseOrder
+              $traceLines += "  per close order: A-first attempts=$($traceOrder.'A-first'.attempts) structural=$($traceOrder.'A-first'.structural) runtimeShrunk=$($traceOrder.'A-first'.runtimeShrunk); B-first attempts=$($traceOrder.'B-first'.attempts) structural=$($traceOrder.'B-first'.structural) runtimeShrunk=$($traceOrder.'B-first'.runtimeShrunk)"
+            }
+            foreach ($traceFailure in @($traceEvidence.failures)) { $traceLines += "FAILED $($traceFailure.id): $($traceFailure.message)" }
+            if ($traceEvidence.infrastructureError) { $traceLines += "INFRASTRUCTURE FAILURE: $($traceEvidence.infrastructureError.message)" }
+            $traceLines | ForEach-Object { Write-Host $_ }
+            (@('### Portable instance isolation', '', '```text') + $traceLines + @('```')) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          }
+      - name: Upload isolation evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: portable-isolation-evidence-${{ needs.build.outputs.version }}
+          path: portable-isolation-evidence.json
+          if-no-files-found: warn
+          retention-days: 14
+          overwrite: true
+
+  portable-isolation-control:
+    # Control: proves the check is not vacuous. A deliberately DEFECTIVE wrapper (the old fixed, shared extraction
+    # directory) must be detected. Nothing depends on this job and its EXE is never uploaded or released.
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    timeout-minutes: 75
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          cache: true
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Prepare Electron runtime
+        run: pnpm setup:electron
+      - name: Read release version
+        id: metadata
+        run: |
+          $tracePackage = Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json
+          $traceVersion = $tracePackage.version
+          if ($traceVersion -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
+            throw 'package.json must contain a valid release version.'
+          }
+          "version=$traceVersion" >> $env:GITHUB_OUTPUT
+      - name: Build application bundle
+        run: pnpm run build
+      - name: Build CONTROL portable EXE with the old shared extraction directory
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          DEBUG: electron-builder:nsis
+        run: |
+          # native stderr (the DEBUG output) is merged into the log; the exit code is checked explicitly
+          $ErrorActionPreference = 'Continue'
+          pnpm exec electron-builder --win portable --x64 --publish never '-c.portable.unpackDirName=trace-control-shared' '-c.directories.output=release-control' 2>&1 | Tee-Object -FilePath control-build.log
+          if ($LASTEXITCODE -ne 0) { throw 'Control EXE build failed.' }
+          # electron-builder logs the NSIS defines (NsisTarget.js debug(defines)); a fixed UNPACK_DIR_NAME proves this EXE extracts into the shared %TEMP%\trace-control-shared
+          if (-not (Select-String -LiteralPath control-build.log -Pattern "UNPACK_DIR_NAME: 'trace-control-shared'" -SimpleMatch -Quiet)) { throw 'The control build log does not show UNPACK_DIR_NAME: trace-control-shared, so the control EXE is not proven to use the fixed shared extraction directory.' }
+      - name: Check that the control EXE is detected as defective
+        env:
+          TRACE_VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          node scripts/check-portable-isolation.cjs --exe "release-control/TRACE-Boardviewer-$env:TRACE_VERSION.exe" --expect shared --repeat 2 --out portable-isolation-control-evidence.json --max-total-sec 2100
+          if ($LASTEXITCODE -ne 0) { throw "Control check failed with exit code $LASTEXITCODE (1 = the old defect was NOT detected or a baseline/forced-kill assertion failed, 2 = infrastructure failure)." }
+      - name: Show Portable isolation CONTROL (old shared-directory build) summary
+        if: always()
+        env:
+          TRACE_EVIDENCE: portable-isolation-control-evidence.json
+        run: |
+          if (-not (Test-Path -LiteralPath $env:TRACE_EVIDENCE -PathType Leaf)) {
+            Write-Host "No evidence file $env:TRACE_EVIDENCE was produced."
+          } else {
+            $traceEvidence = Get-Content -LiteralPath $env:TRACE_EVIDENCE -Raw | ConvertFrom-Json
+            $traceKilled = @($traceEvidence.cleanupKilledPids) -join ', '
+            $traceLines = @("Portable isolation CONTROL (old shared-directory build): $($traceEvidence.verdict) (expect=$($traceEvidence.options.expect), exit $($traceEvidence.exitCode), forcedKill=$($traceEvidence.forcedKill) [success path], cleanupKilled=$($traceEvidence.cleanupKilled) [pids: $traceKilled])")
+            $traceManifestText = 'none (parity not requested)'
+            if ($traceEvidence.payload) { $traceManifestText = "digest $($traceEvidence.payload.manifestDigest) ($($traceEvidence.payload.fileCount) files)" }
+            $traceLines += "repeat=$($traceEvidence.options.repeat) (each stagger runs that many times, alternating the close order), payload manifest: $traceManifestText"
+            if ($traceEvidence.baseline -and $traceEvidence.baseline.launcher) {
+              $traceLines += "baseline (one launch alone): $($traceEvidence.baseline.launcher.outcome), passed=$($traceEvidence.baseline.passed)"
+            }
+            if ($traceEvidence.baseline -and $traceEvidence.baseline.payloadParity) {
+              $traceLines += "baseline payload parity: $($traceEvidence.baseline.payloadParity.text)"
+            }
+            foreach ($traceScenario in @($traceEvidence.concurrency)) {
+              $traceLine = "$($traceScenario.name): stagger nominal $($traceScenario.stagger.nominalMs) ms from $($traceScenario.stagger.from), achieved $($traceScenario.stagger.achievedMs) ms; signature $($traceScenario.observed.signature)"
+              if ($traceScenario.observed.expectedSignature) { $traceLine += " (expected $($traceScenario.observed.expectedSignature), matchesReference=$($traceScenario.observed.matchesReference))" }
+              $traceLines += $traceLine
+              if ($traceScenario.closeOrder) {
+                $traceLines += "  close order $($traceScenario.closeOrder) (attempt $($traceScenario.attempt.index)/$($traceScenario.attempt.of)): $($traceScenario.closedFirst) closes first, survivor $($traceScenario.survivor)"
+                if ($traceScenario.preservation) { $traceLines += "  $($traceScenario.preservation.text)" }
+              }
+              if ($traceScenario.payloadParity) {
+                foreach ($traceSide in @('A', 'B')) { $traceLines += "  payload parity $($traceSide): $($traceScenario.payloadParity.$traceSide.text)" }
+              }
+              if ($traceScenario.gpuRestart -and $traceScenario.gpuRestart.injected) {
+                $traceLines += "  INJECTED gpu restart: performed=$($traceScenario.gpuRestart.performed), gpu pids before [$($traceScenario.gpuRestart.pidsBefore -join ',')] after [$($traceScenario.gpuRestart.pidsAfter -join ',')], respawned=$($traceScenario.gpuRestart.respawned)"
+              }
+            }
+            if ($traceEvidence.scenario2 -and $traceEvidence.scenario2.preservation) { $traceLines += "second-instance C: $($traceEvidence.scenario2.preservation.text)" }
+            if ($traceEvidence.scenario2 -and $traceEvidence.scenario2.forwardedBoard) { $traceLines += "forwardedBoardRecorded=$($traceEvidence.forwardedBoardRecorded): $($traceEvidence.scenario2.forwardedBoard.text)" }
+            if ($traceEvidence.payloadParity) {
+              $traceLines += "payload parity vs manifest $($traceEvidence.payloadParity.manifestDigest): passed=$($traceEvidence.payloadParity.passed)"
+              foreach ($traceSubject in @($traceEvidence.payloadParity.subjects)) { $traceLines += "  $($traceSubject.subject): $($traceSubject.text)" }
+            }
+            if ($traceEvidence.detection) { $traceLines += "old defect detected: $($traceEvidence.detection.any) (structural=$($traceEvidence.detection.structural), supplementary=$($traceEvidence.detection.supplementary))" }
+            if ($traceEvidence.detection -and $traceEvidence.detection.byCloseOrder) {
+              $traceOrder = $traceEvidence.detection.byCloseOrder
+              $traceLines += "  per close order: A-first attempts=$($traceOrder.'A-first'.attempts) structural=$($traceOrder.'A-first'.structural) runtimeShrunk=$($traceOrder.'A-first'.runtimeShrunk); B-first attempts=$($traceOrder.'B-first'.attempts) structural=$($traceOrder.'B-first'.structural) runtimeShrunk=$($traceOrder.'B-first'.runtimeShrunk)"
+            }
+            foreach ($traceFailure in @($traceEvidence.failures)) { $traceLines += "FAILED $($traceFailure.id): $($traceFailure.message)" }
+            if ($traceEvidence.infrastructureError) { $traceLines += "INFRASTRUCTURE FAILURE: $($traceEvidence.infrastructureError.message)" }
+            $traceLines | ForEach-Object { Write-Host $_ }
+            (@('### Portable isolation CONTROL (old shared-directory build)', '', '```text') + $traceLines + @('```')) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          }
+      - name: Upload control evidence (never the control EXE)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: portable-isolation-control-evidence
+          path: portable-isolation-control-evidence.json
+          if-no-files-found: warn
+          retention-days: 14
+          overwrite: true
+      - name: Measure the CONTROL wrapper's startup race (measurement only, never a gate)
+        # Same startup-race measurement as the portable-startup-measurement job, on the old shared-directory wrapper: shows
+        # whether a launcher loss within the first milliseconds depends on unpackDirName at all. Exit 2 = infrastructure only.
+        if: always()
+        env:
+          TRACE_VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          $traceExe = "release-control/TRACE-Boardviewer-$env:TRACE_VERSION.exe"
+          if (-not (Test-Path -LiteralPath $traceExe -PathType Leaf)) { Write-Host 'No control EXE was built; nothing to measure.'; exit 0 }
+          node scripts/measure-portable-startup.cjs --exe $traceExe --staggers 0,2,10,40 --attempts 20 --second-instance 0 --label control --out portable-startup-measurement-control.json --max-total-sec 1500
+          if ($LASTEXITCODE -ne 0) { throw "Control startup measurement could not be carried out (exit $LASTEXITCODE = infrastructure failure; a measurement has no verdict)." }
+      - name: Show CONTROL startup measurement summary
+        if: always()
+        run: |
+          if (-not (Test-Path -LiteralPath portable-startup-measurement-control.json -PathType Leaf)) { Write-Host 'No control measurement file was produced.' } else {
+            node -e "const m = require('./scripts/measure-portable-startup.cjs'); console.log(m.formatSummary(require('./portable-startup-measurement-control.json')));" | Tee-Object -FilePath portable-startup-measurement-control.txt
+            (@('### Portable startup measurement (CONTROL wrapper, old shared layout; measurement only)', '', '```text') + (Get-Content -LiteralPath portable-startup-measurement-control.txt) + @('```')) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          }
+      - name: Upload CONTROL startup measurement
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: portable-startup-measurement-control
+          path: portable-startup-measurement-control.json
+          if-no-files-found: warn
+          retention-days: 14
+          overwrite: true
+
+  portable-startup-measurement:
+    # MEASUREMENT ONLY, never a gate: nothing depends on this job and it changes no verdict. It quantifies, on the exact
+    # uploaded EXE, the two intermittent residuals seen on the fixed build (a launcher lost when two wrappers start within
+    # milliseconds; an extraction directory left behind by a same-profile second launch that exits by itself) with per-attempt
+    # launcher exit codes/timings, a ~1-2 ms watcher of %TEMP%\ns*.tmp, D's process tree from a background sampler, leftover
+    # file lists, their holders, the Application event log and WER. Exit 2 = the measurement could not be carried out.
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Download build artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ needs.build.outputs.artifact_name }}
+          path: release
+      - name: Verify the downloaded EXE is the uploaded payload
+        env:
+          TRACE_VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          $traceExe = Join-Path release "TRACE-Boardviewer-$env:TRACE_VERSION.exe"
+          $traceChecksum = "$traceExe.sha256"
+          if (-not (Test-Path -LiteralPath $traceExe -PathType Leaf)) { throw 'Downloaded portable EXE is missing.' }
+          if (-not (Test-Path -LiteralPath $traceChecksum -PathType Leaf)) { throw 'Downloaded checksum file is missing.' }
+          $traceExpected = ((Get-Content -LiteralPath $traceChecksum -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+          if ($traceExpected -notmatch '^[0-9a-f]{64}$') { throw 'The checksum file does not contain a SHA-256 value.' }
+          $traceActual = (Get-FileHash -LiteralPath $traceExe -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($traceActual -ne $traceExpected) { throw 'Downloaded EXE checksum mismatch: the measured payload is not the uploaded one.' }
+          Write-Host "Measured payload: $([IO.Path]::GetFileName($traceExe)) sha256 $traceActual"
+      - name: Measure startup race and second-instance leftovers
+        env:
+          TRACE_VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          node scripts/measure-portable-startup.cjs --exe "release/TRACE-Boardviewer-$env:TRACE_VERSION.exe" --staggers 0,2,10,40 --attempts 20 --second-instance 20 --label fixed --out portable-startup-measurement.json --max-total-sec 3000
+          if ($LASTEXITCODE -ne 0) { throw "Startup measurement could not be carried out (exit $LASTEXITCODE = infrastructure failure; a measurement has no verdict)." }
+      - name: Show startup measurement summary
+        if: always()
+        run: |
+          if (-not (Test-Path -LiteralPath portable-startup-measurement.json -PathType Leaf)) { Write-Host 'No measurement file was produced.' } else {
+            node -e "const m = require('./scripts/measure-portable-startup.cjs'); console.log(m.formatSummary(require('./portable-startup-measurement.json')));" | Tee-Object -FilePath portable-startup-measurement.txt
+            (@('### Portable startup measurement (fixed build; measurement only, never a gate)', '', '```text') + (Get-Content -LiteralPath portable-startup-measurement.txt) + @('```')) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          }
+      - name: Upload startup measurement
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: portable-startup-measurement-${{ needs.build.outputs.version }}
+          path: portable-startup-measurement.json
+          if-no-files-found: warn
+          retention-days: 14
+          overwrite: true
+
+  mac:
+    # Experimental macOS build: an UNSIGNED (ad-hoc signed, not notarized) zip of the .app for Apple silicon only. The job
+    # builds it on an arm64 runner, runs the packaged-app smoke test, scans the bundle for private names and paths and
+    # uploads the zip with its checksum for the draft release, next to the Windows EXE. No signing identity, certificate,
+    # Apple account or secret is used anywhere in this job. Hosted macOS minutes are free for public repositories and
+    # billed at a higher rate than Windows minutes for private ones, so pull requests skip this job; pushes (main and
+    # v* tags) and manual runs build it.
+    if: github.event_name != 'pull_request'
+    runs-on: macos-26
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      TRACE_ARCH: arm64
+      TRACE_COMMIT: ${{ github.sha }}
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      artifact_name: ${{ steps.metadata.outputs.artifact_name }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          cache: true
+      - name: Install locked dependencies
+        # `pnpm setup:electron` is left out on purpose: the macOS config has no electronDist, so the builder downloads the
+        # darwin-arm64 Electron zip itself.
+        run: pnpm install --frozen-lockfile
+      - name: Validate release metadata
+        id: metadata
+        env:
+          TRACE_REF: ${{ github.ref }}
+          TRACE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          versionPattern='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+          if ! [[ "$version" =~ $versionPattern ]]; then echo 'package.json must contain a valid release version.' >&2; exit 1; fi
+          if [[ "$TRACE_REF" == refs/tags/* && "$TRACE_TAG" != "v$version" ]]; then echo 'Release tag must match the version in package.json.' >&2; exit 1; fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=TRACE-Boardviewer-$version-mac-$TRACE_ARCH" >> "$GITHUB_OUTPUT"
+      - name: Run the static macOS packaging checks
+        run: node --test tests/mac-config-checks.cjs
+      - name: Build the renderer
+        run: pnpm run build
+      - name: Build the unsigned macOS app
+        run: pnpm exec electron-builder --mac zip "--$TRACE_ARCH" --config config/electron-builder.mac.yml --publish never
+      - name: Locate the app and generate the zip checksum
+        id: locate
+        env:
+          TRACE_VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          app="release-mac/mac-$TRACE_ARCH/TRACE Boardviewer.app"
+          zip="release-mac/TRACE-Boardviewer-$TRACE_VERSION-mac-$TRACE_ARCH.zip"
+          if [ ! -d "$app" ]; then echo "The app bundle is missing: $app" >&2; exit 1; fi
+          if [ ! -f "$zip" ]; then echo "The zip archive is missing: $zip" >&2; exit 1; fi
+          # Same line format as the EXE checksum: "<sha256, lowercase>  <file name>".
+          (cd release-mac && shasum -a 256 "$(basename "$zip")" > "$(basename "$zip").sha256")
+          cat "$zip.sha256"
+          echo "app=$app" >> "$GITHUB_OUTPUT"
+          echo "zip=$zip" >> "$GITHUB_OUTPUT"
+      - name: Print host and binary facts (log only)
+        env:
+          TRACE_APP: ${{ steps.locate.outputs.app }}
+        run: |
+          echo "commit $TRACE_COMMIT, requested architecture $TRACE_ARCH"
+          uname -m || true
+          sw_vers || true
+          file -b "$TRACE_APP/Contents/MacOS/TRACE Boardviewer" || true
+          lipo -info "$TRACE_APP/Contents/MacOS/TRACE Boardviewer" || true
+          # 1 means this shell is translated (Rosetta). The smoke script asks the app process itself.
+          sysctl -n sysctl.proc_translated || echo "sysctl.proc_translated is not available on this host"
+      - name: Run the packaged-app smoke test
+        timeout-minutes: 20
+        env:
+          TRACE_APP: ${{ steps.locate.outputs.app }}
+          TRACE_ZIP: ${{ steps.locate.outputs.zip }}
+        run: node scripts/mac-smoke.cjs --app "$TRACE_APP" --arch "$TRACE_ARCH" --commit "$TRACE_COMMIT" --artifact "$TRACE_ZIP" --out "test-results/mac/mac-smoke-evidence-$TRACE_ARCH.json"
+      - name: Show macOS smoke summary
+        if: always()
+        run: |
+          evidence="test-results/mac/mac-smoke-evidence-$TRACE_ARCH.json"
+          if [ -f "$evidence" ]; then
+            node -e 'const e = require(process.argv[1]); const c = e.classification; console.log(["### macOS build (experimental, unsigned)", "", "- commit: " + e.commit, "- requested architecture: " + e.requestedArch, "- classification: " + (c ? c.label : "none"), "- all checks passed: " + e.passed + (e.failedChecks.length ? " (failed: " + e.failedChecks.join("; ") + ")" : ""), "- accepted as native validation: " + e.nativeValidation, "", "Ad-hoc signed, not notarized: this says nothing about the Gatekeeper behaviour of a downloaded copy."].join("\n"))' "$PWD/$evidence" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No macOS smoke evidence file was written." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Scan the app bundle for private names and paths
+        # The release must carry nothing from the build machine or its owner. Every text file of the bundle is searched
+        # (grep -I skips binaries), then the payloads this project produces (app.asar, which holds the renderer, the
+        # main-process sources and the notices, and the main executable) are searched as bytes. The Electron framework
+        # and helper binaries are the unmodified upstream Electron build (only re-signed) and are not ours to fix, so their
+        # binary strings are not searched. One hit fails the job before anything is uploaded.
+        env:
+          TRACE_APP: ${{ steps.locate.outputs.app }}
+        run: |
+          set -euo pipefail
+          pattern='/Users/runner|/home/runner|runner/work'
+          hits=0
+          set +e
+          textHits="$(grep -r -I -i -l -E "$pattern" "$TRACE_APP")"
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            hits=1
+            echo 'Text files with private names or paths:'
+            echo "$textHits"
+            grep -r -I -i -n -o -E ".{0,40}($pattern).{0,40}" "$TRACE_APP" | head -n 40 || true
+          elif [ "$status" -ne 1 ]; then
+            echo "grep failed with exit code $status while scanning the text files." >&2
+            exit 1
+          fi
+          for file in "$TRACE_APP/Contents/Resources/app.asar" "$TRACE_APP/Contents/MacOS/TRACE Boardviewer"; do
+            if [ ! -f "$file" ]; then echo "Cannot scan a missing file: $file" >&2; exit 1; fi
+            set +e
+            grep -a -i -q -E "$pattern" "$file"
+            status=$?
+            set -e
+            if [ "$status" -eq 0 ]; then
+              hits=1
+              echo "Private names or paths inside $file:"
+              strings -a "$file" | grep -i -E "$pattern" | head -n 20 || true
+            elif [ "$status" -ne 1 ]; then
+              echo "grep failed with exit code $status while scanning $file." >&2
+              exit 1
+            fi
+          done
+          if [ "$hits" -ne 0 ]; then
+            echo 'The app bundle contains private names or paths; it is not uploaded.' >&2
+            exit 1
+          fi
+          echo 'No private names or paths found in the app bundle.'
+      - name: Upload macOS zip and checksum
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ steps.metadata.outputs.artifact_name }}
+          path: |
+            release-mac/TRACE-Boardviewer-${{ steps.metadata.outputs.version }}-mac-${{ env.TRACE_ARCH }}.zip
+            release-mac/TRACE-Boardviewer-${{ steps.metadata.outputs.version }}-mac-${{ env.TRACE_ARCH }}.zip.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Upload macOS smoke evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: mac-smoke-evidence-${{ steps.metadata.outputs.version }}
+          path: test-results/mac/*.json
+          if-no-files-found: warn
+          retention-days: 14
+          overwrite: true
+
+  draft-release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [build, portable-isolation, mac]
+    runs-on: windows-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified build artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ needs.build.outputs.artifact_name }}
+          path: release
+      - name: Download macOS build artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ needs.mac.outputs.artifact_name }}
+          path: release
+      - name: Create draft GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TRACE_TAG: ${{ github.ref_name }}
+          TRACE_VERSION: ${{ needs.build.outputs.version }}
+          TRACE_MAC_VERSION: ${{ needs.mac.outputs.version }}
+        run: |
+          if ($env:TRACE_TAG -ne "v$env:TRACE_VERSION") { throw 'Release version does not match the tag.' }
+          if ($env:TRACE_MAC_VERSION -ne $env:TRACE_VERSION) { throw 'The macOS build version does not match the Windows build version.' }
+          $traceExe = Join-Path release "TRACE-Boardviewer-$env:TRACE_VERSION.exe"
+          $traceZip = Join-Path release "TRACE-Boardviewer-$env:TRACE_VERSION-mac-arm64.zip"
+          $traceAssets = @()
+          foreach ($traceFile in @($traceExe, $traceZip)) {
+            $traceChecksum = "$traceFile.sha256"
+            if (-not (Test-Path -LiteralPath $traceFile -PathType Leaf)) { throw "Release asset is missing: $traceFile" }
+            if (-not (Test-Path -LiteralPath $traceChecksum -PathType Leaf)) { throw "Checksum file is missing: $traceChecksum" }
+            $traceExpected = ((Get-Content -LiteralPath $traceChecksum -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+            $traceActual = (Get-FileHash -LiteralPath $traceFile -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($traceActual -ne $traceExpected) { throw "Downloaded asset checksum mismatch: $traceFile" }
+            $traceAssets += @($traceFile, $traceChecksum)
+          }
+          @"
+          Assets:
+
+          - TRACE-Boardviewer-${env:TRACE_VERSION}.exe (+ .sha256): portable Windows x64 build. Download the EXE and run it directly; no installer or source folder is required.
+          - TRACE-Boardviewer-${env:TRACE_VERSION}-mac-arm64.zip (+ .sha256): experimental macOS build, Apple silicon only (Intel Macs are not supported). It is unsigned (ad-hoc signed, not notarized), so macOS blocks a downloaded copy until you allow it once: unzip it, move "TRACE Boardviewer.app" to Applications and run in Terminal
+
+                xattr -dr com.apple.quarantine "/Applications/TRACE Boardviewer.app"
+
+            then open the app normally. This removes only the download quarantine flag of that copy; the app itself is unchanged.
+
+          User board files are not included.
+
+          Each .sha256 file verifies the download next to it. Review CHANGELOG.md and smoke-test both builds before publishing the draft.
+          "@ | Set-Content -LiteralPath release-notes.md -Encoding utf8
+          $traceArgs = @($env:TRACE_TAG) + $traceAssets + @('--draft', '--verify-tag', '--title', "TRACE Boardviewer $env:TRACE_VERSION", '--notes-file', 'release-notes.md')
+          # A version with a prerelease suffix (1.3.0-rc.1) is created as a prerelease: GitHub never reports it as the latest
+          # release, so the update check inside the app (releases/latest) never sees a suffixed tag.
+          if ($env:TRACE_VERSION -match '-') { $traceArgs += '--prerelease' }
+          gh release create @traceArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Draft release creation failed. Check for an existing release before retrying.' }

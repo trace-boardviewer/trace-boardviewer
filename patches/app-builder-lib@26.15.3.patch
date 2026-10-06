@@ -1,0 +1,60 @@
+diff --git a/templates/nsis/portable.nsi b/templates/nsis/portable.nsi
+index e5436bb0f810058b52e15ce65b3d256f86dabc6f..fa3ae030eddbf91122faed95b8086306633dd6d5 100644
+--- a/templates/nsis/portable.nsi
++++ b/templates/nsis/portable.nsi
+@@ -7,11 +7,38 @@ WindowIcon Off
+ AutoCloseWindow True
+ RequestExecutionLevel ${REQUEST_EXECUTION_LEVEL}
+ 
++# TRACE Boardviewer patch (pnpm patch of app-builder-lib): serializes the wrapper's plug-in folder initialization and retries the removal of its extraction folder.
++# NSIS creates its per-launch plug-in directory ($PLUGINSDIR, needed for every plug-in call and, in this template, the
++# parent of $INSTDIR) at the FIRST plug-in call with GetTempFileName -> Delete -> CreateDirectory. The name is derived from
++# the system time and CreateDirectory accepts a directory that already exists, so two wrappers started within the same
++# millisecond can end up sharing $PLUGINSDIR (one of them then loses its launch, or both extract into one directory).
++# The lock below serializes that initialization without any plug-in: NSIS opens files with FILE_SHARE_READ only, so the
++# second wrapper's FileOpen for writing fails until the first one closes the handle. Bounded (about 10 s), then proceeds.
++Var /GLOBAL traceInitLock
++Var /GLOBAL traceInitLockTries
++
+ Function .onInit
+   !ifndef SPLASH_IMAGE
+     SetSilent silent
+   !endif
+ 
++  StrCpy $traceInitLockTries 0
++  traceInitLockRetry:
++    ClearErrors
++    FileOpen $traceInitLock "$TEMP\trace-boardviewer-portable-init.lock" a
++    IfErrors 0 traceInitLocked
++    IntOp $traceInitLockTries $traceInitLockTries + 1
++    IntCmp $traceInitLockTries 2000 traceInitLockGiveUp 0 traceInitLockGiveUp
++    Sleep 5
++    Goto traceInitLockRetry
++  traceInitLockGiveUp:
++    StrCpy $traceInitLock ""
++  traceInitLocked:
++  # First plug-in call of this launch: NSIS initializes $PLUGINSDIR here, while the lock is held.
++  System::Call 'kernel32::GetCurrentProcessId()i.r0'
++  StrCmp $traceInitLock "" +2
++    FileClose $traceInitLock
++
+   !insertmacro check64BitAndSetRegView
+ FunctionEnd
+ 
+@@ -87,5 +114,15 @@ Section
+   SetErrorLevel $0
+ 
+   SetOutPath $EXEDIR
+-	RMDir /r $INSTDIR
++  # TRACE Boardviewer patch: the app's main process has ended, but a child process (gpu, utility) can still hold files of the
++  # extracted runtime for a moment; NSIS retries nothing, so one failed RMDir leaves the directory in %TEMP%. Bounded retry.
++  StrCpy $traceInitLockTries 0
++  traceCleanupRetry:
++    RMDir /r $INSTDIR
++    IfFileExists "$INSTDIR\*.*" 0 traceCleanupDone
++    IntOp $traceInitLockTries $traceInitLockTries + 1
++    IntCmp $traceInitLockTries 40 traceCleanupDone 0 traceCleanupDone
++    Sleep 250
++    Goto traceCleanupRetry
++  traceCleanupDone:
+ SectionEnd
