@@ -2,7 +2,7 @@ name: Build and draft release
 
 on:
   push:
-    branches: [main]
+    branches: [main, linux-ci]
     tags: ['v*']
   pull_request:
   workflow_dispatch:

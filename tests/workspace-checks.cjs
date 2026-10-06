@@ -897,6 +897,12 @@ test('documents.cjs: exportBundle writes ONLY the requested files, with safe nam
     const shared = path.join(root, 'nasty-shared');
     await fs.mkdir(shared);
     const { records } = await writeNasty(shared, foldingWrite, shared);
+    // A case-insensitive volume also resolves the second spelling to the file that is there; emulate that on case-sensitive
+    // hosts too, so the only stale record is the replaced original on every host.
+    for (const item of records) {
+      const existing = (await fs.readdir(path.dirname(item.path))).find((name) => name.toLowerCase() === path.basename(item.path).toLowerCase());
+      if (existing) item.path = path.join(path.dirname(item.path), existing);
+    }
     const refused = target();
     await assert.rejects(bundleOf(records, refused), { code: 'EXPORT_DOCUMENT_UNAVAILABLE', message: /changed/ });
     await assert.rejects(fs.stat(refused), { code: 'ENOENT' }, 'nothing was created');
