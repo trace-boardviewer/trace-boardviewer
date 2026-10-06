@@ -1531,13 +1531,19 @@ async function runFlow({ parsed, executable, log, observations }) {
       const wmClass = parseXpropWmClass(tool('xprop', ['-id', hex, 'WM_CLASS']).stdout);
       const iconOutput = tool('xprop', ['-id', hex, '_NET_WM_ICON'], { timeoutMs: 60000 });
       const icon = parseNetWmIconSize(iconOutput.stdout || iconOutput.stderr);
-      runtime.x11 = { xid: hex, title: info.title, treeName: node ? node.name : null, wmClass, iconSizes: icon.sizes, iconTruncated: icon.truncated };
+      // Diagnosis only: whether the main process can decode the packaged PNG at all (from the path and from the bytes).
+      const mainIcon = await app.evaluate(({ app: electronApp, nativeImage }) => {
+        const file = electronApp.getAppPath() + '/assets/icon.png';
+        const fromPath = nativeImage.createFromPath(file);
+        return { file, fromPathEmpty: fromPath.isEmpty(), fromPathSize: fromPath.getSize() };
+      }).catch((error) => ({ error: String(error && error.message || error) }));
+      runtime.x11 = { xid: hex, title: info.title, treeName: node ? node.name : null, wmClass, iconSizes: icon.sizes, iconTruncated: icon.truncated, mainIcon, xpropIcon: String(iconOutput.stdout || iconOutput.stderr || '').slice(0, 200) };
       const problems = [];
       if (!node) problems.push(`window ${hex} is not in xwininfo -root -tree`);
       else if (!/TRACE/.test(node.name ?? '')) problems.push(`the X window name is "${node.name}"`);
       if (!wmClass || wmClass[0] !== EXECUTABLE_NAME || wmClass[1] !== EXECUTABLE_NAME) problems.push(`WM_CLASS is ${JSON.stringify(wmClass)}`);
       const largest = icon.sizes.reduce((best, size) => (!best || size.width * size.height > best.width * best.height ? size : best), null);
-      if (!largest) problems.push('the window has no _NET_WM_ICON');
+      if (!largest) problems.push(`the window has no _NET_WM_ICON (main process: ${JSON.stringify(mainIcon)}; xprop: ${JSON.stringify(runtime.x11.xpropIcon)})`);
       else if (largest.width !== 256 || largest.height !== 256) problems.push(`the largest window icon is ${largest.width}x${largest.height}`);
       if (problems.length) throw new Error(problems.join('; '));
       return runtime.x11;

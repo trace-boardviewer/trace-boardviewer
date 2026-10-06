@@ -787,12 +787,18 @@ const FALLBACK_SHOW_MS = 4000;
 // 256 px keeps the X11 icon property small. Windows keeps the ICO; macOS ignores the option.
 function windowIcon() {
   if (process.platform !== 'linux') return path.join(__dirname, '..', 'assets', 'icon.ico');
-  const image = nativeImage.createFromPath(path.join(__dirname, '..', 'assets', 'icon.png'));
+  const file = path.join(__dirname, '..', 'assets', 'icon.png');
+  let image = nativeImage.createFromPath(file);
+  // Inside app.asar the path may not decode on every platform; Node's fs reads the archive, so decode the bytes instead.
+  if (image.isEmpty() && typeof nativeImage.createFromBuffer === 'function') {
+    try { image = nativeImage.createFromBuffer(fsSync.readFileSync(file)); } catch { /* keep the empty image */ }
+  }
   return image.isEmpty() ? undefined : image.resize({ width: 256, height: 256, quality: 'best' });
 }
 
 function createWindow() {
   rendererReady = false;
+  const icon = windowIcon();
   initialBoardPromise = null;
   const developmentUrl = !app.isPackaged ? process.env.VITE_DEV_SERVER_URL : null;
   if (developmentUrl) {
@@ -807,7 +813,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1440, height: 940, minWidth: 960, minHeight: 640,
     title: 'TRACE Boardviewer', backgroundColor: '#11161d', frame: false,
-    show: false, icon: windowIcon(),
+    show: false, icon,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'), sandbox: true, contextIsolation: true,
       nodeIntegration: false, webSecurity: true, allowRunningInsecureContent: false,
@@ -822,7 +828,12 @@ function createWindow() {
   mainWindow.webContents.on('will-attach-webview', (event) => event.preventDefault());
   mainWindow.on('maximize', () => mainWindow.webContents.send('trace:maximized', true));
   mainWindow.on('unmaximize', () => mainWindow.webContents.send('trace:maximized', false));
-  const showWindow = () => { if (!quitting && mainWindow === window && !window.isDestroyed() && !window.isVisible()) window.show(); };
+  const showWindow = () => {
+    if (quitting || mainWindow !== window || window.isDestroyed() || window.isVisible()) return;
+    window.show();
+    // X11 keeps the icon only on a mapped window under some window managers; set it again once the window is shown.
+    if (process.platform === 'linux' && icon && typeof window.setIcon === 'function') window.setIcon(icon);
+  };
   const fallbackShow = setTimeout(showWindow, FALLBACK_SHOW_MS);
   window.once('ready-to-show', () => { clearTimeout(fallbackShow); showWindow(); });
   const loadPage = () => window.loadURL(trustedPageUrl).catch((error) => {
