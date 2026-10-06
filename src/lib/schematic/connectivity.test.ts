@@ -860,6 +860,32 @@ describe('real-file findings: KiCad escape tokens and virtual power-input symbol
     expect(parseBusLabel('A{foo}B')).toMatchObject({ kind: 'invalid' }); // an unknown token is not an escape
   });
 
+  it('reads a group label with a long run of "~{...}" spans and escape tokens in linear time, with the same results', () => {
+    const timed = <T>(work: () => T): { value: T; ms: number } => { const started = performance.now(); const value = work(); return { value, ms: performance.now() - started }; };
+    // Ascending sizes: a regex that reads every "~{slash}" two ways needs about 0.5 s for the first and never finishes the last, so a regression fails early.
+    for (const count of [24, 40, 1500]) {
+      const run = '~{slash}'.repeat(count);
+      for (const [label, text] of [['rejected at the end', `${run} {`], ['rejected after the opening brace', `${run}{ `], ['rejected in the member list', `${run}{${run} `], ['unterminated member list', `${run}{A ${run}`]] as const) {
+        const result = timed(() => parseBusLabel(text));
+        expect(result.value, `${count}: ${label}`).toEqual({ kind: 'invalid', reason: 'malformed group bus label' });
+        expect(result.ms, `${count}: ${label}`).toBeLessThan(200);
+      }
+      const accepted = timed(() => parseBusLabel(`${run}{A ${run}}`));
+      expect(accepted.value, `${count}: accepted`).toEqual({ kind: 'bus', members: [`${run}.A`, `${run}.${run}`] });
+      expect(accepted.ms, `${count}: accepted`).toBeLessThan(200);
+    }
+    // The prefix may hold "~{...}" spans and escape tokens in any mixture; so may the members.
+    expect(parseBusLabel('X~{slash}Y{A B}')).toEqual({ kind: 'bus', members: ['X~{slash}Y.A', 'X~{slash}Y.B'] });
+    expect(parseBusLabel('~{slash}{A B}')).toEqual({ kind: 'bus', members: ['~{slash}.A', '~{slash}.B'] });
+    expect(parseBusLabel('{slash}{A}')).toEqual({ kind: 'bus', members: ['{slash}.A'] });
+    expect(parseBusLabel('~{RESET}{slash}{A}')).toEqual({ kind: 'bus', members: ['~{RESET}{slash}.A'] });
+    expect(parseBusLabel('{A~{slash}B C{bar}}')).toEqual({ kind: 'bus', members: ['A~{slash}B', 'C{bar}'] });
+    expect(parseBusLabel('~~{slash}{A}')).toEqual({ kind: 'bus', members: ['~~{slash}.A'] });
+    expect(parseBusLabel('~{slash')).toMatchObject({ kind: 'invalid' });
+    expect(parseBusLabel('~{slash}{')).toMatchObject({ kind: 'invalid' });
+    expect(parseBusLabel('~{a{slash}')).toMatchObject({ kind: 'invalid' });
+  });
+
   it('W-open-sch-02: "{slash}" and "/" are one name: the labels join, nothing is reported, and the text is kept as written', () => {
     const c = flat(b => {
       R(b, 'R1', [0, 0], [0, -900]); R(b, 'R2', [20, 0], [20, -900]); b.wire(0, 0, 20, 0).local('VPP/MCLR', 5, 0).local('VPP{slash}MCLR', 10, 0);

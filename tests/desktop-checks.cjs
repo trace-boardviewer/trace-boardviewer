@@ -1838,7 +1838,7 @@ test('support notice: trace:open-support-link opens only the three fixed links b
     assert.equal(main.split('bug: `https://github.com/${updates.REPOSITORY}/issues/new?template=bug_report.yml`').length - 1, 1, 'the bug form is built from the slug of updates.cjs (electron/repository.json), once');
     assert.doesNotMatch(main, /github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9._-]+/, 'main.cjs names no repository of its own');
     for (const url of Object.values(URLS)) assert.equal(preload.includes(url), false, `${url} is not in preload.cjs`);
-    assert.equal(preload.includes('github.com'), false, 'the preload holds no GitHub address');
+    assert.doesNotMatch(preload, /github\.com/, 'the preload holds no GitHub address');
     assert.equal(/openExternal/.test(preload), false, 'the preload never calls shell.openExternal');
     assert.equal((main.match(/shell\.openExternal\(/g) ?? []).length, 1, 'exactly one openExternal call site in main.cjs (the openExternalUrl helper, which the support links and the update page both go through)');
   });

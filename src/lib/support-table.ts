@@ -90,7 +90,11 @@ function notesOf(notes: readonly string[], evidence: RealFileEvidence | undefine
   return [...out, ...evidence?.extra ?? []];
 }
 
-const cell = (value: string) => value.replace(/\|/g, '\\|').replace(/\n/g, ' ');
+/**
+ * One Markdown table cell. Backslashes are escaped first: otherwise a value that ends in a backslash would combine with the
+ * backslash added in front of a pipe ("\\" + "\|") and turn that pipe back into a column separator.
+ */
+export const cell = (value: string) => value.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\n/g, ' ');
 const list = (items: readonly string[]) => items.map(item => `  - ${item}`).join('\n');
 
 export function buildSupportMarkdown(): string {

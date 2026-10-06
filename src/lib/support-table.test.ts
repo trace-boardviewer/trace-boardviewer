@@ -3,7 +3,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { FORMAT_CAPABILITIES } from './formats';
 import { SCHEMATIC_CAPABILITIES } from './schematic';
-import { BOARD_EVIDENCE, SCHEMATIC_EVIDENCE, buildSupportMarkdown } from './support-table';
+import { BOARD_EVIDENCE, SCHEMATIC_EVIDENCE, buildSupportMarkdown, cell } from './support-table';
 
 const FILE = path.join(process.cwd(), 'docs', 'SUPPORT.md');
 
@@ -50,5 +50,37 @@ describe('real-file evidence overlays (KiCad, EAGLE, schematic readers)', () => 
     expect(text).not.toContain("previous author's reading");
     expect(text).toContain('Open gap, panels:');
     expect(text).toContain('synthetic fixtures only (no real legacy file was available)');
+  });
+});
+
+describe('Markdown table cells', () => {
+  // GFM: a backslash escapes the character after it ("\\" is one backslash, "\|" one pipe); every other pipe splits the row.
+  const columns = (row: string): string[] => {
+    const out: string[] = [];
+    let current = '';
+    for (let i = 0; i < row.length; i++) {
+      if (row[i] === '\\' && i + 1 < row.length) { current += row[i] + row[i + 1]; i++; }
+      else if (row[i] === '|') { out.push(current); current = ''; }
+      else current += row[i];
+    }
+    return [...out, current];
+  };
+  const unescape = (text: string) => text.replace(/\\([\\|])/g, '$1');
+
+  it('keeps every value that holds no backslash exactly as before', () => {
+    expect(cell('plain text')).toBe('plain text');
+    expect(cell('a|b')).toBe('a\\|b');
+    expect(cell('two\nlines | here')).toBe('two lines \\| here');
+  });
+
+  it('escapes backslashes first, so a trailing backslash cannot un-escape the pipe after it', () => {
+    expect(cell('a\\')).toBe('a\\\\');
+    expect(cell('a\\|b')).toBe('a\\\\\\|b');
+    expect(cell('\\\\|')).toBe('\\\\\\\\\\|');
+    for (const value of ['a\\', 'a\\|b', '\\', '\\|', '\\\\|\\', 'C:\\dir\\|x', 'x|\\|\\\\|', '|', '||', 'ends with \\']) {
+      const row = `| ${cell(value)} | next |`;
+      expect(columns(row), value).toEqual(['', ` ${cell(value)} `, ' next ', '']);
+      expect(unescape(cell(value)), value).toBe(value);
+    }
   });
 });

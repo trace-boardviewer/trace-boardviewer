@@ -29,7 +29,11 @@ const utf8 = new TextDecoder('utf-8', { fatal: true }), windows1252 = new TextDe
 function field(bytes: Uint8Array): string {
   let value: string;
   try { value = utf8.decode(bytes); } catch { value = windows1252.decode(bytes); }
-  return value.replace(/\0+$/, '');
+  // Trailing NULs only. A regular expression for this (a NUL run anchored at the end) is quadratic on a long run of NULs that is
+  // followed by anything else, and a name field is as long as its record, which the file chooses.
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 0) end--;
+  return value.slice(0, end);
 }
 
 const matches = (data: Uint8Array, offset: number, text: string, xor = 0) => {

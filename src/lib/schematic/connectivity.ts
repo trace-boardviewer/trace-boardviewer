@@ -213,7 +213,13 @@ const BAR = '~\\{[^{}]*\\}';
 const ESCAPE = '\\{(?:dblquote|quote|lt|gt|backslash|slash|bar|comma|colon|space|dollar|tab|return|brace)\\}';
 const OPAQUE = `${BAR}|${ESCAPE}`;
 const VECTOR_RE = /^([^\s[\]{}]+)\[(\d{1,9})\.\.(\d{1,9})\]$/;
-const GROUP_RE = new RegExp(`^((?:${OPAQUE}|[^\\s{}])*)\\{((?:${OPAQUE}|[^{}])*)\\}$`);
+/**
+ * Inside the group pattern an escape token directly after "~" is not offered again: the "~{...}" span in front of it already covers
+ * it, and reading the same text as "~" followed by the token gave every such pair two parses, so a long run of "~{slash}" took
+ * exponential time to reject. The accepted texts and the captured groups are unchanged; each text now has one parse per split point.
+ */
+const GROUP_OPAQUE = `${BAR}|(?<!~)${ESCAPE}`;
+const GROUP_RE = new RegExp(`^((?:${GROUP_OPAQUE}|[^\\s{}])*)\\{((?:${GROUP_OPAQUE}|[^{}])*)\\}$`);
 const OPAQUE_RE = new RegExp(OPAQUE, 'g');
 /**
  * Connection identity of a net name. KiCad treats "{slash}" and "/" as the same character: one real design carries the label VPP/MCLR written

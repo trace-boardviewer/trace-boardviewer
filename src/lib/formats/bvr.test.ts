@@ -61,7 +61,11 @@ describe('BVRAW_FORMAT_1', () => {
     const board = must(text(BVR1));
     expect(board.nets.map(net => net.name).sort()).toEqual(['GND', 'VCC']);
     expect(notes(board)).toEqual(['1 pin marked UNCONNECTED by the exporter is shown without a net.']);
-    expect(must(text(BVR1.map(row => row.replace('UNCONNECTED3', 'UNCONNECTED12').replace('2 2 0.150', '2 2 0.150')).concat([]))).nets.some(net => net.name.startsWith('UNCONNECTED'))).toBe(false);
+    // The same exporter marker with a two-digit counter; the substitution must really change the fixture, or the second check would repeat the first.
+    const twoDigit = BVR1.map(row => row.replace('UNCONNECTED3', 'UNCONNECTED12'));
+    expect(twoDigit.filter(row => row.endsWith(' UNCONNECTED12'))).toHaveLength(1);
+    expect(twoDigit).not.toEqual(BVR1);
+    expect(must(text(twoDigit)).nets.some(net => net.name.startsWith('UNCONNECTED'))).toBe(false);
   });
   it('starts a component whenever the part name changes and keeps each pin line\'s own side', () => {
     const board = must(text(['BVRAW_FORMAT_1', '<<Pin>>', 'h', 'U1 (T) 1 1 0.1 0.1 1 A', 'R1 (B) 1 1 0.2 0.1 1 B', 'R1 (T) 2 2 0.3 0.1 1 B', 'U1 (T) 3 3 0.4 0.1 1 C']));

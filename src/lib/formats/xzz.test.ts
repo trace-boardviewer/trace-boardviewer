@@ -323,3 +323,19 @@ describe('parseXzz: components without pins (OpenBoardView keeps them; this read
     expect(error(() => parse(build({ blocks: [block(0x07, part('MH1', 'HOLE', []))] }))).message).toMatch(/no components were found/);
   });
 });
+
+describe('parseXzz: name fields are as long as their records, so cleaning them must be linear', () => {
+  it('strips trailing NULs from a net name, keeps NULs elsewhere, and reads a 200,000-NUL name followed by a letter in under 200 ms', () => {
+    const nul = String.fromCharCode(0);
+    const timed = <T>(work: () => T): { value: T; ms: number } => { const started = performance.now(); const value = work(); return { value, ms: performance.now() - started }; };
+    // Ascending sizes: a quadratic scan needs about 2 s for the middle size, so a regression fails early and loudly.
+    for (const count of [1000, 60_000, 200_000]) {
+      const inside = nul.repeat(count) + 'x';
+      const result = timed(() => parse(build({ nets: [[1, 'GND' + nul.repeat(count)], [2, inside], [3, 'NC']] }))!);
+      expect(result.value.nets.map(net => net.name).sort(), `${count} NULs`).toEqual([inside, 'GND'].sort());
+      expect(result.ms, `${count} NULs`).toBeLessThan(200);
+    }
+    const mixed = parse(build({ nets: [[1, 'G' + nul + 'ND' + nul + nul], [2, 'VCC'], [3, 'NC']] }))!;
+    expect(mixed.nets.map(net => net.name)).toContain('G' + nul + 'ND');
+  });
+});

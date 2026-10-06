@@ -96,7 +96,12 @@ describe('recognizeUnsupported', () => {
   it('never misfires on a GenCAD file, even one that mentions the other families markers', () => {
     const noisy = GENCAD + '$TEXT\n###Panel Added\nCOMP U1\nC_PIN U1 1\n# file : x\n# date : y\n$ENDTEXT\n';
     expect(detectUnsupported(enc.encode(noisy))).toBeNull();
-    expect(detectUnsupported(enc.encode(noisy.replace('$HEADER\n', '').replace('GENCAD 1.4', 'GENCAD 1.4')))).toBeNull();
+    // Either GenCAD marker alone is enough to keep the file away from the other families; each removal must really change the text.
+    const withoutHeaderKeyword = noisy.replace('$HEADER\n', ''), withoutVersionLine = noisy.replace('GENCAD 1.4\n', '');
+    expect(withoutHeaderKeyword).not.toBe(noisy);
+    expect(withoutVersionLine).not.toBe(noisy);
+    expect(detectUnsupported(enc.encode(withoutHeaderKeyword))).toBeNull();
+    expect(detectUnsupported(enc.encode(withoutVersionLine))).toBeNull();
     expect(recognizeUnsupported({ name: 'board.cad', data: enc.encode(noisy) })).toBeNull();
   });
 
@@ -202,6 +207,11 @@ describe('recognizeUnsupported', () => {
     const detect = (text: string) => detectUnsupported(enc.encode(text))?.id ?? null;
     expect(detect('<!-- a --- b -->\n<IPC-2581 revision="B">')).toBe('ipc2581');
     expect(detect('<!--a--->\n<IPC-2581 revision="B">')).toBe('ipc2581');
+    expect(detect('<!-- a -> b -->\n<IPC-2581 revision="B">')).toBe('ipc2581'); // a single dash before ">" is plain text
+    expect(detect('<!-- a -- b -->\n<IPC-2581 revision="B">')).toBe('ipc2581'); // so is a run of dashes that something else follows
+    expect(detect('<!---->\n<IPC-2581 revision="B">')).toBe('ipc2581');
+    expect(detect('<!-->\n<IPC-2581 revision="B">')).toBeNull(); // "<!-->" and "<!--->" do not close themselves
+    expect(detect('<!--->\n<IPC-2581 revision="B">')).toBeNull();
     expect(detect('<?xml version="1.0"?>\n<!-- a -->\n<!DOCTYPE IPC-2581>\n<!-- b -->\n<IPC-2581 revision="B">')).toBe('ipc2581');
     expect(detect('<!-- <IPC-2581 revision="B"> -->\n<project/>')).toBeNull();
     expect(detect('<!-- unterminated\n<IPC-2581 revision="B">')).toBeNull();

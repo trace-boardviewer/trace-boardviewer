@@ -75,7 +75,19 @@ test('real Electron: bridge surface, native errors with codes, workspace and doc
   await page.waitForFunction(() => Boolean(window.traceDesktop), null, { timeout: 30000 });
   // Rejections come back as plain data. `code` is read from the "[CODE] " message prefix (the contract);
   // `bridgeCode` is error.code as the renderer sees it: undefined, because the bridge copies messages only.
-  const run = (source, argument) => page.evaluate(`(async () => { try { return { ok: true, value: await (${source})(${JSON.stringify(argument ?? null)}) }; } catch (error) { const match = /^\\[([A-Z][A-Z0-9_]+)\\] /.exec(error.message); return { ok: false, name: error.name, message: error.message, code: match ? match[1] : undefined, bridgeCode: error.code }; } })()`);
+  // `source` is the text of an arrow function. It is evaluated to a handle and the argument travels as data (Playwright's own argument
+  // serialization): no code is assembled from strings or from serialized values.
+  const run = async (source, argument) => {
+    const callable = await page.evaluateHandle(source);
+    try {
+      return await page.evaluate(async ([fn, input]) => {
+        try { return { ok: true, value: await fn(input) }; } catch (error) {
+          const match = /^\[([A-Z][A-Z0-9_]+)\] /.exec(error.message);
+          return { ok: false, name: error.name, message: error.message, code: match ? match[1] : undefined, bridgeCode: error.code };
+        }
+      }, [callable, argument ?? null]);
+    } finally { await callable.dispose(); }
+  };
 
   await t.test('the bridge exposes the TraceDesktop API and nothing generic', async () => {
     const names = await page.evaluate(() => Object.keys(window.traceDesktop).sort());
