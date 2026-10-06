@@ -1,10 +1,10 @@
 'use strict';
 
-const { app, BrowserWindow, dialog, ipcMain, Menu, net, session, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, net, session, shell } = require('electron');
 const fs = require('node:fs/promises');
 const fsSync = require('node:fs');
 const path = require('node:path');
-const { pathToFileURL } = require('node:url');
+const { pathToFileURL, fileURLToPath } = require('node:url');
 const i18n = require('./i18n.cjs');
 const formats = require('./formats.cjs');
 const identity = require('./identity.cjs');
@@ -118,11 +118,41 @@ function boardPath(value) {
   return filename;
 }
 
-function findBoardArgument(argv) {
+// Linux launch arguments come from desktop launchers and shells: a desktop entry's %U hands over file:// URIs (a file dropped on the
+// launcher, "Open with"), and a shell hands over paths relative to the directory it was started in (the .deb puts trace-boardviewer
+// on the PATH). Both become an absolute path here, so the board checks that follow are the ones every other path gets; a URI of
+// another host or of another scheme names no local file and gives null. Windows and macOS pass absolute paths and keep the old rule
+// (absolute paths only, no URIs): there the argument comes back unchanged.
+const URI_WITH_SCHEME = /^[a-z][a-z0-9+.-]*:\/\//i;
+function argumentPath(argument, workingDirectory) {
+  if (process.platform !== 'linux' || typeof argument !== 'string') return argument;
+  if (/^file:\/\//i.test(argument)) {
+    try {
+      const url = new URL(argument);
+      return url.host === '' ? fileURLToPath(url) : null; // the URL parser already turns file://localhost/ into an empty host
+    } catch { return null; }
+  }
+  if (URI_WITH_SCHEME.test(argument)) return null;
+  if (path.isAbsolute(argument)) return argument;
+  return typeof workingDirectory === 'string' && path.isAbsolute(workingDirectory) ? path.resolve(workingDirectory, argument) : null;
+}
+
+// `workingDirectory` is the directory the launch was started in (this process, or the second instance), for relative arguments.
+// A --board value that cannot be turned into a local path is kept as it is, so that the usual check reports it.
+function findBoardArgument(argv, workingDirectory) {
   const explicit = optionValue(argv, '--board');
-  if (explicit) return explicit;
-  return argv.find((argument) => typeof argument === 'string' && !argument.startsWith('-') &&
-    path.isAbsolute(argument) && formats.isSupportedExtension(argument)) || null;
+  if (explicit) return argumentPath(explicit, workingDirectory) ?? explicit;
+  for (const raw of argv) {
+    if (typeof raw !== 'string' || raw.startsWith('-')) continue;
+    const argument = argumentPath(raw, workingDirectory);
+    if (typeof argument === 'string' && path.isAbsolute(argument) && formats.isSupportedExtension(argument)) return argument;
+  }
+  return null;
+}
+
+// The working directory of this launch. process.cwd() throws when that directory was removed in the meantime.
+function launchDirectory() {
+  try { return process.cwd(); } catch { return undefined; }
 }
 
 // A separate profile makes development/QA runs independent of the user's saved data.
@@ -131,10 +161,21 @@ if (profileOverride) {
   const directory = localAbsolutePath(profileOverride);
   fsSync.mkdirSync(directory, { recursive: true });
   app.setPath('userData', directory);
+} else if (process.platform === 'linux') {
+  // Linux: Electron derives the default profile from package.json before this script runs, so setName below cannot move it, and a
+  // builder or Electron upgrade that changed that default would leave the settings, notes and workspaces behind. Pinned instead:
+  // $XDG_CONFIG_HOME/trace-boardviewer (~/.config/trace-boardviewer), created private (0700) as Chromium creates its own profile.
+  const directory = path.join(app.getPath('appData'), 'trace-boardviewer');
+  try {
+    fsSync.mkdirSync(directory, { recursive: true, mode: 0o700 });
+    app.setPath('userData', directory);
+  } catch (error) {
+    console.warn('TRACE: the profile directory could not be prepared; the default location is used:', error.message);
+  }
 }
 app.setName('TRACE Boardviewer');
 app.setAppUserModelId('hu.trace.boardviewer');
-startupBoardPath = findBoardArgument(process.argv.slice(app.isPackaged ? 1 : 2));
+startupBoardPath = findBoardArgument(process.argv.slice(app.isPackaged ? 1 : 2), launchDirectory());
 
 // Created on first use, after the profile directory is final. Once quitting began a store created
 // later is born closed, so no write can slip in between the quit intent and the final quit.
@@ -240,6 +281,8 @@ async function loadConfig() {
           } catch { return []; }
         });
       }
+      // Linux: "Do not ask again" in the question about a missing Chromium sandbox (confirmUnsandboxedStart). Only a stored true counts.
+      if (saved.noSandboxAccepted === true) config.noSandboxAccepted = true;
     } else configUnreadable = true; // Another version wrote it: kept aside before this one overwrites it.
   } catch {
     configUnreadable = true;
@@ -739,8 +782,23 @@ async function deliverBoard(filename) {
 // appear. After this long the window is shown as it is.
 const FALLBACK_SHOW_MS = 4000;
 
+// The window icon. X11 task bars and Alt+Tab show it where no installed desktop entry matches the window (an AppImage without desktop
+// integration); under Wayland the desktop entry is the only source. On Linux nativeImage decodes PNG (ICO is a Windows format), and
+// 256 px keeps the X11 icon property small. Windows keeps the ICO; macOS ignores the option.
+function windowIcon() {
+  if (process.platform !== 'linux') return path.join(__dirname, '..', 'assets', 'icon.ico');
+  const file = path.join(__dirname, '..', 'assets', 'icon.png');
+  let image = nativeImage.createFromPath(file);
+  // Inside app.asar the path may not decode on every platform; Node's fs reads the archive, so decode the bytes instead.
+  if (image.isEmpty() && typeof nativeImage.createFromBuffer === 'function') {
+    try { image = nativeImage.createFromBuffer(fsSync.readFileSync(file)); } catch { /* keep the empty image */ }
+  }
+  return image.isEmpty() ? undefined : image.resize({ width: 256, height: 256, quality: 'best' });
+}
+
 function createWindow() {
   rendererReady = false;
+  const icon = windowIcon();
   initialBoardPromise = null;
   const developmentUrl = !app.isPackaged ? process.env.VITE_DEV_SERVER_URL : null;
   if (developmentUrl) {
@@ -755,7 +813,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1440, height: 940, minWidth: 960, minHeight: 640,
     title: 'TRACE Boardviewer', backgroundColor: '#11161d', frame: false,
-    show: false, icon: path.join(__dirname, '..', 'assets', 'icon.ico'),
+    show: false, icon,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'), sandbox: true, contextIsolation: true,
       nodeIntegration: false, webSecurity: true, allowRunningInsecureContent: false,
@@ -770,7 +828,12 @@ function createWindow() {
   mainWindow.webContents.on('will-attach-webview', (event) => event.preventDefault());
   mainWindow.on('maximize', () => mainWindow.webContents.send('trace:maximized', true));
   mainWindow.on('unmaximize', () => mainWindow.webContents.send('trace:maximized', false));
-  const showWindow = () => { if (!quitting && mainWindow === window && !window.isDestroyed() && !window.isVisible()) window.show(); };
+  const showWindow = () => {
+    if (quitting || mainWindow !== window || window.isDestroyed() || window.isVisible()) return;
+    window.show();
+    // X11 keeps the icon only on a mapped window under some window managers; set it again once the window is shown.
+    if (process.platform === 'linux' && icon && typeof window.setIcon === 'function') window.setIcon(icon);
+  };
   const fallbackShow = setTimeout(showWindow, FALLBACK_SHOW_MS);
   window.once('ready-to-show', () => { clearTimeout(fallbackShow); showWindow(); });
   const loadPage = () => window.loadURL(trustedPageUrl).catch((error) => {
@@ -842,12 +905,55 @@ function applicationMenu() {
   ]);
 }
 
+// Linux sandbox gate. Chromium's OS sandbox (a user and PID namespace, or the SUID helper, plus a seccomp-bpf filter) confines every
+// renderer. On Linux it is off exactly when the browser process carries the switch --no-sandbox; without the switch Chromium refuses
+// to start where it finds no usable sandbox. The AppImage launcher adds the switch by itself when the system forbids unprivileged user
+// namespaces (Ubuntu 23.10 and newer); the .deb keeps the sandbox through an AppArmor profile. The switch is read from Chromium's own
+// parsed command line (app.commandLine), the one Chromium acts on, not from process.argv: argv misses the switch Electron adds for
+// ELECTRON_DISABLE_SANDBOX and the single-dash spelling, and would count a --no-sandbox after a "--" terminator (checked with
+// Electron 44 on Windows, whose process metrics report the sandbox state: hasSwitch matched it in each of these cases).
+// Nothing runs unsandboxed without a decision: Quit is the default and the answer to Esc or to closing the box. TRACE_ACCEPT_NO_SANDBOX=1
+// (scripts, CI) or an earlier "Do not ask again" (noSandboxAccepted in config.json) skips the question; the warning line is always
+// written to stderr. Windows and macOS are never asked.
+const NO_SANDBOX_WARNING = 'TRACE: running without the Chromium sandbox (--no-sandbox).';
+// 'start': sandboxed or not Linux; 'accepted': unsandboxed and already agreed to; 'ask': unsandboxed, the user decides.
+function sandboxGate({ platform, noSandbox, acceptEnvironment, accepted }) {
+  if (platform !== 'linux' || noSandbox !== true) return 'start';
+  return acceptEnvironment === '1' || accepted === true ? 'accepted' : 'ask';
+}
+
+// Resolves true when the start-up may go on, false when the user chose to quit. Runs after loadConfig (the stored answer and the
+// language) and before any window or IPC exists.
+async function confirmUnsandboxedStart() {
+  const decision = sandboxGate({
+    platform: process.platform, noSandbox: process.platform === 'linux' && app.commandLine.hasSwitch('no-sandbox'),
+    acceptEnvironment: process.env.TRACE_ACCEPT_NO_SANDBOX, accepted: config.noSandboxAccepted,
+  });
+  if (decision === 'start') return true;
+  console.warn(NO_SANDBOX_WARNING);
+  if (decision === 'accepted') return true;
+  const answer = await dialog.showMessageBox({
+    type: 'warning', title: app.name, noLink: true, defaultId: 0, cancelId: 0,
+    buttons: [t('native.dialog.noSandboxQuit'), t('native.dialog.noSandboxStart')],
+    checkboxLabel: t('native.dialog.noSandboxRemember'), checkboxChecked: false,
+    message: t('native.dialog.noSandboxMessage'),
+    detail: `${t('native.dialog.noSandboxRisk')}\n\n${t('native.dialog.noSandboxAdvice')}`,
+  });
+  if (answer?.response !== 1) return false;
+  if (answer.checkboxChecked === true) {
+    // Stored with the settings. A failed write only means that the question comes again at the next start.
+    await updateConfig((current) => ({ ...current, noSandboxAccepted: true }))
+      .catch((error) => console.warn('TRACE: the answer could not be saved:', error.message));
+  }
+  return true;
+}
+
 const singleInstance = app.requestSingleInstanceLock();
 if (!singleInstance) {
   app.quit();
 } else {
-  app.on('second-instance', (_event, argv) => {
-    const filename = findBoardArgument(argv.slice(app.isPackaged ? 1 : 2));
+  app.on('second-instance', (_event, argv, workingDirectory) => {
+    const filename = findBoardArgument(argv.slice(app.isPackaged ? 1 : 2), workingDirectory);
     if (filename) void deliverBoard(filename);
     if (mainWindow && !mainWindow.isDestroyed()) {
       if (mainWindow.isMinimized()) mainWindow.restore();
@@ -867,6 +973,7 @@ if (!singleInstance) {
   });
   app.whenReady().then(async () => {
     await loadConfig();
+    if (!(await confirmUnsandboxedStart())) { app.quit(); return; }
     Menu.setApplicationMenu(applicationMenu());
     installIpc();
     installSession();

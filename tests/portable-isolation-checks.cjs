@@ -2609,7 +2609,7 @@ test('windows.yml (static): the measurement job is measurement only (needs build
   assert.match(measureStep, /node scripts\/measure-portable-startup\.cjs --exe "release\/TRACE-Boardviewer-\$env:TRACE_VERSION\.exe" --staggers 0,2,10,40 --attempts 20 --second-instance 20 --label fixed --out portable-startup-measurement\.json --max-total-sec 3000\n/);
   assert.match(measurement, /name: portable-startup-measurement-\$\{\{ needs\.build\.outputs\.version \}\}\n\s+path: portable-startup-measurement\.json\n/);
   const release = jobBlock('draft-release');
-  assert.match(release, /needs: \[build, portable-isolation, mac\]\n/, 'the measurement never gates the release');
+  assert.match(release, /needs: \[build, portable-isolation, mac, linux\]\n/, 'the measurement never gates the release');
   assert.equal(/portable-startup-measurement/.test(release), false);
   assert.equal(/portable-startup-measurement/.test(jobBlock('portable-isolation')), false, 'the isolation gate is unchanged');
   const control = jobBlock('portable-isolation-control');

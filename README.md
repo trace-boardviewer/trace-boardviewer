@@ -12,6 +12,7 @@ Open a boardview or PCB file (KiCad, EAGLE, BVR, GenCAD and more) next to its sc
 <p align="center">
   <a href="https://github.com/trace-boardviewer/trace-boardviewer/releases/latest"><img src="docs/readme/download-windows.svg" width="248" height="56" alt="Download for Windows"></a>
   <a href="https://github.com/trace-boardviewer/trace-boardviewer/releases/latest"><img src="docs/readme/download-apple-silicon.svg" width="248" height="56" alt="Download for macOS, experimental"></a>
+  <a href="https://github.com/trace-boardviewer/trace-boardviewer/releases/latest"><img src="docs/readme/download-linux.svg" width="248" height="56" alt="Download for Linux, experimental"></a>
   <a href="https://donate.stripe.com/7sYaEZeET2op8PxaGE5EY00"><img src="docs/readme/support.svg" width="248" height="56" alt="Support TRACE"></a>
 </p>
 
@@ -24,6 +25,7 @@ Open a boardview or PCB file (KiCad, EAGLE, BVR, GenCAD and more) next to its sc
 
 <p align="center"><strong>Jump to:</strong>
 <a href="#run-the-portable-app">Run the app</a> ·
+<a href="#run-on-linux-experimental">Linux</a> ·
 <a href="#features">Features</a> ·
 <a href="docs/SUPPORT.md">Supported formats</a> ·
 <a href="#languages">Languages</a> ·
@@ -35,7 +37,7 @@ Open a boardview or PCB file (KiCad, EAGLE, BVR, GenCAD and more) next to its sc
 
 <p align="center"><img src="docs/readme/hero.png" width="900" alt="TRACE Boardviewer showing a KiCad board with a highlighted net, its search results, and the connected parts"></p>
 
-An offline boardviewer and repair workspace for Windows. Open a board (GenCAD plus several boardview, EDA and encrypted formats — see the [exact support table](docs/SUPPORT.md)), attach its schematics, PDF datasheets and reference images, search across all of them, cross-probe between board, schematic and documents, and keep local repair notes that survive a restart. The interface is available in eight languages; see [Languages](#languages). The support notice shown at start opens the Stripe or Ko-fi page in your browser only when you click one of its buttons, and Not now skips it.
+An offline boardviewer and repair workspace for Windows, with experimental builds for macOS and Linux. Open a board (GenCAD plus several boardview, EDA and encrypted formats — see the [exact support table](docs/SUPPORT.md)), attach its schematics, PDF datasheets and reference images, search across all of them, cross-probe between board, schematic and documents, and keep local repair notes that survive a restart. The interface is available in eight languages; see [Languages](#languages). The support notice shown at start opens the Stripe or Ko-fi page in your browser only when you click one of its buttons, and Not now skips it.
 
 At start TRACE can ask GitHub once whether a newer release exists (one request that carries nothing about you or your files) and, if there is one, shows a dismissible notice whose Download button opens the release page in your browser; TRACE itself never downloads or installs anything. This is the only network request TRACE makes, and Settings can turn it off.
 
@@ -49,7 +51,18 @@ Open a board file with **Open** (or the localized equivalent) or drag it into th
 
 The portable launcher extracts its runtime (about 500 MB) into a private temporary folder of its own for every launch (`%TEMP%\nsXXXX.tmp\app`; while the instance runs that folder holds about 1.1 GB in total, because the launcher keeps the packed archive and a second extracted copy next to the runtime) and removes it on normal exit, so several running instances — and a second launch that hands a board to a running instance — never touch each other's runtime. If a launch is killed (for example with Task Manager) or crashes, its folder may stay behind in `%TEMP%`; delete it by hand once no TRACE process is running. A 0-byte `%TEMP%\trace-boardviewer-portable-init.lock` is shared by all launches (it serializes their start-up for a few milliseconds) and can stay; it is safe to delete when no TRACE launch is starting. Settings, recent files and notes are stored separately in `%APPDATA%\TRACE Boardviewer`. Notes are associated with the board file's content hash, so renaming the board keeps its notes. Board files are read without modification. No board data is uploaded; the app works offline.
 
-Current release builds target Windows x64. A macOS build for Apple silicon is offered as an experimental download (`TRACE-Boardviewer-<version>-mac-arm64.zip`): it is unsigned (ad-hoc signed, not notarized), so macOS blocks a downloaded copy until you allow it once. Move `TRACE Boardviewer.app` to Applications, run `xattr -dr com.apple.quarantine "/Applications/TRACE Boardviewer.app"` in Terminal and open the app normally; this removes only the download quarantine flag of that copy (on macOS 15 and newer, System Settings > Privacy & Security > Open Anyway also works when it is offered). It was validated on an Apple M3; Intel Macs, a universal build and Linux are not packaged or tested (see [docs/MAC_VALIDATION.md](docs/MAC_VALIDATION.md)).
+Current release builds target Windows x64. A macOS build for Apple silicon is offered as an experimental download (`TRACE-Boardviewer-<version>-mac-arm64.zip`): it is unsigned (ad-hoc signed, not notarized), so macOS blocks a downloaded copy until you allow it once. Move `TRACE Boardviewer.app` to Applications, run `xattr -dr com.apple.quarantine "/Applications/TRACE Boardviewer.app"` in Terminal and open the app normally; this removes only the download quarantine flag of that copy (on macOS 15 and newer, System Settings > Privacy & Security > Open Anyway also works when it is offered). It was validated on an Apple M3; Intel Macs and a universal build are not packaged or tested (see [docs/MAC_VALIDATION.md](docs/MAC_VALIDATION.md)).
+
+## Run on Linux (experimental)
+
+Each release from 1.3.0 on carries two packages of the same x86-64 build. They are built and smoke-tested automatically on Ubuntu 24.04 (GitHub Actions, virtual X display); they have not been tested on a desktop Linux machine yet, and other distributions, desktop environments and Wayland sessions are not tested either. Neither package is signed: check it against the `.sha256` file next to it (`sha256sum -c <file>.sha256`).
+
+- **Ubuntu 24.04 or newer, Debian 12 or newer: `TRACE-Boardviewer-<version>-linux-amd64.deb` (recommended).** Install it with `sudo apt install ./TRACE-Boardviewer-<version>-linux-amd64.deb` and start TRACE Boardviewer from the application menu (or run `trace-boardviewer`). The package installs to `/opt/TRACE Boardviewer`. On systems with AppArmor 4, such as Ubuntu 24.04, it also installs the profile `/etc/apparmor.d/trace-boardviewer`, which lets Chromium's sandbox use user namespaces under Ubuntu's restriction. Remove it with `sudo apt remove trace-boardviewer`; your settings and notes stay.
+- **Other distributions: `TRACE-Boardviewer-<version>-linux-x86_64.AppImage` (portable, nothing is installed).** Make it executable (`chmod +x`) and run it. It needs FUSE, which desktop distributions include. Where unprivileged user namespaces are allowed (Fedora, Debian, Arch and openSUSE by default) Chromium's sandbox works as usual. Ubuntu 23.10 and newer restrict them, so there the AppImage can only run without the sandbox; TRACE then asks before it starts that way (Quit is the default, and "Do not ask again" remembers a yes). Use the `.deb` on Ubuntu.
+
+Settings, recent files and notes are stored in `~/.config/trace-boardviewer` (`$XDG_CONFIG_HOME/trace-boardviewer`); on Windows they are in `%APPDATA%\TRACE Boardviewer`. To keep them next to the AppImage instead, create a folder named like the AppImage file plus `.config` beside it (AppImage portable mode); rename the AppImage to a fixed name first if you want to keep that folder across updates. The update check works as on Windows: it only links to the release page, and you download the new package yourself.
+
+Known limits: the window icon on GNOME under Wayland comes from an installed desktop entry (the `.deb` installs one; for the AppImage use an AppImage integration tool), Electron's ASAR integrity check is not available on Linux, and only x86-64 is built. See [docs/LINUX.md](docs/LINUX.md) for the sandbox, what is tested, troubleshooting and building the packages yourself.
 
 ## Features
 
@@ -157,7 +170,7 @@ Development and QA can use a separate data profile:
 pnpm dev:desktop --user-data-dir="$PWD\test-results\manual-profile"
 ```
 
-The desktop shell uses a sandboxed renderer, context isolation and a restricted preload API; the packaged binaries carry Electron fuses that disable `ELECTRON_RUN_AS_NODE` and `NODE_OPTIONS` and load the application only from the integrity-checked `app.asar`. Project layout:
+The desktop shell uses a sandboxed renderer, context isolation and a restricted preload API; the packaged binaries carry Electron fuses that disable `ELECTRON_RUN_AS_NODE` and `NODE_OPTIONS` and load the application only from `app.asar` (integrity-checked on Windows and macOS; Electron does not offer that check on Linux). Project layout:
 
 - `src/`: React UI and the workspace shell (`src/app/`, `src/components/`), canvas and geometry, board adapters and the dispatcher (`src/lib/formats/`), schematic parsers, connectivity and cross-probe (`src/lib/schematic/`, `src/lib/crossprobe.ts`), the PDF layer (`src/lib/pdf/`), images, the workspace model and parser workers.
 - `electron/`: desktop window, local file access, the queued atomic store, document/workspace validation, project export and the translation catalogs in `electron/locales/`.
@@ -234,7 +247,7 @@ pnpm qa:performance --label=after
 
 ## Share and contribute
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for code, translation and format contributions, and [RELEASING.md](RELEASING.md) for the Windows build and draft-release workflow. GitHub Actions tests and builds the application without any private board data. Release binaries belong in GitHub Releases rather than in Git history.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for code, translation and format contributions, and [RELEASING.md](RELEASING.md) for the release builds and the draft-release workflow. GitHub Actions tests and builds the application without any private board data. Release binaries belong in GitHub Releases rather than in Git history.
 
 If TRACE saves you time, a GitHub star helps other technicians find it.
 

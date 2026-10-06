@@ -311,5 +311,11 @@
   "native.dialog.rendererGone": "The interface stopped unexpectedly. It will be loaded again.",
   "native.dialog.unresponsive": "The interface is not responding. You can wait a little longer or close the window.",
   "native.dialog.unresponsiveWait": "Wait",
-  "native.dialog.unresponsiveClose": "Close window"
+  "native.dialog.unresponsiveClose": "Close window",
+  "native.dialog.noSandboxMessage": "The Chromium sandbox is not available on this system.",
+  "native.dialog.noSandboxRisk": "TRACE was started with --no-sandbox, usually because this Linux system does not allow unprivileged user namespaces (Ubuntu 23.10 and newer restrict them). Without the sandbox, a malicious board, PDF or image file that exploits a bug in TRACE or Chromium has a better chance of reaching the rest of your system.",
+  "native.dialog.noSandboxAdvice": "Recommended: install the .deb package instead of the AppImage. It keeps the sandbox on (on Ubuntu with an AppArmor profile).",
+  "native.dialog.noSandboxQuit": "Quit",
+  "native.dialog.noSandboxStart": "Start without sandbox",
+  "native.dialog.noSandboxRemember": "Do not ask again"
 }

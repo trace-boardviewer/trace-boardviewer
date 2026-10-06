@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.0
+
+- **Linux (experimental):** a .deb and an AppImage for x86-64, built and smoke-tested automatically on Ubuntu 24.04 and attached to the release with their SHA256 files. They are unsigned and have not been tried on a desktop Linux machine yet; other distributions, desktop environments, Wayland sessions and arm64 are not tested. The .deb installs an AppArmor profile so that Chromium's sandbox stays on under Ubuntu's user-namespace restriction. The AppImage uses the static AppImage runtime, so it needs no libfuse2. See `docs/LINUX.md`.
+- **Linux sandbox consent:** an AppImage that the system forces to run without the Chromium sandbox (Ubuntu 23.10 and newer restrict user namespaces) asks before it opens a window. Quit is the default, and "Do not ask again" remembers a yes. Use the .deb on Ubuntu.
+- **Desktop shell on Linux:** the window icon comes from the PNG, settings, recent boards and notes live in `~/.config/trace-boardviewer` (`$XDG_CONFIG_HOME/trace-boardviewer`), and `file://` arguments from desktop launchers open the board.
+- **Documentation:** the README has a Linux section and download button, `SECURITY.md` explains the Linux sandbox, and the bug report form offers Linux (.deb), Linux (AppImage) and Linux (other). The README's `app.asar` sentence now says that the integrity check is available on Windows and macOS only: Electron does not offer it on Linux.
+- **Security hardening:** file readers and search no longer slow down on crafted input. Long runs of digits, blanks, NULs or repeated markup in a board, schematic, PDF or typed value used to make some patterns take seconds; they are now read in linear time with the same results. Dependency advisories are fixed, and a test-only library is no longer shipped inside the app.
+
 ## 1.2.0
 
 - **Boardview formats:** a byte-based dispatcher with adapters for Landrex/TestLink BRD, TOPTEST BRD2, Honhan BDV, BVR (including BVRAW_FORMAT_3 as written by kicad-boardview), the ASC trio, FZ/CAE and XZZ (both with your own key), CAST CST, KiCad PCB, EAGLE board XML, Samsung CAD (draft) and Altium PcbDoc (draft), plus explained recognition of unsupported families. `docs/SUPPORT.md` lists what is validated with real files and what is not.

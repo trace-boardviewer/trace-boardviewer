@@ -268,19 +268,19 @@ test('static: the mac job builds the unsigned arm64 zip inside the release workf
   assert.equal(evidence.with['retention-days'], 14);
 });
 
-test('static: the draft release carries both builds and a suffixed version becomes a prerelease', () => {
+test('static: the draft release carries every build and a suffixed version becomes a prerelease', () => {
   const release = workflow.jobs['draft-release'];
-  assert.deepEqual(release.needs, ['build', 'portable-isolation', 'mac']);
+  assert.deepEqual(release.needs, ['build', 'portable-isolation', 'mac', 'linux']);
   assert.deepEqual(release.permissions, { contents: 'write' });
   const downloads = release.steps.filter((step) => step.uses && step.uses.startsWith('actions/download-artifact@')).map((step) => step.with.name);
-  assert.deepEqual(downloads, ['${{ needs.build.outputs.artifact_name }}', '${{ needs.mac.outputs.artifact_name }}']);
+  assert.deepEqual(downloads, ['${{ needs.build.outputs.artifact_name }}', '${{ needs.mac.outputs.artifact_name }}', '${{ needs.linux.outputs.artifact_name }}']);
   const create = release.steps.find((step) => step.name === 'Create draft GitHub release');
   assert.equal(create.env.TRACE_MAC_VERSION, '${{ needs.mac.outputs.version }}');
   assert.match(create.run, /if \(\$env:TRACE_MAC_VERSION -ne \$env:TRACE_VERSION\) \{ throw/, 'both builds must be of the same version');
   assert.match(create.run, /\$traceZip = Join-Path release "TRACE-Boardviewer-\$env:TRACE_VERSION-mac-arm64\.zip"/);
-  assert.match(create.run, /foreach \(\$traceFile in @\(\$traceExe, \$traceZip\)\)/, 'both assets are checked against their .sha256 files');
+  assert.match(create.run, /foreach \(\$traceFile in @\(\$traceExe, \$traceZip, \$traceAppImage, \$traceDeb\)\)/, 'every asset is checked against its .sha256 file');
   assert.match(create.run, /Get-FileHash -LiteralPath \$traceFile -Algorithm SHA256/);
-  assert.match(create.run, /\$traceAssets \+= @\(\$traceFile, \$traceChecksum\)/, 'the EXE, the zip and both checksum files are attached');
+  assert.match(create.run, /\$traceAssets \+= @\(\$traceFile, \$traceChecksum\)/, 'every asset and its checksum file are attached');
   assert.match(create.run, /@\('--draft', '--verify-tag', '--title', "TRACE Boardviewer \$env:TRACE_VERSION", '--notes-file', 'release-notes\.md'\)/);
   assert.match(create.run, /if \(\$env:TRACE_VERSION -match '-'\) \{ \$traceArgs \+= '--prerelease' \}/, 'a prerelease suffix never becomes the latest release the app checks');
   assert.match(create.run, /gh release create @traceArgs\n/);

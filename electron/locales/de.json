@@ -311,5 +311,11 @@
   "native.dialog.rendererGone": "Die Oberfläche wurde unerwartet beendet. Sie wird erneut geladen.",
   "native.dialog.unresponsive": "Die Oberfläche reagiert nicht. Noch etwas warten oder das Fenster schließen.",
   "native.dialog.unresponsiveWait": "Warten",
-  "native.dialog.unresponsiveClose": "Fenster schließen"
+  "native.dialog.unresponsiveClose": "Fenster schließen",
+  "native.dialog.noSandboxMessage": "Die Chromium-Sandbox ist auf diesem System nicht verfügbar.",
+  "native.dialog.noSandboxRisk": "TRACE wurde mit --no-sandbox gestartet, meist weil dieses Linux-System keine unprivilegierten Benutzer-Namespaces erlaubt (Ubuntu ab Version 23.10 schränkt sie ein). Ohne Sandbox hat eine bösartige Boardview-, PDF- oder Bilddatei, die einen Fehler in TRACE oder Chromium ausnutzt, bessere Chancen, den Rest des Systems zu erreichen.",
+  "native.dialog.noSandboxAdvice": "Empfohlen: statt des AppImages das .deb-Paket installieren. Es hält die Sandbox aktiv (unter Ubuntu mit einem AppArmor-Profil).",
+  "native.dialog.noSandboxQuit": "Beenden",
+  "native.dialog.noSandboxStart": "Ohne Sandbox starten",
+  "native.dialog.noSandboxRemember": "Nicht mehr fragen"
 }

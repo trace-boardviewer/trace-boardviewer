@@ -7,6 +7,7 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const vm = require('node:vm');
+const { pathToFileURL } = require('node:url');
 const { createHash } = require('node:crypto');
 const i18n = require('../electron/i18n.cjs');
 const formats = require('../electron/formats.cjs');
@@ -32,6 +33,16 @@ function boardKey(entries) {
   return hash.digest('hex');
 }
 const settle = async (ready, limit = 100) => { for (let attempt = 0; attempt < limit && !ready(); attempt++) await new Promise((resolve) => setTimeout(resolve, 10)); };
+/** The switch names Chromium parses from a launch: "--name" or "-name" (a value follows "="); nothing after a "--" terminator is a switch. */
+function chromiumSwitches(argv) {
+  const names = [];
+  for (const argument of argv) {
+    if (argument === '--') break;
+    const match = /^--?([^=]+)/.exec(argument);
+    if (match) names.push(match[1]);
+  }
+  return names;
+}
 
 async function desktopHarness(directory, options = {}) {
   const handlers = new Map();
@@ -47,10 +58,16 @@ async function desktopHarness(directory, options = {}) {
   const readyGate = options.deferReady ? new Promise((resolve) => { markReady = resolve; }) : null;
   const languageCalls = { total: 0, beforeReady: 0 };
   Object.assign(app, {
-    isPackaged: false, setName(name) { this.name = name; }, setAppUserModelId() {}, setPath() {},
-    getPath: () => directory, isReady: () => ready, getVersion: () => options.version ?? '1.2.0',
+    isPackaged: false, setName(name) { this.name = name; }, setAppUserModelId() {},
+    // Every app.setPath call is recorded with whether the app was ready by then; getPath keeps answering with the test directory
+    // (options.appData for 'appData'), so the store always lives in `directory`.
+    pathsSet: [], setPath(name, value) { this.pathsSet.push({ name, value, ready }); },
+    getPath: (name) => (name === 'appData' && options.appData ? options.appData : directory), isReady: () => ready, getVersion: () => options.version ?? '1.2.0',
     whenReady: () => readyGate ? readyGate.then(() => { ready = true; }) : Promise.resolve(),
     requestSingleInstanceLock: () => true, quitCount: 0, quit() { this.quitCount++; },
+    // Chromium's own command line: the switches of options.argv as Chromium parses them, or options.commandLineSwitches for a line that
+    // differs from process.argv (a switch Electron appended itself, e.g. for ELECTRON_DISABLE_SANDBOX).
+    commandLine: { hasSwitch: (name) => (options.commandLineSwitches ?? chromiumSwitches(options.argv ?? [])).includes(name) },
   });
   if (!options.withoutLanguageApis) {
     const record = () => { languageCalls.total++; if (!ready) languageCalls.beforeReady++; };
@@ -117,10 +134,15 @@ async function desktopHarness(directory, options = {}) {
     messages: [], errorBoxes: [], openOptions: [], saveOptions: [],
     showOpenDialog(_window, dialogOptions) { this.openOptions.push(dialogOptions); return Promise.resolve(this.choice); },
     showSaveDialog(_window, dialogOptions) { this.saveOptions.push(dialogOptions); return Promise.resolve(this.saveChoice); },
-    // Answers like Electron: the index of the pressed button (`response`, default 0) or whatever `answer(options)` resolves to.
-    showMessageBox(_window, options) {
-      this.messages.push(options);
-      return Promise.resolve(this.answer ? this.answer(options) : { response: this.response ?? 0, checkboxChecked: false });
+    // Answers like Electron: the index of the pressed button (`response`, default 0) or whatever `answer(options)` resolves to. Like
+    // Electron it takes the options with or without a parent window first (`parents` records the window, null for none).
+    // options.dialogResponse / options.dialogAnswer answer the boxes main.cjs opens during start-up, before the harness returns.
+    parents: [], response: options.dialogResponse, answer: options.dialogAnswer,
+    showMessageBox(windowOrOptions, boxOptions) {
+      const asked = boxOptions === undefined ? windowOrOptions : boxOptions;
+      this.messages.push(asked);
+      this.parents.push(boxOptions === undefined ? null : windowOrOptions);
+      return Promise.resolve(this.answer ? this.answer(asked) : { response: this.response ?? 0, checkboxChecked: false });
     },
     showErrorBox(title, message) {
       if (options.captureErrors) this.errorBoxes.push({ title, message });
@@ -150,8 +172,18 @@ async function desktopHarness(directory, options = {}) {
     buildFromTemplate(template) { this.templates.push(template); return { template }; },
     setApplicationMenu(value) { this.applied.push(value); },
   };
+  // nativeImage.createFromPath: an image that remembers its file, empty when the file does not exist (or with options.emptyImages);
+  // resize() answers with a plain record of the request.
+  const nativeImage = {
+    created: [],
+    createFromPath(file) {
+      this.created.push(file);
+      const empty = options.emptyImages === true || !require('node:fs').existsSync(file);
+      return { file, isEmpty: () => empty, resize: (size) => ({ resizedFrom: file, size: { ...size } }) };
+    },
+  };
   const electron = {
-    app, BrowserWindow: MockBrowserWindow, dialog, Menu: menu, shell, net, session: { defaultSession },
+    app, BrowserWindow: MockBrowserWindow, dialog, Menu: menu, nativeImage, shell, net, session: { defaultSession },
     ipcMain: {
       handle(channel, callback) { handlers.set(channel, callback); },
       on(channel, callback) { messages.set(channel, callback); },
@@ -161,22 +193,26 @@ async function desktopHarness(directory, options = {}) {
   const source = await fs.readFile(filename, 'utf8');
   // The context is returned so a test can reach a top-level function of main.cjs (e.g. openExternalUrl) that no handler exposes.
   // `options.timers` replaces the timer functions main.cjs sees (the fallback show), `options.argv` the launch arguments after the
-  // application path.
+  // application path, `options.cwd` the working directory of the launch, `options.env` its environment, `options.console` the console.
   const context = {
     require: (name) => name === 'electron' ? electron : name === 'node:fs/promises' && options.fs ? options.fs : require(name.startsWith('.') ? path.resolve(path.dirname(filename), name) : name),
-    __dirname: path.dirname(filename), Buffer, URL, console,
+    __dirname: path.dirname(filename), Buffer, URL, console: options.console ?? console,
     setTimeout: options.timers?.setTimeout ?? setTimeout, clearTimeout: options.timers?.clearTimeout ?? clearTimeout,
-    process: { argv: ['electron.exe', 'app', ...(options.argv ?? [])], pid: process.pid, platform: options.platform ?? 'win32', env: {} },
+    process: {
+      argv: ['electron.exe', 'app', ...(options.argv ?? [])], pid: process.pid, platform: options.platform ?? 'win32', env: { ...options.env },
+      cwd: () => options.cwd ?? process.cwd(),
+    },
   };
   vm.runInNewContext(source, context, { filename });
   const waitForWindow = async () => {
     for (let attempt = 0; attempt < 100 && !window; attempt++) await new Promise((resolve) => setTimeout(resolve, 10));
     assert.ok(window, 'Desktop should create the window after loading config');
   };
-  if (!options.deferReady) await waitForWindow();
+  // options.noWindow: the start-up is expected to end without a window (the Linux sandbox question answered with Quit).
+  if (!options.deferReady && !options.noWindow) await waitForWindow();
   const event = () => ({ sender: window.webContents, senderFrame: window.webContents.mainFrame });
   return {
-    get window() { return window; }, get windows() { return [...created]; }, context, app, dialog, shell, net, menu, session: electron.session, handlers, languageCalls, waitForWindow,
+    get window() { return window; }, get windows() { return [...created]; }, context, app, dialog, shell, net, menu, nativeImage, session: electron.session, handlers, languageCalls, waitForWindow,
     releaseReady: () => markReady(),
     invoke: (channel, ...args) => handlers.get(channel)(event(), ...args),
     message: (channel, ...args) => messages.get(channel)(event(), ...args),
@@ -299,9 +335,17 @@ test('desktop IPC, local import, persistence and boundary checks', async (t) => 
     await assert.rejects(invoke('trace:read-board', `${directory}${path.sep}dir:x${path.sep}Circuit.CAD`), invalid, 'a colon in a directory segment');
     await assert.rejects(invoke('trace:accept-board', stream, 'a'.repeat(64)), invalid);
     assert.equal((await invoke('trace:recent-boards')).length, recentsBefore, 'nothing was recorded');
-    // Documents: the shared path check (store.cjs) answers with the existing invalid-path code.
-    await assert.rejects(invoke('trace:read-document', `${host}:alt.pdf`), { code: 'DOCUMENT_INVALID_PATH', message: /^\[DOCUMENT_INVALID_PATH\] / });
-    await assert.rejects(invoke('trace:locate-documents', stream, []), { code: 'DOCUMENT_INVALID_PATH' });
+    // Documents: the shared path check (store.cjs) answers with the existing invalid-path code. That check reads the REAL platform,
+    // while this harness fakes win32 for main.cjs only, so the NTFS rule is asserted on Windows. Elsewhere ':' is a legal file-name
+    // character and the same two requests reach the file system: the missing document is not found and the board file (which this
+    // test could create there) is located like any other (a test assumption, not a product difference).
+    if (process.platform === 'win32') {
+      await assert.rejects(invoke('trace:read-document', `${host}:alt.pdf`), { code: 'DOCUMENT_INVALID_PATH', message: /^\[DOCUMENT_INVALID_PATH\] / });
+      await assert.rejects(invoke('trace:locate-documents', stream, []), { code: 'DOCUMENT_INVALID_PATH' });
+    } else {
+      await assert.rejects(invoke('trace:read-document', `${host}:alt.pdf`), { code: 'DOCUMENT_NOT_FOUND' });
+      assert.equal((await invoke('trace:locate-documents', stream, [])).length, 0);
+    }
     // An external launch with such a path reports the invalid path and opens nothing.
     const launched = await desktopHarness(path.join(directory, 'ads-launch-profile'));
     await launched.invoke('trace:initial-board');
@@ -2957,5 +3001,371 @@ test('start-up file and settings file: a failed start-up argument falls through 
     await unlucky.invoke('trace:save-settings', { ...plain(await unlucky.invoke('trace:get-settings')), theme: 'light' });
     assert.deepEqual(await fs.readdir(stuck), ['config.json']);
     assert.equal(JSON.parse(await fs.readFile(path.join(stuck, 'config.json'), 'utf8')).settings.theme, 'light');
+  });
+});
+
+// The Linux desktop shell. The harness fakes the platform for main.cjs only; paths, URLs and files stay those of the machine that runs the
+// tests, so a "linux" harness on Windows resolves Windows paths. What is asserted is the decision main.cjs takes for each platform.
+test('Linux desktop shell: pinned profile directory', async (t) => {
+  const root = await makeTempDir('trace-linux-shell-test-');
+  t.after(async () => {
+    const absolute = path.resolve(root);
+    assert.ok(await isInsideTemp(absolute));
+    await fs.rm(absolute, { recursive: true, force: true });
+  });
+  let counter = 0;
+  const profile = async () => { const directory = path.join(root, `profile-${++counter}`); await fs.mkdir(directory, { recursive: true }); return directory; };
+  const plain = (value) => JSON.parse(JSON.stringify(value)); // The harness runs main.cjs in another realm.
+
+  await t.test('linux without --user-data-dir pins userData to <appData>/trace-boardviewer before the app is ready and creates it', async () => {
+    const appData = path.join(root, 'xdg-config');
+    const harness = await desktopHarness(await profile(), { platform: 'linux', appData, deferReady: true });
+    const pinned = path.join(appData, 'trace-boardviewer');
+    assert.deepEqual(plain(harness.app.pathsSet), [{ name: 'userData', value: pinned, ready: false }]);
+    assert.equal((await fs.stat(pinned)).isDirectory(), true, 'the directory exists before Electron is told about it');
+    if (process.platform !== 'win32') assert.equal((await fs.stat(pinned)).mode & 0o777, 0o700, 'private to the user, like the profile Chromium creates');
+    harness.releaseReady();
+    await harness.waitForWindow();
+    assert.equal(harness.app.pathsSet.length, 1, 'set once, never moved later');
+  });
+
+  await t.test('an explicit --user-data-dir wins on linux and is the only path set, as on every platform', async () => {
+    for (const platform of ['linux', 'win32', 'darwin']) {
+      const explicit = path.join(root, `explicit-${platform}`);
+      const harness = await desktopHarness(await profile(), { platform, appData: path.join(root, `unused-${platform}`), argv: [`--user-data-dir=${explicit}`] });
+      assert.deepEqual(plain(harness.app.pathsSet).map(({ name, value }) => ({ name, value })), [{ name: 'userData', value: explicit }], platform);
+      await assert.rejects(fs.stat(path.join(root, `unused-${platform}`)), { code: 'ENOENT' }, `${platform}: nothing is created under appData`);
+    }
+  });
+
+  await t.test('windows and macOS keep the default location: no path is set without --user-data-dir', async () => {
+    for (const platform of [undefined, 'win32', 'darwin']) {
+      const appData = path.join(root, `default-${platform ?? 'none'}`);
+      const harness = await desktopHarness(await profile(), { appData, ...(platform ? { platform } : {}) });
+      assert.deepEqual(plain(harness.app.pathsSet), [], platform ?? 'default');
+      await assert.rejects(fs.stat(appData), { code: 'ENOENT' });
+    }
+  });
+});
+
+test('Linux desktop shell: file:// URIs and relative paths as launch arguments, first start and second instance', async (t) => {
+  const root = await makeTempDir('trace-linux-arguments-test-');
+  t.after(async () => {
+    const absolute = path.resolve(root);
+    assert.ok(await isInsideTemp(absolute));
+    await fs.rm(absolute, { recursive: true, force: true });
+  });
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  let counter = 0;
+  const profile = async () => { const directory = path.join(root, `profile-${++counter}`); await fs.mkdir(directory, { recursive: true }); return directory; };
+  const validText = '$HEADER\nGENCAD 1.4\nUNITS MM\n$ENDHEADER\n$BOARD\nLINE 0 0 10 0\n$ENDBOARD\n';
+  const boards = path.join(root, 'boards');
+  await fs.mkdir(path.join(boards, 'sub'), { recursive: true });
+  const launch = path.join(boards, 'Launch.cad');
+  const spaced = path.join(boards, 'With Space #1.cad'); // a space and a "#" are percent-encoded in the URI
+  const nested = path.join(boards, 'sub', 'Rel.brd');
+  for (const file of [launch, spaced]) await fs.writeFile(file, validText);
+  await fs.writeFile(nested, 'str_length:\n');
+  const uri = (file) => pathToFileURL(file).href;
+  const localhostUri = (file) => uri(file).replace(/^file:\/\//, 'file://localhost');
+  const delivered = (harness) => harness.window.webContents.sent.filter((entry) => entry.channel === 'trace:board-opened').map((entry) => entry.value.name);
+  const startup = async (platform, argv, extra = {}) => {
+    const harness = await desktopHarness(await profile(), { platform, argv, ...extra });
+    const result = await harness.invoke('trace:initial-board').then((value) => value && { name: value.name, source: value.startupSource }, (error) => ({ error: error.message }));
+    return { harness, result };
+  };
+  const invalidPath = i18n.translate('hu', 'native.error.invalidPath');
+
+  await t.test('linux, first start: a local file:// URI (empty host or localhost, percent-encoded) opens the board', async () => {
+    assert.deepEqual((await startup('linux', [uri(launch)])).result, { name: 'Launch.cad', source: 'argument' });
+    assert.ok(uri(spaced).includes('%20') && uri(spaced).includes('%23'), 'the URI really carries encoded characters');
+    assert.deepEqual((await startup('linux', [uri(spaced)])).result, { name: 'With Space #1.cad', source: 'argument' });
+    assert.deepEqual((await startup('linux', [localhostUri(launch)])).result, { name: 'Launch.cad', source: 'argument' });
+    assert.deepEqual((await startup('linux', ['--board', uri(nested)])).result, { name: 'Rel.brd', source: 'argument' }, '--board <uri>');
+    assert.deepEqual((await startup('linux', [`--board=${uri(launch)}`])).result, { name: 'Launch.cad', source: 'argument' }, '--board=<uri>');
+  });
+
+  await t.test('linux, first start: a relative path is resolved against the working directory of the launch', async () => {
+    assert.deepEqual((await startup('linux', [path.join('sub', 'Rel.brd')], { cwd: boards })).result, { name: 'Rel.brd', source: 'argument' });
+    assert.deepEqual((await startup('linux', ['Launch.cad'], { cwd: boards })).result, { name: 'Launch.cad', source: 'argument' });
+    assert.deepEqual((await startup('linux', [`--board=${path.join('sub', 'Rel.brd')}`], { cwd: boards })).result, { name: 'Rel.brd', source: 'argument' });
+    assert.deepEqual((await startup('linux', ['--board', 'Launch.cad'], { cwd: boards })).result, { name: 'Launch.cad', source: 'argument' });
+  });
+
+  await t.test('linux: URIs of another host or scheme, unsupported files and switches are ignored without a dialog; a --board value that names no local file is reported', async () => {
+    const remote = uri(launch).replace(/^file:\/\//, 'file://fileserver');
+    const ignored = [[remote], ['https://example.com/Launch.cad'], ['smb://fileserver/share/Launch.cad'], ['sftp://host/Launch.cad'], ['notes.txt'], ['--some-switch=Launch.cad'], ['-x', 'Launch.txt']];
+    for (const argv of ignored) {
+      const { harness, result } = await startup('linux', argv, { cwd: boards });
+      assert.equal(result, null, `${argv.join(' ')}: nothing is opened`);
+      assert.equal(harness.dialog.messages.length, 0);
+    }
+    for (const value of [remote, 'https://example.com/Launch.cad']) {
+      assert.deepEqual((await startup('linux', [`--board=${value}`], { cwd: boards })).result, { error: invalidPath }, `--board=${value}: the usual invalid-path error`);
+    }
+  });
+
+  await t.test('linux, second instance: URIs and paths relative to the working directory of the SECOND instance reach the running window', async () => {
+    const harness = await desktopHarness(await profile(), { platform: 'linux', cwd: path.join(boards, 'sub') });
+    await harness.invoke('trace:initial-board');
+    harness.app.emit('second-instance', {}, ['electron.exe', 'app', uri(spaced)], root);
+    await settle(() => delivered(harness).length >= 1);
+    harness.app.emit('second-instance', {}, ['electron.exe', 'app', 'Launch.cad'], boards); // exists in boards/, not in sub/ (the first instance's directory)
+    await settle(() => delivered(harness).length >= 2);
+    harness.app.emit('second-instance', {}, ['electron.exe', 'app', '--board', path.join('sub', 'Rel.brd')], boards);
+    await settle(() => delivered(harness).length >= 3);
+    harness.app.emit('second-instance', {}, ['electron.exe', 'app', localhostUri(launch)], path.parse(root).root);
+    await settle(() => delivered(harness).length >= 4);
+    assert.deepEqual(delivered(harness), ['With Space #1.cad', 'Launch.cad', 'Rel.brd', 'Launch.cad']);
+    assert.equal(harness.dialog.messages.length, 0);
+    // Without a usable working directory a relative path cannot be resolved: nothing is opened and nothing is reported.
+    harness.app.emit('second-instance', {}, ['electron.exe', 'app', 'Launch.cad']);
+    harness.app.emit('second-instance', {}, ['electron.exe', 'app', 'Launch.cad'], 'relative-directory');
+    harness.app.emit('second-instance', {}, ['electron.exe', 'app', 'https://example.com/Launch.cad'], boards);
+    await sleep(40);
+    assert.equal(delivered(harness).length, 4);
+    assert.equal(harness.dialog.messages.length, 0);
+  });
+
+  await t.test('windows and macOS are unchanged: no URIs, no relative paths; an explicit --board value is checked as before', async () => {
+    for (const platform of ['win32', 'darwin']) {
+      for (const argv of [[uri(launch)], [localhostUri(launch)], ['Launch.cad'], [path.join('sub', 'Rel.brd')]]) {
+        const { harness, result } = await startup(platform, argv, { cwd: boards });
+        assert.equal(result, null, `${platform} ${argv[0]}: ignored as before`);
+        assert.equal(harness.dialog.messages.length, 0);
+      }
+      for (const value of [uri(launch), 'Launch.cad']) {
+        assert.deepEqual((await startup(platform, [`--board=${value}`], { cwd: boards })).result, { error: invalidPath }, `${platform} --board=${value}`);
+      }
+      assert.deepEqual((await startup(platform, [launch], { cwd: boards })).result, { name: 'Launch.cad', source: 'argument' }, `${platform}: an absolute path still opens`);
+      const running = await desktopHarness(await profile(), { platform, cwd: boards });
+      await running.invoke('trace:initial-board');
+      running.app.emit('second-instance', {}, ['electron.exe', 'app', 'Launch.cad'], boards);
+      running.app.emit('second-instance', {}, ['electron.exe', 'app', uri(launch)], boards);
+      await sleep(40);
+      assert.deepEqual(delivered(running), [], `${platform}: a second instance with a relative path or a URI opens nothing`);
+      running.app.emit('second-instance', {}, ['electron.exe', 'app', launch], boards);
+      await settle(() => delivered(running).length >= 1);
+      assert.deepEqual(delivered(running), ['Launch.cad']);
+      assert.equal(running.dialog.messages.length, 0);
+    }
+  });
+});
+
+test('Linux desktop shell: window icon', async (t) => {
+  const root = await makeTempDir('trace-linux-icon-test-');
+  t.after(async () => {
+    const absolute = path.resolve(root);
+    assert.ok(await isInsideTemp(absolute));
+    await fs.rm(absolute, { recursive: true, force: true });
+  });
+  let counter = 0;
+  const profile = async () => { const directory = path.join(root, `profile-${++counter}`); await fs.mkdir(directory, { recursive: true }); return directory; };
+  const plain = (value) => JSON.parse(JSON.stringify(value)); // The harness runs main.cjs in another realm.
+  const asset = (name) => path.resolve(__dirname, '..', 'assets', name);
+
+  await t.test('windows and macOS keep the ICO path; no image is decoded', async () => {
+    for (const platform of [undefined, 'win32', 'darwin']) {
+      const harness = await desktopHarness(await profile(), platform ? { platform } : {});
+      assert.equal(harness.window.options.icon, asset('icon.ico'), platform ?? 'default');
+      assert.deepEqual(harness.nativeImage.created, []);
+    }
+  });
+
+  await t.test('linux: a 256 px image decoded from the PNG (ICO is a Windows format)', async () => {
+    const harness = await desktopHarness(await profile(), { platform: 'linux' });
+    assert.deepEqual(plain(harness.window.options.icon), { resizedFrom: asset('icon.png'), size: { width: 256, height: 256, quality: 'best' } });
+    assert.deepEqual(harness.nativeImage.created, [asset('icon.png')]);
+    const png = await fs.readFile(asset('icon.png'));
+    assert.equal(png.subarray(1, 4).toString('latin1'), 'PNG');
+    assert.ok(png.readUInt32BE(16) >= 256 && png.readUInt32BE(16) === png.readUInt32BE(20), 'a square source of at least 256 px: the resize only shrinks it');
+  });
+
+  await t.test('linux: an image that cannot be decoded leaves the option unset; the window is still created', async () => {
+    const harness = await desktopHarness(await profile(), { platform: 'linux', emptyImages: true });
+    assert.equal(harness.window.options.icon, undefined);
+    assert.equal(harness.windows.length, 1);
+  });
+});
+
+// The Linux sandbox gate (main.cjs confirmUnsandboxedStart): a process started without Chromium's OS sandbox asks before anything else
+// happens. Chromium's command line is the harness's app.commandLine; the start-up answers come from options.dialogResponse/dialogAnswer.
+test('Linux desktop shell: the question before starting without the Chromium sandbox', async (t) => {
+  const root = await makeTempDir('trace-linux-sandbox-gate-test-');
+  t.after(async () => {
+    const absolute = path.resolve(root);
+    assert.ok(await isInsideTemp(absolute));
+    await fs.rm(absolute, { recursive: true, force: true });
+  });
+  let counter = 0;
+  const profile = async (config) => {
+    const directory = path.join(root, `profile-${++counter}`);
+    await fs.mkdir(directory, { recursive: true });
+    if (config !== undefined) await fs.writeFile(path.join(directory, 'config.json'), JSON.stringify(config));
+    return directory;
+  };
+  const plain = (value) => JSON.parse(JSON.stringify(value)); // The harness runs main.cjs in another realm.
+  const readConfig = async (directory) => JSON.parse(await fs.readFile(path.join(directory, 'config.json'), 'utf8'));
+  const hasConfig = async (directory) => (await fs.readdir(directory)).includes('config.json');
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  // A console whose warnings are recorded (main.cjs writes the no-sandbox line with console.warn, i.e. to stderr).
+  const recorder = () => {
+    const warnings = [];
+    return { warnings, console: Object.assign(Object.create(console), { warn: (...parts) => warnings.push(parts.join(' ')) }) };
+  };
+  const WARNING = 'TRACE: running without the Chromium sandbox (--no-sandbox).';
+  const box = (language) => {
+    const text = (key) => i18n.translate(language, key);
+    return {
+      type: 'warning', title: 'TRACE Boardviewer', noLink: true, defaultId: 0, cancelId: 0,
+      buttons: [text('native.dialog.noSandboxQuit'), text('native.dialog.noSandboxStart')],
+      checkboxLabel: text('native.dialog.noSandboxRemember'), checkboxChecked: false,
+      message: text('native.dialog.noSandboxMessage'),
+      detail: `${text('native.dialog.noSandboxRisk')}\n\n${text('native.dialog.noSandboxAdvice')}`,
+    };
+  };
+  const settings = { language: 'de', theme: 'light', layout: 'focus', motion: false, showLabels: true, showConnections: false, updateCheck: false };
+
+  await t.test('linux with --no-sandbox: one warning box before any window or IPC; Quit (the default, also Esc and closing) ends the start-up and stores nothing', async () => {
+    const directory = await profile();
+    const log = recorder();
+    let seen = null;
+    const harness = await desktopHarness(directory, { platform: 'linux', argv: ['--no-sandbox'], deferReady: true, console: log.console });
+    // Quit with the checkbox ticked: "Do not ask again" only applies to starting without the sandbox.
+    harness.dialog.answer = () => { seen = { windows: harness.windows.length, handlers: harness.handlers.size, menus: harness.menu.applied.length }; return { response: 0, checkboxChecked: true }; };
+    harness.releaseReady();
+    await settle(() => harness.app.quitCount > 0);
+    assert.equal(harness.app.quitCount, 1, 'the app quits');
+    assert.equal(harness.dialog.messages.length, 1, 'one question');
+    assert.deepEqual(plain(harness.dialog.messages[0]), box('hu'), 'a fresh profile asks in the system language (hu-HU here)');
+    assert.deepEqual(harness.dialog.parents, [null], 'no parent window: none exists yet');
+    assert.deepEqual(seen, { windows: 0, handlers: 0, menus: 0 }, 'asked before the menu, the IPC and the window');
+    await sleep(30);
+    assert.equal(harness.windows.length, 0, 'no window is ever created');
+    assert.equal(harness.handlers.size, 0, 'no IPC is installed');
+    assert.equal(await hasConfig(directory), false, 'nothing is written');
+    assert.deepEqual(log.warnings, [WARNING], 'the warning line is written once');
+    // Any answer but "Start without sandbox" is a Quit.
+    for (const answer of [{ response: 2, checkboxChecked: false }, { response: -1 }, undefined]) {
+      const other = await desktopHarness(await profile(), { platform: 'linux', argv: ['--no-sandbox'], noWindow: true, dialogAnswer: () => answer });
+      await settle(() => other.app.quitCount > 0);
+      assert.equal(other.app.quitCount, 1, JSON.stringify(answer));
+      assert.equal(other.windows.length, 0);
+    }
+  });
+
+  await t.test('Start without sandbox opens the window; without the checkbox nothing is stored and the next start asks again', async () => {
+    const directory = await profile();
+    const first = await desktopHarness(directory, { platform: 'linux', argv: ['--no-sandbox'], dialogResponse: 1 });
+    assert.equal(first.dialog.messages.length, 1);
+    assert.equal(first.windows.length, 1);
+    assert.equal(first.app.quitCount, 0);
+    assert.equal(await first.invoke('trace:initial-board'), null, 'the start-up goes on as usual');
+    assert.equal(await hasConfig(directory), false, 'no answer is stored');
+    const second = await desktopHarness(directory, { platform: 'linux', argv: ['--no-sandbox'], dialogResponse: 1 });
+    assert.equal(second.dialog.messages.length, 1, 'asked again');
+  });
+
+  await t.test('"Do not ask again" stores the answer in config.json with the settings; the next start skips the question but still logs the warning', async () => {
+    const boardFile = path.join(root, 'Kept.cad');
+    await fs.writeFile(boardFile, '$HEADER\nGENCAD 1.4\nUNITS MM\n$ENDHEADER\n$BOARD\nLINE 0 0 10 0\n$ENDBOARD\n');
+    const recent = { name: 'Kept.cad', path: boardFile, openedAt: '2026-01-02T03:04:05.000Z' };
+    const directory = await profile({ version: 1, settings, recentBoards: [recent] });
+    const first = await desktopHarness(directory, { platform: 'linux', argv: ['--no-sandbox'], dialogAnswer: () => ({ response: 1, checkboxChecked: true }) });
+    assert.deepEqual(plain(first.dialog.messages[0]), box('de'), 'asked in the stored language');
+    const stored = await readConfig(directory);
+    assert.equal(stored.noSandboxAccepted, true);
+    assert.deepEqual(stored.settings, settings, 'the settings are kept as they were');
+    assert.equal(stored.recentBoards.length, 1, 'and the recent files');
+    assert.equal(stored.version, 1);
+    assert.equal('noSandboxAccepted' in await first.invoke('trace:get-settings'), false, 'the renderer never sees the answer');
+    // Later writes keep it (a settings save replaces only the settings).
+    await first.invoke('trace:save-settings', { ...plain(await first.invoke('trace:get-settings')), theme: 'dark' });
+    assert.equal((await readConfig(directory)).noSandboxAccepted, true);
+    assert.equal((await readConfig(directory)).settings.theme, 'dark');
+    const log = recorder();
+    const second = await desktopHarness(directory, { platform: 'linux', argv: ['--no-sandbox'], console: log.console });
+    assert.equal(second.dialog.messages.length, 0, 'not asked again');
+    assert.equal(second.windows.length, 1);
+    assert.deepEqual(log.warnings, [WARNING]);
+    assert.equal((await second.invoke('trace:initial-board')).name, 'Kept.cad', 'the start-up is otherwise unchanged');
+  });
+
+  await t.test('only a stored true counts: another value, or a config.json that cannot be used, asks again', async () => {
+    for (const config of [
+      { version: 1, settings, recentBoards: [], noSandboxAccepted: 'yes' },
+      { version: 1, settings, recentBoards: [], noSandboxAccepted: 1 },
+      { version: 2, settings, recentBoards: [], noSandboxAccepted: true },
+    ]) {
+      const harness = await desktopHarness(await profile(config), { platform: 'linux', argv: ['--no-sandbox'], dialogResponse: 1 });
+      assert.equal(harness.dialog.messages.length, 1, JSON.stringify(config));
+    }
+  });
+
+  await t.test('TRACE_ACCEPT_NO_SANDBOX=1 skips the question, stores nothing and still logs; any other value asks', async () => {
+    const directory = await profile();
+    const log = recorder();
+    const accepted = await desktopHarness(directory, { platform: 'linux', argv: ['--no-sandbox'], env: { TRACE_ACCEPT_NO_SANDBOX: '1' }, console: log.console });
+    assert.equal(accepted.dialog.messages.length, 0);
+    assert.equal(accepted.windows.length, 1);
+    assert.deepEqual(log.warnings, [WARNING]);
+    assert.equal(await hasConfig(directory), false, 'the environment is not remembered');
+    for (const value of ['0', 'true', 'yes', '', ' 1', '1 ']) {
+      const asked = await desktopHarness(await profile(), { platform: 'linux', argv: ['--no-sandbox'], env: { TRACE_ACCEPT_NO_SANDBOX: value }, dialogResponse: 1 });
+      assert.equal(asked.dialog.messages.length, 1, JSON.stringify(value));
+    }
+  });
+
+  await t.test('the switch is read from Chromium\'s command line, not from process.argv', async () => {
+    // ELECTRON_DISABLE_SANDBOX: Electron appends --no-sandbox to Chromium's line; process.argv does not show it.
+    const appended = await desktopHarness(await profile(), { platform: 'linux', argv: [], commandLineSwitches: ['no-sandbox'], dialogResponse: 1 });
+    assert.equal(appended.dialog.messages.length, 1, 'asked: the sandbox is off although process.argv has no --no-sandbox');
+    // The opposite: process.argv carries the text, Chromium's line does not (as after a "--" terminator): nothing is asked.
+    const lookalike = await desktopHarness(await profile(), { platform: 'linux', argv: ['--no-sandbox'], commandLineSwitches: [] });
+    assert.equal(lookalike.dialog.messages.length, 0, 'not asked: Chromium kept its sandbox');
+    // As Chromium parses a launch (checked against Electron 44): "-no-sandbox" is the switch, "--no-sandbox" after "--" is not.
+    const single = await desktopHarness(await profile(), { platform: 'linux', argv: ['-no-sandbox'], dialogResponse: 1 });
+    assert.equal(single.dialog.messages.length, 1);
+    const terminated = await desktopHarness(await profile(), { platform: 'linux', argv: ['--', '--no-sandbox'] });
+    assert.equal(terminated.dialog.messages.length, 0);
+  });
+
+  await t.test('never asked on Windows or macOS, with or without --no-sandbox, nor on Linux with the sandbox on', async () => {
+    for (const [platform, argv] of [[undefined, ['--no-sandbox']], ['win32', ['--no-sandbox']], ['darwin', ['--no-sandbox']], ['linux', []], ['linux', ['--disable-gpu-sandbox']]]) {
+      const log = recorder();
+      const harness = await desktopHarness(await profile(), { argv, console: log.console, ...(platform ? { platform } : {}) });
+      assert.equal(harness.dialog.messages.length, 0, `${platform ?? 'default'} ${argv.join(' ')}`);
+      assert.equal(harness.windows.length, 1);
+      assert.deepEqual(log.warnings, []);
+    }
+  });
+
+  await t.test('a failed write of the answer does not stop the start; the question simply comes again', async () => {
+    const directory = await profile();
+    const failing = new Proxy(fs, { get(target, property) {
+      if (property === 'writeFile') return async (filename, ...rest) => { if (String(filename).includes('config.json')) throw Object.assign(new Error('read-only file system'), { code: 'EROFS' }); return target.writeFile(filename, ...rest); };
+      return target[property];
+    } });
+    const log = recorder();
+    const harness = await desktopHarness(directory, { platform: 'linux', argv: ['--no-sandbox'], fs: failing, console: log.console, dialogAnswer: () => ({ response: 1, checkboxChecked: true }) });
+    assert.equal(harness.windows.length, 1, 'the window opens');
+    assert.equal(log.warnings[0], WARNING);
+    assert.match(log.warnings[1] ?? '', /^TRACE: the answer could not be saved:/);
+    assert.equal(await hasConfig(directory), false);
+    const again = await desktopHarness(directory, { platform: 'linux', argv: ['--no-sandbox'], dialogResponse: 1 });
+    assert.equal(again.dialog.messages.length, 1);
+  });
+
+  await t.test('the decision itself (sandboxGate): only Linux without the sandbox is ever asked or accepted', async () => {
+    const gate = (await desktopHarness(await profile())).context.sandboxGate; // a top-level function of main.cjs
+    const cases = [
+      [{ platform: 'win32', noSandbox: true }, 'start'], [{ platform: 'darwin', noSandbox: true }, 'start'],
+      [{ platform: 'linux', noSandbox: false }, 'start'], [{ platform: 'linux', noSandbox: false, accepted: true, acceptEnvironment: '1' }, 'start'],
+      [{ platform: 'linux', noSandbox: true }, 'ask'], [{ platform: 'linux', noSandbox: true, accepted: false }, 'ask'],
+      [{ platform: 'linux', noSandbox: true, accepted: 'true' }, 'ask'], [{ platform: 'linux', noSandbox: true, acceptEnvironment: 'true' }, 'ask'],
+      [{ platform: 'linux', noSandbox: true, accepted: true }, 'accepted'], [{ platform: 'linux', noSandbox: true, acceptEnvironment: '1' }, 'accepted'],
+      [{ platform: 'linux', noSandbox: 'yes' }, 'start'],
+    ];
+    for (const [input, expected] of cases) assert.equal(gate(input), expected, JSON.stringify(input));
   });
 });

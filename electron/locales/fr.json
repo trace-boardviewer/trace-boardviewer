@@ -311,5 +311,11 @@
   "native.dialog.rendererGone": "L’interface s’est arrêtée de façon inattendue. Elle va être rechargée.",
   "native.dialog.unresponsive": "L’interface ne répond pas. Attendre encore un peu ou fermer la fenêtre.",
   "native.dialog.unresponsiveWait": "Attendre",
-  "native.dialog.unresponsiveClose": "Fermer la fenêtre"
+  "native.dialog.unresponsiveClose": "Fermer la fenêtre",
+  "native.dialog.noSandboxMessage": "Le bac à sable de Chromium n’est pas disponible sur ce système.",
+  "native.dialog.noSandboxRisk": "TRACE a été lancé avec --no-sandbox, généralement parce que ce système Linux n’autorise pas les espaces de noms utilisateur non privilégiés (Ubuntu 23.10 et les versions ultérieures les restreignent). Sans bac à sable, un fichier boardview, PDF ou image malveillant qui exploite un bug de TRACE ou de Chromium a plus de chances d’atteindre le reste du système.",
+  "native.dialog.noSandboxAdvice": "Recommandé : installer le paquet .deb plutôt que l’AppImage. Il garde le bac à sable actif (sous Ubuntu grâce à un profil AppArmor).",
+  "native.dialog.noSandboxQuit": "Quitter",
+  "native.dialog.noSandboxStart": "Démarrer sans bac à sable",
+  "native.dialog.noSandboxRemember": "Ne plus demander"
 }

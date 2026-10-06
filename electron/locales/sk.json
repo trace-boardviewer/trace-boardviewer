@@ -316,5 +316,11 @@
   "native.dialog.rendererGone": "Rozhranie sa neočakávane ukončilo. Načíta sa znova.",
   "native.dialog.unresponsive": "Rozhranie neodpovedá. Môžeš ešte chvíľu počkať alebo zavrieť okno.",
   "native.dialog.unresponsiveWait": "Počkať",
-  "native.dialog.unresponsiveClose": "Zavrieť okno"
+  "native.dialog.unresponsiveClose": "Zavrieť okno",
+  "native.dialog.noSandboxMessage": "Sandbox Chromium nie je v tomto systéme k dispozícii.",
+  "native.dialog.noSandboxRisk": "TRACE sa spustil s prepínačom --no-sandbox, zvyčajne preto, že tento linuxový systém nepovoľuje neprivilegované používateľské menné priestory (Ubuntu 23.10 a novšie ich obmedzujú). Bez sandboxu má škodlivý súbor boardview, PDF alebo obrázok, ktorý zneužije chybu v TRACE alebo v Chromiu, väčšiu šancu dostať sa k zvyšku systému.",
+  "native.dialog.noSandboxAdvice": "Odporúčame: namiesto AppImage nainštaluj balík .deb. Ten ponechá sandbox zapnutý (v Ubuntu pomocou profilu AppArmor).",
+  "native.dialog.noSandboxQuit": "Ukončiť",
+  "native.dialog.noSandboxStart": "Spustiť bez sandboxu",
+  "native.dialog.noSandboxRemember": "Už sa nepýtať"
 }
