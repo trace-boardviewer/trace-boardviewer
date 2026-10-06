@@ -280,6 +280,24 @@ describe('sheets and declared nets', () => {
       { path: 'sheet:2', defId: 'sheet:2', name: 'Sheet 2', page: '2', parentPath: null, sheetRefId: null, childPaths: [], depth: 0 }]);
     expect(s.defs.every(d => d.file === 'test.sch' && d.sheetRefs.length === 0)).toBe(true);
   });
+  it('names a sheet from its description in linear time even when the description is a run of "<" without any ">", and strips markup from it', () => {
+    const timed = <T>(work: () => T): { value: T; ms: number } => { const started = performance.now(); const value = work(); return { value, ms: performance.now() - started }; };
+    const titled = (description: string) => must(document({ parts: part('R1', 'R', '0805'), sheets: sheet(inst('R1', 'G$1', 10, 10), '', `<description language="en">${description}</description>`) })).defs[0].title;
+    // Ascending sizes: a tag pattern that rescans to the end of the text from every "<" needs about 1 s for 100,000 of them, so a regression fails at the second size.
+    for (const count of [1000, 40_000, 200_000]) {
+      for (const [label, description, expected] of [
+        ['entities for "<"', '&lt;'.repeat(count) + 'x', '<'.repeat(200)], ['"<" alternating with text', '&lt;a'.repeat(count), '<a'.repeat(100)],
+        ['one closing ">" at the very end', `${'&lt;'.repeat(count)}&gt;`, ''], ['a tag, then the run', `&lt;b&gt;${'&lt;'.repeat(count)}`, '<'.repeat(200)],
+      ] as const) {
+        const result = timed(() => titled(description));
+        expect(result.value, `${count}: ${label}`).toBe(expected);
+        expect(result.ms, `${count}: ${label}`).toBeLessThan(250);
+      }
+    }
+    expect(titled('Power &lt;b&gt;&amp;&lt;/b&gt;  input')).toBe('Power & input');
+    expect(titled('a &lt;&lt;b&gt; c &lt; d')).toBe('a c < d');
+    expect(titled('&lt;&gt;x&lt;&gt;')).toBe('x');
+  });
   it('merges a net name that appears on several sheets into one declared net, without duplicate pins', () => {
     expect(s.declaredNets?.map(n => n.name)).toEqual(['GND', 'SIG']);
     const gnd = s.declaredNets?.find(n => n.name === 'GND');

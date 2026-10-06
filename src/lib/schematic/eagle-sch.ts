@@ -226,11 +226,28 @@ class Box {
   bounds(): SchBounds { return this.empty ? { minX: 0, minY: 0, maxX: 0, maxY: 0 } : { minX: this.minX, minY: this.minY, maxX: this.maxX, maxY: this.maxY }; }
 }
 
+/**
+ * Replaces every "<...>" span (up to the first ">" after a "<") with a space; a "<" with no ">" after it stays. One pass over the text:
+ * the pattern `/<[^>]*>/g` rescans to the end from every "<" when no ">" follows, which is quadratic (a description of 100,000 "&lt;").
+ */
+function stripTags(text: string): string {
+  let out = '', from = 0;
+  for (;;) {
+    const open = text.indexOf('<', from);
+    if (open < 0) break;
+    const close = text.indexOf('>', open + 1);
+    if (close < 0) break;
+    out += `${text.slice(from, open)} `;
+    from = close + 1;
+  }
+  return out + text.slice(from);
+}
+
 const descriptionOf = (node: Xml | undefined): string => {
   const value = node?.description;
   const first = Array.isArray(value) ? value[0] : value;
   const text = typeof first === 'string' ? first : obj(first) ? content(obj(first) as Xml) : '';
-  return decodeEntities(text).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+  return stripTags(decodeEntities(text)).replace(/\s+/g, ' ').trim().slice(0, 200);
 };
 
 const ALIGN_H: Record<string, number> = { left: 0, center: 1, right: 2 }, ALIGN_V: Record<string, number> = { bottom: 0, center: 1, top: 2 };

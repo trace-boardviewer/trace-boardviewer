@@ -303,7 +303,8 @@ function parseComp(lines: string[], start: number, defId: string, diags: Diags):
       position = [num(t[1], 'x', where), num(t[2], 'y', where)];
     } else if (t[0] === 'AR') {
       const attrs: Record<string, string> = {};
-      for (const m of row.matchAll(/(\w+)="((?:[^"\\]|\\.)*)"/g)) attrs[m[1]] = m[2].replace(/\\(["\\])/g, '$1');
+      // `\b`: a name starts at the start of a word. Without it every letter of a long run of word characters without `="` is tried as a start (quadratic); the matches are the same.
+      for (const m of row.matchAll(/\b(\w+)="((?:[^"\\]|\\.)*)"/g)) attrs[m[1]] = m[2].replace(/\\(["\\])/g, '$1');
       if (attrs.Path === undefined) throw invalid(`${where}: AR record has no Path`);
       ar.push({ path: attrs.Path, ref: attrs.Ref ?? '', part: attrs.Part === undefined ? NaN : int(attrs.Part, 'AR Part', where, 0) });
     } else if (fieldMatch) {

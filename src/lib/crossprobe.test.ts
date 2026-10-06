@@ -651,6 +651,27 @@ describe('PDF hits -> board', () => {
     expect(link.hits.map(h => h.literal)).toEqual(['exact', 'unknown']);
     expect(link.reasons).toEqual(expect.arrayContaining(['duplicate-hits', 'unverified-hit-text']));
   });
+  it('compares the letters of a hit in linear time when a name or the hit text holds a long run of punctuation', () => {
+    const timed = <T>(work: () => T): { value: T; ms: number } => { const started = performance.now(); const value = work(); return { value, ms: performance.now() - started }; };
+    // Ascending sizes: an end-anchored `[...]+$` pattern retries every position of the run and needs about 1 s for 40,000 characters, so a regression fails at the second size.
+    for (const count of [1000, 40_000, 200_000]) {
+      const dots = '.'.repeat(count), long = `x${dots}y`, pairs = '. '.repeat(count / 2);
+      const result = timed(() => resolvePdfRefHits([
+        cand('net', long, [hit(1, 1, long), hit(2, 2, `X${dots}Y`), hit(3, 3, 'unrelated text')]),
+        cand('net', `x${pairs}y`, [hit(1, 4, `x${pairs}y`)]),
+        cand('ref', 'R2', [hit(1, 5, `${dots}R2${dots}`), hit(1, 6, `see (r2)${dots}`)]),
+      ], board));
+      const link = (name: string) => result.value.links.find(l => l.name === name)!;
+      expect(link(long), `${count}`).toMatchObject({ status: 'missing', hitsTotal: 2, caseInsensitiveHitsTotal: 1 });
+      expect(link(long).hits.map(h => h.literal), `${count}`).toEqual(['exact', 'unknown']);
+      expect(link(long).caseInsensitiveHits.map(h => h.literal), `${count}`).toEqual(['case-differs']);
+      expect(link(`x${pairs}y`).hits.map(h => h.literal), `${count}`).toEqual(['unknown']); // the spaces split the hit text into tokens, none equals the name
+      expect(link('R2'), `${count}`).toMatchObject({ status: 'unique', hitsTotal: 1, caseInsensitiveHitsTotal: 1 });
+      expect(link('R2').hits.map(h => h.literal), `${count}`).toEqual(['exact']);
+      expect(link('R2').caseInsensitiveHits.map(h => h.literal), `${count}`).toEqual(['case-differs']);
+      expect(result.ms, `${count}`).toBeLessThan(250);
+    }
+  });
   it('resolves several documents independently', () => {
     const reports = resolvePdfDocuments([
       { documentId: 'a', result: [cand('ref', 'U1', [hit(1, 1, 'U1')])] },

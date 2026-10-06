@@ -506,7 +506,9 @@ export const isValidCalibration = (value: Calibration | null | undefined): value
  * finite and greater than zero. Anything else is an error message for the user, never a guess.
  */
 export function parseKnownDistanceMm(text: string): { ok: true; value: number } | { ok: false; message: string } {
-  const normalized = text.trim().replace(/\s*mm$/i, '').replace(',', '.');
+  // The unit is cut off by hand: `\s*mm$` retries every position of a long run of blanks inside the text (quadratic for a pasted block of them).
+  const trimmed = text.trim();
+  const normalized = (/mm$/i.test(trimmed) ? trimmed.slice(0, -2).trimEnd() : trimmed).replace(',', '.');
   const value = /^\+?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(normalized) ? Number(normalized) : Number.NaN;
   return Number.isFinite(value) && value > 0 ? { ok: true, value } : { ok: false, message: 'Enter the known distance as a positive number of millimetres.' };
 }

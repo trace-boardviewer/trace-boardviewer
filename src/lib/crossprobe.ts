@@ -1042,9 +1042,16 @@ export interface PdfLinkReport {
 export interface PdfLinkOptions { documentId?: string; truncated?: boolean; totalHits?: number; maxLinks?: number; maxHitsPerLink?: number }
 export const DEFAULT_PDF_LINK_LIMITS = Object.freeze({ maxLinks: 1000, maxHitsPerLink: 25 });
 
-const edgePunctuation = /^[\s()[\]{}<>.,;:!?"'`*]+|[\s()[\]{}<>.,;:!?"'`*]+$/g;
+const edgeCharacter = /[\s()[\]{}<>.,;:!?"'`*]/;
 const tokenPattern = /[^\s,;:()[\]{}<>"'|=]+/g;
-const edgeKey = (value: string): string => value.normalize('NFKC').trim().replace(edgePunctuation, '').replace(/\s+/g, ' ');
+/** Drops the leading and the trailing run of edge characters, one pass from each end (an end-anchored `[...]+$` pattern is quadratic on a long run inside a text). Same rule as `normalizeToken` in pdf/search.ts. */
+function stripEdges(value: string): string {
+  let start = 0, end = value.length;
+  while (start < end && edgeCharacter.test(value[start])) start++;
+  while (end > start && edgeCharacter.test(value[end - 1])) end--;
+  return start === 0 && end === value.length ? value : value.slice(start, end);
+}
+const edgeKey = (value: string): string => stripEdges(value.normalize('NFKC').trim()).replace(/\s+/g, ' ');
 
 /** Which letters the PDF text really has: the session matches uppercase, so a hit may be "r1" for the board's "R1". */
 function hitLiteral(context: string, name: string): PdfHitLiteral {

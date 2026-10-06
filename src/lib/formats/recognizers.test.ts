@@ -105,6 +105,22 @@ describe('recognizeUnsupported', () => {
     expect(recognizeUnsupported({ name: 'board.cad', data: enc.encode(noisy) })).toBeNull();
   });
 
+  it('screens a head of blank lines in linear time, and a GenCAD keyword that starts a line (after blanks) still vetoes the Mentor rule', () => {
+    const timed = <T>(work: () => T): { value: T; ms: number } => { const started = performance.now(); const value = work(); return { value, ms: performance.now() - started }; };
+    // The scanned head is at most 64 KiB. Ascending sizes: a guard whose blank run crosses line breaks needs about 0.4 s for 16 KiB and 6 s for 64 KiB, so a regression fails at the second size.
+    for (const size of [4096, 16_384, 65_536]) {
+      for (const [label, text] of [['blank lines', '\n'.repeat(size)], ['lines of one space', ' \n'.repeat(size / 2)], ['CRLF blank lines', '\r\n'.repeat(size / 2)], ['indented blank lines', '  \t\n'.repeat(size / 4)]] as const) {
+        const result = timed(() => detectUnsupported(enc.encode(text)));
+        expect(result.value, `${size}: ${label}`).toBeNull();
+        expect(result.ms, `${size}: ${label}`).toBeLessThan(250);
+      }
+    }
+    const mentor = '# file : a\n# date : b\n';
+    expect(detectUnsupported(enc.encode(mentor))?.id).toBe('mentor-neutral');
+    for (const veto of ['$HEADER\n', '  \t$HEADER\n', '\n\n   \n$header\n', 'GENCAD 1.4\n', '\n \n\t gencad\t1.4\n', '$HEADER']) expect(detectUnsupported(enc.encode(mentor + veto)), JSON.stringify(veto)).toBeNull();
+    for (const noVeto of ['x $HEADER\n', '$HEADERS\n', '$HEADER_\n', 'GENCADx\n', 'GENCAD', '# $HEADER\n', '\n  x\n  $HEADERS\n']) expect(detectUnsupported(enc.encode(mentor + noVeto))?.id, JSON.stringify(noVeto)).toBe('mentor-neutral');
+  });
+
   it('accepts harmless variations: CRLF, BOM, optional XML declaration, comments and DOCTYPE before the IPC root', () => {
     const asBytes = (text: string) => enc.encode(text);
     expect(detectUnsupported(asBytes(IPC.replace(/\n/g, '\r\n')))).toMatchObject({ id: 'ipc2581', detail: 'C' });

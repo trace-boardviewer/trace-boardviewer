@@ -155,7 +155,9 @@ function parseBrd2(input: ParseInput, text: string): Board {
   let section = '', width = 0, height = 0;
   for (const rawLine of text.split(/\r\n|\r|\n/)) {
     const line = rawLine.trim(); if (!line) continue;
-    const heading = /^(BRDOUT|NETS|PARTS|PINS|NAILS):\s*(.*)$/.exec(line);
+    // `(?!\s)` makes the leading whitespace run maximal: without it `\s*` and `.*` share the spaces, so a long run of them followed by a
+    // line separator inside the line ("PINS:      x\u2028y") is retried from every length (quadratic). Same matches and captures.
+    const heading = /^(BRDOUT|NETS|PARTS|PINS|NAILS):\s*(?!\s)(.*)$/.exec(line);
     if (heading) {
       section = heading[1];
       if (rows.has(section)) fail(`duplicate ${section} section.`);

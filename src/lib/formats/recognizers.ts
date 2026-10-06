@@ -102,7 +102,9 @@ function gerber(head: string, tail: string): Detection | null {
   return { id: 'gerber', detail: GERBER_UNITS.exec(head)?.[1] };
 }
 
-const GENCAD_GUARD = /^\s*\$HEADER\b|^\s*GENCAD\s/im;
+// The blank before a keyword is horizontal: `^\s*` crossed line breaks, so a head of blank or space-only lines was retried from every line
+// start (quadratic: about 6 s for 64 KiB). A keyword that follows only blanks on its own line is found by both; the verdict is the same.
+const GENCAD_GUARD = /^[^\S\n\r\u2028\u2029]*(?:\$HEADER\b|GENCAD\s)/im;
 function mentorNeutral(head: string): Detection | null {
   const lines = head.slice(0, 4096).replace(/^\uFEFF|^\xEF\xBB\xBF/, '').split(/\r?\n/).map(line => line.trim()).filter(Boolean).slice(0, 4);
   return /^#\s*file\s*:/i.test(lines[0] ?? '') && lines.slice(1).some(line => /^#\s*date\s*:/i.test(line)) ? { id: 'mentor-neutral' } : null;

@@ -302,6 +302,27 @@ describe('TOPTEST BRD2', () => {
     expect(thrown(BRD2.replace('1 150 150 2 1\n', '1 150 150 2\n')).message).toMatch(/test point needs five fields/);
     expect(thrown(BRD2.replace('150 150 2 1\n', '150 150 2 1 9\n')).message).toMatch(/pin needs four fields/);
   });
+
+  it('reads section headings and ignores a line of blanks cut by a line separator in linear time', () => {
+    const separator = String.fromCharCode(0x2028);
+    const timed = <T>(work: () => T): { value: T; ms: number } => { const started = performance.now(); const value = work(); return { value, ms: performance.now() - started }; };
+    const golden = must(BRD2);
+    // Ascending sizes: a heading pattern whose blank run and "rest of the line" share the spaces retries every length and needs about 1 s for 40,000 blanks, so a regression fails at the second size.
+    for (const count of [1000, 40_000, 200_000]) {
+      const blanks = ' '.repeat(count);
+      for (const [label, noise] of [['line separator after the text', `PINS:${blanks}x${separator}y`], ['two separators', `NAILS:${blanks}x${separator}${blanks}${separator}y`], ['a heading word that is no heading', `PINSX:${blanks}x${separator}y`]] as const) {
+        const result = timed(() => must(`${noise}\n${BRD2}`));
+        expect(result.value, `${count}: ${label}`).toEqual(golden);
+        expect(result.ms, `${count}: ${label}`).toBeLessThan(250);
+      }
+      // The same blanks after a real heading are skipped: the count is read behind them, whatever the blank characters are.
+      const spaced = timed(() => must(BRD2.replace('NETS: 3', `NETS:${blanks}\t3`).replace('PARTS: 3', `PARTS:${String.fromCharCode(0xa0)}${blanks}3`)));
+      expect(spaced.value, `${count}: spaced headings`).toEqual(golden);
+      expect(spaced.ms, `${count}: spaced headings`).toBeLessThan(250);
+    }
+    // A heading whose rest holds a line separator is not a heading (it is a data row of the section above), exactly as before.
+    expect(thrown(BRD2.replace('NETS: 3', `NETS: 3${separator}4`)).message).toMatch(/BRDOUT count does not match its header/);
+  });
 });
 
 describe('BRD / BRD2 malformed input', () => {

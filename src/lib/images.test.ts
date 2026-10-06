@@ -609,6 +609,24 @@ describe('typed calibration distance', () => {
     for (const text of ['1'.repeat(40_000) + 'x', '1'.repeat(40_000) + '.x', '1'.repeat(40_000)]) expect(parseKnownDistanceMm(text), text.slice(-1)).toMatchObject({ ok: false });
     expect(performance.now() - started).toBeLessThan(250);
   });
+  it('cuts the "mm" unit in linear time when the text holds a long run of blanks', () => {
+    const timed = <T>(work: () => T): { value: T; ms: number } => { const started = performance.now(); const value = work(); return { value, ms: performance.now() - started }; };
+    // Ascending sizes: `\s*mm$` retries every position of the run and needs about 1 s for 40,000 blanks, so a regression fails at the second size.
+    for (const count of [1000, 40_000, 200_000]) {
+      const blanks = ' '.repeat(count), tabs = '\t'.repeat(count);
+      for (const [label, text, expected] of [
+        ['blanks and a letter', `1${blanks}x`, false], ['blanks, a letter and the unit', `1${blanks}x mm`, false], ['the unit after the blanks', `1${blanks}mm`, true],
+        ['tabs and the unit after the blanks', `5${tabs}mm`, true], ['blanks between digits', `1${blanks}2 mm`, false], ['blanks only', `${blanks}mm${blanks}`, false],
+      ] as const) {
+        const result = timed(() => parseKnownDistanceMm(text));
+        expect(result.value.ok, `${count}: ${label}`).toBe(expected);
+        expect(result.ms, `${count}: ${label}`).toBeLessThan(250);
+      }
+    }
+    expect(parseKnownDistanceMm('1   mm')).toEqual({ ok: true, value: 1 });
+    expect(parseKnownDistanceMm('1 mm mm')).toMatchObject({ ok: false });
+    expect(parseKnownDistanceMm('mm')).toMatchObject({ ok: false });
+  });
   it('validates stored calibrations before they are trusted', () => {
     expect(isValidCalibration({ pixelsPerMm: 12 })).toBe(true);
     for (const bad of [undefined, null, { pixelsPerMm: 0 }, { pixelsPerMm: -1 }, { pixelsPerMm: Number.NaN }, { pixelsPerMm: Number.POSITIVE_INFINITY }]) expect(isValidCalibration(bad)).toBe(false);

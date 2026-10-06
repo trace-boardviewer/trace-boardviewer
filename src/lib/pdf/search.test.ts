@@ -33,6 +33,38 @@ describe('normalizeToken fast path', () => {
     }
     for (const value of ['', ' ', '...', '(PU301)', 'gnd,', '+3.3V', '~RESET', 'ａｂｃ', 'Ⅳ', 'a  b', 'ß']) expect(normalizeToken(value)).toBe(reference(value));
   });
+
+  it('strips edge punctuation in linear time: a long run of punctuation or spaces inside a text, in a token or in a reference name', () => {
+    const timed = <T>(work: () => T): { value: T; ms: number } => { const started = performance.now(); const value = work(); return { value, ms: performance.now() - started }; };
+    // Ascending sizes: an end-anchored `[...]+$` pattern retries every position of the run and needs about 2 s for 40,000 characters, so a regression fails at the second size.
+    for (const count of [1000, 40_000, 200_000]) {
+      const dots = '.'.repeat(count), spaces = ' '.repeat(count), pairs = '. '.repeat(count / 2), brackets = '('.repeat(count);
+      const cases: Array<[string, string, string]> = [
+        ['dots inside', `x${dots}y`, `X${dots}Y`],
+        ['spaces inside', `x${spaces}y`, 'X Y'],
+        ['punctuation and spaces alternating inside', `x${pairs}y`, `X${pairs}Y`],
+        ['brackets inside, one pair around', `(x${brackets}y)`, `X${brackets}Y`],
+        ['runs on both edges', `${dots}x${dots}`, 'X'],
+        ['punctuation and spaces only', `${dots}${spaces}`, ''],
+        ['spaces on the left, punctuation inside', `${spaces}x${dots}y`, `X${dots}Y`],
+      ];
+      for (const [label, value, expected] of cases) {
+        const result = timed(() => normalizeToken(value));
+        expect(result.value, `${count}: ${label}`).toBe(expected);
+        expect(result.ms, `${count}: ${label}`).toBeLessThan(250);
+      }
+      // The same text as a token of a text item and as a reference name goes through the cross-reference scan.
+      const token = `x${dots}y`;
+      const scan = timed(() => extractRefCandidatesBounded(indexOf([item(`R1 ${token}`)]), new Set(['R1', token]), new Set()));
+      expect(scan.value.candidates.map(candidate => [candidate.name === token ? 'long' : candidate.name, candidate.hits.length]), `${count}: scan`).toEqual([['R1', 1], ['long', 1]]);
+      expect(scan.ms, `${count}: scan`).toBeLessThan(250);
+    }
+    // Only the two edges are stripped, whatever the characters are.
+    expect(normalizeToken('  ("(a.b)")  ')).toBe('A.B');
+    expect(normalizeToken('\u00a0\u2003*x*\ufeff')).toBe('X');
+    expect(normalizeToken('a . . b')).toBe('A . . B');
+    expect(normalizeToken('...')).toBe('');
+  });
 });
 
 describe('bounded cross-reference scan (B35)', () => {

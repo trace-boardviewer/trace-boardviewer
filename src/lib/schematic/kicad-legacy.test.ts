@@ -1064,6 +1064,26 @@ describe('robustness', () => {
     expect(accepted).toBeGreaterThan(50);
     expect(rejected).toBeGreaterThan(50);
   });
+
+  it('reads an AR record padded with a long run of word characters in linear time, and still finds every attribute', () => {
+    const timed = <T>(work: () => T): { value: T; ms: number } => { const started = performance.now(); const value = work(); return { value, ms: performance.now() - started }; };
+    const attributes = 'Path="/5F000001" Ref="R7" Part="2"';
+    // Ascending sizes: a pattern that restarts at every letter of the run needs about 1 s for 40,000 characters, so a regression fails at the second size.
+    for (const count of [1000, 40_000, 200_000]) {
+      const run = 'a'.repeat(count);
+      for (const [label, entry] of [['after', `${attributes} ${run}`], ['before', `${run} ${attributes}`], ['between', `Path="/5F000001" ${run} Ref="R7" Part="2"`], ['ending in "="', `${attributes} ${run}=`]] as const) {
+        const result = timed(() => must(sheet(comp({ lib: 'Device_R', ref: 'R1', x: 0, y: 0, ar: [entry] })), withCache()));
+        expect(sym(result.value, 'R1').instances, `${count}: ${label}`).toEqual({ '': { ref: 'R7', unit: 2 } });
+        expect(result.ms, `${count}: ${label}`).toBeLessThan(250);
+      }
+    }
+    // Names start at a word boundary and values keep their escapes.
+    const read = (entry: string) => sym(must(sheet(comp({ lib: 'Device_R', ref: 'R1', x: 0, y: 0, ar: [entry] })), withCache()), 'R1').instances;
+    expect(read('Path="/5F000001" Ref="R\\"7" Part="1"')).toEqual({ '': { ref: 'R"7', unit: 1 } });
+    expect(read('xPath="/5F000002" Path="/5F000001" Ref="R8"')).toEqual({ '': { ref: 'R8', unit: 1 } });
+    expect(read('-Path="/5F000001" Ref="R9" _Part="3" Part="4"')).toEqual({ '': { ref: 'R9', unit: 4 } });
+    expect(read('Path="/5F000001"Ref="R3"')).toEqual({ '': { ref: 'R3', unit: 1 } }); // the next name may follow the closing quote directly
+  });
 });
 
 // ---------------------------------------------------------------------------------------------------------------

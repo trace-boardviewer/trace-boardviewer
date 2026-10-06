@@ -199,15 +199,27 @@ export function findTextAsync(index: TextIndex, query: string, options: FindOpti
   return driveCooperatively(findSteps(index, query, findOptions, signal), signal, 'The search was cancelled.');
 }
 
-const edgePunctuation = /^[\s()[\]{}<>.,;:!?"'`*]+|[\s()[\]{}<>.,;:!?"'`*]+$/g;
+const edgeCharacter = /[\s()[\]{}<>.,;:!?"'`*]/;
 const plainAscii = /^[\x21-\x7e]+$/;
 const edgeCharacters = '()[]{}<>.,;:!?"\'`*';
+
+/**
+ * Drops the leading and the trailing run of edge characters (whitespace and ( ) [ ] { } < > . , ; : ! ? " ' ` *).
+ * One pass from each end: an end-anchored `[...]+$` pattern retries every position of a long run in the middle of a
+ * text, which is quadratic (8.6 s for 80,000 characters).
+ */
+function stripEdges(value: string): string {
+  let start = 0, end = value.length;
+  while (start < end && edgeCharacter.test(value[start])) start++;
+  while (end > start && edgeCharacter.test(value[end - 1])) end--;
+  return start === 0 && end === value.length ? value : value.slice(start, end);
+}
 
 export function normalizeToken(value: string): string {
   // Fast path (the overwhelming majority of tokens): printable ASCII without whitespace or edge punctuation
   // is invariant under NFKC, trimming and edge stripping, so only the case fold remains.
   if (value.length > 0 && plainAscii.test(value) && !edgeCharacters.includes(value[0]) && !edgeCharacters.includes(value[value.length - 1])) return value.toUpperCase();
-  return value.normalize('NFKC').trim().replace(edgePunctuation, '').replace(/\s+/g, ' ').toUpperCase();
+  return stripEdges(value.normalize('NFKC').trim()).replace(/\s+/g, ' ').toUpperCase();
 }
 
 const tokenPattern = /[^\s,;:()[\]{}<>"'|=]+/g;
