@@ -36,7 +36,7 @@ kbd { background: var(--bg-3); border: 1px solid var(--line); border-radius: 5px
 header.top { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
 header.top .wrap { display: flex; align-items: center; gap: 14px; min-height: 56px; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: 0.02em; color: var(--fg); }
-.brand svg { width: 26px; height: 26px; }
+.brand img { width: 28px; height: 28px; flex: none; }
 nav.main { margin-left: auto; display: flex; gap: 4px; flex-wrap: wrap; }
 nav.main a, .btn { display: inline-block; padding: 7px 12px; border-radius: 8px; color: var(--fg-2); }
 nav.main a:hover { background: var(--bg-3); color: var(--fg); text-decoration: none; }
