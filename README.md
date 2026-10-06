@@ -4,8 +4,10 @@
 
 <h1 align="center">TRACE Boardviewer</h1>
 
-<p align="center"><strong>Board, schematic and datasheet in one offline window.</strong><br>
-A free boardviewer and repair workspace for electronics technicians.</p>
+<p align="center"><strong>Free, open-source boardviewer for electronics repair.</strong><br>
+Open a boardview or PCB file (KiCad, EAGLE, BVR, GenCAD and more) next to its schematic and PDF datasheets, offline and without an account.</p>
+
+<p align="center"><a href="https://trace-boardviewer.github.io/"><strong>Website · 1-minute demo · guides</strong></a></p>
 
 <p align="center">
   <a href="https://github.com/trace-boardviewer/trace-boardviewer/releases/latest"><img src="docs/readme/download-windows.svg" width="248" height="56" alt="Download for Windows"></a>
@@ -112,6 +114,8 @@ Translations live in `electron/locales/`. See [CONTRIBUTING.md](CONTRIBUTING.md)
 - **GenCAD 1.4** (`.cad`, `.gcd`), **KiCad PCB**, **EAGLE board XML** and **BVRAW_FORMAT_3** boardviews (as written by kicad-boardview) are validated with real files, and so are the KiCad and EAGLE schematic readers and the PDF and image viewers (open designs: KiCad 9 demo, SparkFun RedBoard, Antmicro Jetson Nano baseboard, Raspberry Pi Pico). See the table for what each validation covers and what it does not.
 - Landrex/TestLink BRD, TOPTEST BRD2, Honhan BDV, BVR (other than BVRAW_FORMAT_3), the ASC trio, FZ/CAE (RC6 key), XZZ PCB (optional DES key), CAST CST, Samsung CAD and Altium PcbDoc are **draft**: adapters exist and are proven on original synthetic fixtures only. No vendor file was available, no key ships with TRACE, and encrypted files need a key the user supplies for the session.
 - Mentor Neutral, Allegro BRD, Gerber, ODB++ and IPC-2581 are **recognized by their bytes and explained, not imported**; TVW is accepted by extension only.
+
+Guides on the website: [free EAGLE viewer](https://trace-boardviewer.github.io/eagle-viewer/) · [open a .brd file](https://trace-boardviewer.github.io/open-brd-file/) · [open a .bvr file](https://trace-boardviewer.github.io/open-bvr-file/) · [comparison with other boardviewers](https://trace-boardviewer.github.io/boardview-software-comparison/)
 - Schematics: KiCad `.kicad_sch` (6.0–9.0), KiCad legacy `.sch` (with its `-cache.lib`/`.lib`) and EAGLE `.sch`. Altium schematics are not read.
 - A PDF is a document, not a boardview or a netlist. There is no OCR.
 - Files are limited to 64 MiB; larger or pathological inputs are rejected with a precise error rather than guessed.
@@ -231,5 +235,7 @@ pnpm qa:performance --label=after
 ## Share and contribute
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for code, translation and format contributions, and [RELEASING.md](RELEASING.md) for the Windows build and draft-release workflow. GitHub Actions tests and builds the application without any private board data. Release binaries belong in GitHub Releases rather than in Git history.
+
+If TRACE saves you time, a GitHub star helps other technicians find it.
 
 TRACE's original code and artwork use the [MIT license](LICENSE). Bundled dependencies and fonts retain their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

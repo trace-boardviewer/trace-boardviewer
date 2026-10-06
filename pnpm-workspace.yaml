@@ -4,5 +4,10 @@ allowBuilds:
   esbuild: true
 minimumReleaseAgeExclude:
   - lucide-react@1.52.0
+# sprintf-js (GHSA-hp3w-g68c-fv3c) has no patched release. It is only reached through
+# @electron/get > global-agent 3 > roarr, an optional proxy helper of the build tooling.
+# global-agent 4 no longer depends on roarr or sprintf-js.
+overrides:
+  global-agent@<4: ^4.1.3
 patchedDependencies:
   app-builder-lib@26.15.3: patches/app-builder-lib@26.15.3.patch

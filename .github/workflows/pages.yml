@@ -1,8 +1,9 @@
-name: GitHub Pages (site/)
+name: GitHub Pages (redirects)
 
-# Publishes the static site in site/ to GitHub Pages. Runs only on pushes to main that touch site/ or this file,
-# and on manual dispatch. No build step: the folder is uploaded as-is. Actions are pinned to commits; the
-# comment names the tag they were resolved from (git ls-remote, 2026-10-05).
+# The website moved to https://trace-boardviewer.github.io/ (repository trace-boardviewer.github.io). This workflow keeps
+# publishing site/ of this repository, which holds only redirects from the old address. Runs on pushes to main that
+# touch site/ or this file, and on manual dispatch. No build step: the folder is uploaded as-is. Actions are pinned to
+# commits; the comment names the tag they were resolved from (git ls-remote, 2026-10-05).
 
 on:
   push:
@@ -12,8 +13,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
@@ -26,6 +25,10 @@ jobs:
     if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

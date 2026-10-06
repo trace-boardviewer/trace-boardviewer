@@ -4,8 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TRACE Boardviewer has moved</title>
-<link rel="canonical" href="https://trace-boardviewer.github.io/">
-<meta http-equiv="refresh" content="0; url=https://trace-boardviewer.github.io/">
+<meta name="robots" content="noindex">
+<script>
+  // The old address /trace-boardviewer/<page> maps to /<page> on the new site.
+  (function () {
+    var p = location.pathname.replace(/^\/trace-boardviewer(\/|$)/, '/');
+    location.replace('https://trace-boardviewer.github.io' + p + location.hash);
+  })();
+</script>
 </head>
 <body>
 <p>TRACE Boardviewer has moved to <a href="https://trace-boardviewer.github.io/">https://trace-boardviewer.github.io/</a>.</p>

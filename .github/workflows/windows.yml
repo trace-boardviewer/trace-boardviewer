@@ -642,6 +642,10 @@ jobs:
             $traceAssets += @($traceFile, $traceChecksum)
           }
           @"
+          **TRACE Boardviewer ${env:TRACE_VERSION}** is a free, open-source (MIT) boardviewer and repair workspace for electronics technicians: open a board file (KiCad, EAGLE, BVR, GenCAD and several boardview formats), attach its schematic and PDF datasheets, search and cross-probe across all of them, and keep per-pin notes with measured values. Offline, no account, no telemetry.
+
+          Website, demo and guides: https://trace-boardviewer.github.io/ - What changed: https://github.com/trace-boardviewer/trace-boardviewer/blob/main/CHANGELOG.md
+
           Assets:
 
           - TRACE-Boardviewer-${env:TRACE_VERSION}.exe (+ .sha256): portable Windows x64 build. Download the EXE and run it directly; no installer or source folder is required.
@@ -653,7 +657,7 @@ jobs:
 
           User board files are not included.
 
-          Each .sha256 file verifies the download next to it. Review CHANGELOG.md and smoke-test both builds before publishing the draft.
+          Each .sha256 file verifies the download next to it.
           "@ | Set-Content -LiteralPath release-notes.md -Encoding utf8
           $traceArgs = @($env:TRACE_TAG) + $traceAssets + @('--draft', '--verify-tag', '--title', "TRACE Boardviewer $env:TRACE_VERSION", '--notes-file', 'release-notes.md')
           # A version with a prerelease suffix (1.3.0-rc.1) is created as a prerelease: GitHub never reports it as the latest
