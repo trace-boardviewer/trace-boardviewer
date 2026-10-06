@@ -9,7 +9,8 @@
 //   TRACE_ELECTRON_SMOKE=1 xvfb-run -a node --test tests/electron-smoke.cjs
 //
 // `--no-sandbox` is passed here only because the container runs as root; the application itself keeps
-// sandbox: true for its window. Skipped unless TRACE_ELECTRON_SMOKE=1 (needs a display and Electron).
+// sandbox: true for its window. TRACE_ACCEPT_NO_SANDBOX=1 answers the question main.cjs asks on Linux before it starts without
+// the Chromium sandbox. Skipped unless TRACE_ELECTRON_SMOKE=1 (needs a display and Electron).
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -65,7 +66,7 @@ test('real Electron: bridge surface, native errors with codes, workspace and doc
   const pdfFile = path.join(project, 'docs', 'ref.pdf');
   await fs.writeFile(pdfFile, PDF);
 
-  const env = { ...process.env, VITE_DEV_SERVER_URL: `http://127.0.0.1:${server.address().port}/` };
+  const env = { ...process.env, TRACE_ACCEPT_NO_SANDBOX: '1', VITE_DEV_SERVER_URL: `http://127.0.0.1:${server.address().port}/` };
   delete env.ELECTRON_RUN_AS_NODE;
   app = await _electron.launch({
     executablePath: electronExecutable(),
@@ -288,7 +289,7 @@ test('real Electron: closing the window and app.quit() wait for the renderer to 
     version: 1, board: { key, name: 'Board.cad', path: path.join(root, 'Board.cad'), format: 'gencad' }, documents: [],
     split: { enabled: false, ratio: 0.5, right: null }, activeTab: 'board', cameras: {}, updatedAt: NOW,
   };
-  const env = { ...process.env, VITE_DEV_SERVER_URL: `http://127.0.0.1:${server.address().port}/` };
+  const env = { ...process.env, TRACE_ACCEPT_NO_SANDBOX: '1', VITE_DEV_SERVER_URL: `http://127.0.0.1:${server.address().port}/` };
   delete env.ELECTRON_RUN_AS_NODE;
   for (const how of ['window close', 'app.quit()']) {
     const profile = path.join(root, `profile-${how.replace(/\W+/g, '-')}`);
@@ -334,7 +335,7 @@ test('real Electron: a gone renderer is reported and reloaded, a hung one can be
   const BOARD = '$HEADER\nGENCAD 1.4\nUNITS MM\n$ENDHEADER\n$BOARD\nLINE 0 0 10 0\n$ENDBOARD\n';
   const boardFile = path.join(root, 'Board.cad');
   await fs.writeFile(boardFile, BOARD);
-  const env = { ...process.env, VITE_DEV_SERVER_URL: `http://127.0.0.1:${server.address().port}/` };
+  const env = { ...process.env, TRACE_ACCEPT_NO_SANDBOX: '1', VITE_DEV_SERVER_URL: `http://127.0.0.1:${server.address().port}/` };
   delete env.ELECTRON_RUN_AS_NODE;
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const poll = async (check, limit = 200) => { for (let attempt = 0; attempt < limit && !(await check()); attempt++) await sleep(50); };

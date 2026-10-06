@@ -341,5 +341,11 @@
   "native.dialog.rendererGone": "Interfejs nieoczekiwanie przestał działać. Zostanie załadowany ponownie.",
   "native.dialog.unresponsive": "Interfejs nie odpowiada. Możesz jeszcze chwilę poczekać lub zamknąć okno.",
   "native.dialog.unresponsiveWait": "Czekaj",
-  "native.dialog.unresponsiveClose": "Zamknij okno"
+  "native.dialog.unresponsiveClose": "Zamknij okno",
+  "native.dialog.noSandboxMessage": "Piaskownica Chromium jest niedostępna w tym systemie.",
+  "native.dialog.noSandboxRisk": "TRACE uruchomiono z opcją --no-sandbox, zwykle dlatego, że ten system Linux nie zezwala na nieuprzywilejowane przestrzenie nazw użytkownika (Ubuntu 23.10 i nowsze je ograniczają). Bez piaskownicy złośliwy plik boardview, PDF lub obrazu, który wykorzystuje błąd w TRACE lub Chromium, ma większą szansę dotrzeć do reszty systemu.",
+  "native.dialog.noSandboxAdvice": "Zalecane: zainstaluj pakiet .deb zamiast AppImage. Pozostawia on piaskownicę włączoną (w Ubuntu dzięki profilowi AppArmor).",
+  "native.dialog.noSandboxQuit": "Zakończ",
+  "native.dialog.noSandboxStart": "Uruchom bez piaskownicy",
+  "native.dialog.noSandboxRemember": "Nie pytaj ponownie"
 }

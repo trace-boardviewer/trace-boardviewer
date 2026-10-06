@@ -311,5 +311,11 @@
   "native.dialog.rendererGone": "L'interfaccia si è interrotta in modo imprevisto. Verrà caricata di nuovo.",
   "native.dialog.unresponsive": "L'interfaccia non risponde. Puoi attendere ancora un po' o chiudere la finestra.",
   "native.dialog.unresponsiveWait": "Attendi",
-  "native.dialog.unresponsiveClose": "Chiudi la finestra"
+  "native.dialog.unresponsiveClose": "Chiudi la finestra",
+  "native.dialog.noSandboxMessage": "La sandbox di Chromium non è disponibile su questo sistema.",
+  "native.dialog.noSandboxRisk": "TRACE è stato avviato con --no-sandbox, di solito perché questo sistema Linux non consente i namespace utente non privilegiati (Ubuntu 23.10 e le versioni successive li limitano). Senza sandbox, un file boardview, PDF o immagine dannoso che sfrutta un bug di TRACE o di Chromium ha più probabilità di raggiungere il resto del sistema.",
+  "native.dialog.noSandboxAdvice": "Consigliato: installa il pacchetto .deb invece dell'AppImage. Mantiene attiva la sandbox (su Ubuntu con un profilo AppArmor).",
+  "native.dialog.noSandboxQuit": "Esci",
+  "native.dialog.noSandboxStart": "Avvia senza sandbox",
+  "native.dialog.noSandboxRemember": "Non chiedere più"
 }

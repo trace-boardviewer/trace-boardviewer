@@ -1,6 +1,8 @@
 node_modules/
 dist/
 release/
+release-linux/
+release-mac/
 test-results/
 coverage/
 playwright-report/

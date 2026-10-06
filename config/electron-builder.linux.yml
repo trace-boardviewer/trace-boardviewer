@@ -1,0 +1,97 @@
+# TRACE Boardviewer - Linux packaging (experimental): AppImage and .deb, one architecture per run.
+#
+# Use only through an explicit --config; the targets are always named on the command line (a bare --linux would also build
+# a snap, which needs tooling and a store account this project does not use):
+#   electron-builder --linux AppImage deb --x64 --config config/electron-builder.linux.yml --publish never
+#
+# With --config, electron-builder reads ONLY this file and ignores the "build" block of package.json
+# (app-builder-lib out/util/config/load.js: getConfig). `extends` cannot reuse that block either, so appId, productName, asar,
+# files and electronFuses below are copies and tests/linux-config-checks.cjs guards them against drift.
+# This file must stay out of the repository root: a root electron-builder.* name is auto-discovered.
+appId: hu.trace.boardviewer
+productName: TRACE Boardviewer
+directories:
+  # Separate from the Windows ("release") and macOS ("release-mac") output directories.
+  output: release-linux
+# Nothing is published and no auto-update metadata is embedded. Without this, electron-builder derives a GitHub provider
+# from the git remote and writes resources/app-update.yml (owner and repository name) into the app.
+publish: null
+# No "electronDist" here, on purpose. package.json points it at node_modules/electron/dist, which is the HOST Electron:
+# it would be copied unchanged whatever --x64 or --arm64 says. Without it the builder downloads the Linux Electron zip that
+# matches the requested architecture (checksum-verified).
+files:
+  - dist/**/*
+  - electron/**/*
+  - package.json
+  - assets/**/*
+  - LICENSE
+  - THIRD_PARTY_NOTICES.md
+  # Same exclusion as the macOS file: only pdfjs-dist's Node-only canvas path refers to it, and without this line the
+  # host's prebuilt .node binary is bundled and unpacked.
+  - '!node_modules/@napi-rs/**'
+asar: true
+# Merged into the builder's metadata and into the packaged package.json.
+# desktopName: Electron derives the Wayland app_id and the X11 WM_CLASS from it, so running windows match
+# trace-boardviewer.desktop (the builder derives StartupWMClass from it too, together with syncDesktopName below).
+# homepage: the Homepage field of the .deb; without it the builder derives one from the git remote of the build checkout.
+extraMetadata:
+  desktopName: trace-boardviewer.desktop
+  homepage: https://github.com/trace-boardviewer/trace-boardviewer
+# Electron fuses, flipped in the Linux executable right before packaging (app-builder-lib platformPackager.doAddElectronFuses).
+# The same set as the "build" block of package.json (tests/linux-config-checks.cjs keeps them equal); a fuse not listed keeps
+# Electron's default.
+electronFuses:
+  # No ELECTRON_RUN_AS_NODE: the binary cannot serve another program as a plain Node.js runtime.
+  runAsNode: false
+  # NODE_OPTIONS and NODE_EXTRA_CA_CERTS from the environment are ignored.
+  enableNodeOptionsEnvironmentVariable: false
+  # --inspect stays available: packaged-build smoke tests attach to the main process through it.
+  enableNodeCliInspectArguments: true
+  # Application code only from app.asar.
+  onlyLoadAppFromAsar: true
+  # Set for parity with the other platforms, inert on Linux: Electron 44 validates embedded ASAR integrity only on macOS
+  # and Windows.
+  enableEmbeddedAsarIntegrityValidation: true
+  enableCookieEncryption: true
+  # The UI and the pdf.js assets are loaded over file:// and fetch sibling files, which needs the extra privileges.
+  grantFileProtocolExtraPrivileges: true
+# Static AppImage runtime: needs no libfuse2 (absent from Ubuntu 22.04 and newer by default), and its desktop entry
+# carries no sandbox switch. Its AppRun adds the Chromium sandbox-off switch by itself ONLY when unprivileged user namespaces
+# are unavailable, and the app then asks before it starts that way (electron/main.cjs). Neither this file nor any launcher
+# entry ever sets that switch; appImage.executableArgs stays unset on purpose.
+toolsets:
+  appimage: '1.0.3'
+linux:
+  target:
+    - AppImage
+    - deb
+  # No space, so the executable, the desktop entry, the icon name and the AppArmor profile all share one name.
+  executableName: trace-boardviewer
+  # The SVG source of the icon, installed as hicolor/scalable/apps/<executableName>.svg (.deb and AppImage). Not the 1024x1024
+  # PNG: the builder installs a single PNG as it is, under hicolor/1024x1024, a size the hicolor theme does not list, so desktop
+  # menus and docks would not find the icon. Only the Linux targets read this option.
+  icon: assets/icon.svg
+  # Always contains the arch. The token differs per format (AppImage x86_64, deb amd64): the builder fills it in.
+  artifactName: 'TRACE-Boardviewer-${version}-linux-${arch}.${ext}'
+  category: 'Development;Electronics;'
+  synopsis: Offline boardviewer for electronics repair
+  description: 'Free, offline boardviewer for electronics repair: open a board file next to its schematic and PDF datasheets, search and cross-probe across them, and keep repair notes.'
+  # Never a person: the project name and a non-deliverable address (.invalid is reserved, RFC 2606).
+  maintainer: 'TRACE Boardviewer <noreply@trace-boardviewer.invalid>'
+  vendor: TRACE Boardviewer
+  syncDesktopName: true
+  # No MimeType: the Windows and macOS builds register no file associations either (board extensions are ambiguous).
+  # Exec and StartupWMClass are left to the builder: Exec comes from the install location and executableName,
+  # StartupWMClass from extraMetadata.desktopName.
+  desktop:
+    entry:
+      GenericName: Boardviewer
+      Keywords: 'boardview;boardviewer;PCB;schematic;datasheet;repair;electronics;GenCAD;KiCad;EAGLE;'
+deb:
+  packageCategory: electronics
+  priority: optional
+  # No tray icon is used, and the default libappindicator3-1 no longer exists on current Ubuntu releases.
+  recommends: []
+  # depends, afterInstall, afterRemove and appArmorProfile keep the builder defaults: the after-install script installs
+  # /etc/apparmor.d/trace-boardviewer (unconfined + userns) on AppArmor 4 systems such as Ubuntu 24.04, so Chromium's
+  # sandbox works there, and sets chrome-sandbox SUID only where user namespaces are unavailable.

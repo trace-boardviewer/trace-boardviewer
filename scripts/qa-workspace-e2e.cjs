@@ -10,6 +10,7 @@
 //   pnpm build && xvfb-run -a node scripts/qa-workspace-e2e.cjs
 //
 // `--no-sandbox` is passed only because the container runs as root; the app window keeps its own sandbox setting.
+// TRACE_ACCEPT_NO_SANDBOX=1 answers the question main.cjs asks on Linux before it starts without the Chromium sandbox.
 
 const fs = require('node:fs/promises');
 const os = require('node:os');
@@ -100,7 +101,7 @@ async function main() {
   const errors = [];
   let app, page, otherFit;
   const launch = async (boardPath) => {
-    const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE; delete env.VITE_DEV_SERVER_URL;
+    const env = { ...process.env, TRACE_ACCEPT_NO_SANDBOX: '1' }; delete env.ELECTRON_RUN_AS_NODE; delete env.VITE_DEV_SERVER_URL;
     app = await _electron.launch({ executablePath: path.join(ROOT, 'node_modules', 'electron', 'dist', 'electron'), args: ['--no-sandbox', ROOT, `--user-data-dir=${profile}`, `--board=${boardPath}`], env, timeout: 60000 });
     page = await app.firstWindow();
     page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));

@@ -341,5 +341,11 @@
   "native.dialog.rendererGone": "Інтерфейс несподівано припинив роботу. Його буде завантажено знову.",
   "native.dialog.unresponsive": "Інтерфейс не відповідає. Можна ще трохи зачекати або закрити вікно.",
   "native.dialog.unresponsiveWait": "Зачекати",
-  "native.dialog.unresponsiveClose": "Закрити вікно"
+  "native.dialog.unresponsiveClose": "Закрити вікно",
+  "native.dialog.noSandboxMessage": "Пісочниця Chromium недоступна в цій системі.",
+  "native.dialog.noSandboxRisk": "TRACE запущено з параметром --no-sandbox, зазвичай тому, що ця система Linux не дозволяє непривілейовані простори імен користувача (Ubuntu 23.10 і новіші їх обмежують). Без пісочниці шкідливий файл boardview, PDF чи зображення, що використовує помилку в TRACE або Chromium, має більше шансів дістатися до решти системи.",
+  "native.dialog.noSandboxAdvice": "Рекомендовано: встановіть пакет .deb замість AppImage. Він залишає пісочницю увімкненою (в Ubuntu за допомогою профілю AppArmor).",
+  "native.dialog.noSandboxQuit": "Вийти",
+  "native.dialog.noSandboxStart": "Запустити без пісочниці",
+  "native.dialog.noSandboxRemember": "Більше не питати"
 }

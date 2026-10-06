@@ -296,5 +296,11 @@
   "native.dialog.rendererGone": "A felület váratlanul leállt. Újra betöltődik.",
   "native.dialog.unresponsive": "A felület nem válaszol. Várhatsz még egy kicsit, vagy bezárhatod az ablakot.",
   "native.dialog.unresponsiveWait": "Várakozás",
-  "native.dialog.unresponsiveClose": "Ablak bezárása"
+  "native.dialog.unresponsiveClose": "Ablak bezárása",
+  "native.dialog.noSandboxMessage": "A Chromium sandbox nem érhető el ezen a rendszeren.",
+  "native.dialog.noSandboxRisk": "A TRACE a --no-sandbox kapcsolóval indult, többnyire azért, mert ez a Linux-rendszer nem engedélyezi a nem privilegizált felhasználói névtereket (az Ubuntu 23.10 és az újabb verziók korlátozzák őket). Sandbox nélkül egy rosszindulatú boardview-, PDF- vagy képfájl, amely a TRACE vagy a Chromium egy hibáját kihasználja, könnyebben eljuthat a rendszered többi részéhez.",
+  "native.dialog.noSandboxAdvice": "Ajánlott: az AppImage helyett a .deb csomagot telepítsd, amely bekapcsolva tartja a sandboxot (Ubuntun egy AppArmor-profillal).",
+  "native.dialog.noSandboxQuit": "Kilépés",
+  "native.dialog.noSandboxStart": "Indítás sandbox nélkül",
+  "native.dialog.noSandboxRemember": "Ne kérdezzen újra"
 }

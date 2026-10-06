@@ -17,6 +17,9 @@ on:
       mac_artifact_name:
         description: Artifact containing the macOS zip and SHA256 file
         value: ${{ jobs.mac.outputs.artifact_name }}
+      linux_artifact_name:
+        description: Artifact containing the Linux AppImage, .deb and SHA256 files
+        value: ${{ jobs.linux.outputs.artifact_name }}
 
 permissions:
   contents: read
@@ -600,9 +603,253 @@ jobs:
           retention-days: 14
           overwrite: true
 
+  linux:
+    # Experimental Linux build: an x86-64 .deb and AppImage (static AppImage runtime) built on an Ubuntu 24.04 runner. The job runs
+    # the static packaging checks and the test suites, builds both packages, checks them statically (S0) and smoke-tests them under
+    # a virtual X display in the sandbox situations users meet: the .deb under Ubuntu's user-namespace restriction, where its
+    # AppArmor profile keeps Chromium's sandbox on (S1); the AppImage under the same restriction, where its launcher can only start
+    # the app without the sandbox, so the app must ask first and the smoke test answers that dialog (S2); then the AppImage (S3)
+    # and the unpacked app (S4) with unprivileged user namespaces allowed. Once the packages exist every scenario runs even if an
+    # earlier one failed, so one run shows all results; the packages are uploaded only when every step passed. It scans the
+    # payload for build-machine paths and uploads both packages with their checksums. No secret, token or signing material is
+    # used. Hosted Linux minutes are the cheapest ones, so the job runs wherever the Windows build runs, pull requests included.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    defaults:
+      run:
+        shell: bash
+    env:
+      TRACE_ARCH: x64
+      TRACE_COMMIT: ${{ github.sha }}
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      artifact_name: ${{ steps.metadata.outputs.artifact_name }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          cache: true
+      - name: Install locked dependencies
+        # `pnpm setup:electron` is left out on purpose: the Linux config has no electronDist, so the builder downloads the
+        # Linux Electron zip of the requested architecture itself.
+        run: pnpm install --frozen-lockfile
+      - name: Validate release metadata
+        id: metadata
+        env:
+          TRACE_REF: ${{ github.ref }}
+          TRACE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          versionPattern='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+          if ! [[ "$version" =~ $versionPattern ]]; then echo 'package.json must contain a valid release version.' >&2; exit 1; fi
+          if [[ "$TRACE_REF" == refs/tags/* && "$TRACE_TAG" != "v$version" ]]; then echo 'Release tag must match the version in package.json.' >&2; exit 1; fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=TRACE-Boardviewer-$version-linux-$TRACE_ARCH" >> "$GITHUB_OUTPUT"
+      - name: Run the static Linux packaging checks
+        run: node --test tests/linux-config-checks.cjs tests/linux-workflow-checks.cjs
+      - name: Run parser and geometry tests
+        run: pnpm test
+      - name: Run desktop boundary and persistence tests
+        run: pnpm test:desktop
+      - name: Build the renderer
+        run: pnpm run build
+      - name: Build the Linux packages
+        run: pnpm exec electron-builder --linux AppImage deb "--$TRACE_ARCH" --config config/electron-builder.linux.yml --publish never
+      - name: Locate the packages and generate checksums
+        id: locate
+        env:
+          TRACE_VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          case "$TRACE_ARCH" in
+            x64) appimageArch=x86_64; debArch=amd64; unpacked=release-linux/linux-unpacked ;;
+            arm64) appimageArch=arm64; debArch=arm64; unpacked=release-linux/linux-arm64-unpacked ;;
+            *) echo "Unsupported architecture: $TRACE_ARCH" >&2; exit 1 ;;
+          esac
+          appimage="release-linux/TRACE-Boardviewer-$TRACE_VERSION-linux-$appimageArch.AppImage"
+          deb="release-linux/TRACE-Boardviewer-$TRACE_VERSION-linux-$debArch.deb"
+          for file in "$appimage" "$deb"; do
+            if [ ! -f "$file" ]; then echo "Package is missing: $file" >&2; exit 1; fi
+          done
+          if [ ! -x "$unpacked/trace-boardviewer" ]; then echo "The unpacked app is missing: $unpacked" >&2; exit 1; fi
+          # Same line format as the EXE and zip checksums: "<sha256, lowercase>  <file name>".
+          (cd release-linux && for name in "$(basename "$appimage")" "$(basename "$deb")"; do sha256sum "$name" > "$name.sha256"; cat "$name.sha256"; done)
+          echo "appimage=$appimage" >> "$GITHUB_OUTPUT"
+          echo "deb=$deb" >> "$GITHUB_OUTPUT"
+          echo "unpacked=$unpacked" >> "$GITHUB_OUTPUT"
+      - name: Install the smoke-test tools
+        # fuse3: fusermount3 to mount the AppImage; x11-utils: xwininfo and xprop; xdotool: answers the consent dialog on the
+        # virtual display; desktop-file-utils: desktop-file-validate; xvfb and xauth: xvfb-run (xauth is only a recommendation of
+        # xvfb); imagemagick: "import", a picture of the consent dialog for the evidence.
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fuse3 x11-utils xdotool desktop-file-utils xvfb xauth imagemagick
+      - name: Print host and package facts (log only)
+        env:
+          TRACE_APPIMAGE: ${{ steps.locate.outputs.appimage }}
+          TRACE_DEB: ${{ steps.locate.outputs.deb }}
+        run: |
+          echo "commit $TRACE_COMMIT, requested architecture $TRACE_ARCH"
+          uname -a || true
+          grep -E '^(PRETTY_NAME|VERSION_ID)=' /etc/os-release || true
+          sysctl kernel.apparmor_restrict_unprivileged_userns || true
+          if unshare -Ur true 2>/dev/null; then echo 'unprivileged user namespaces: available'; else echo 'unprivileged user namespaces: not available'; fi
+          ls -l /dev/fuse || true
+          file -b "$TRACE_APPIMAGE" || true
+          dpkg-deb --field "$TRACE_DEB" Package Version Architecture Maintainer Homepage Depends || true
+          ls -la release-linux
+      - name: Check the packages statically (S0)
+        if: "!cancelled() && steps.locate.outcome == 'success'"
+        timeout-minutes: 10
+        env:
+          TRACE_APPIMAGE: ${{ steps.locate.outputs.appimage }}
+          TRACE_DEB: ${{ steps.locate.outputs.deb }}
+          TRACE_UNPACKED: ${{ steps.locate.outputs.unpacked }}
+        run: node scripts/linux-smoke.cjs static --appimage "$TRACE_APPIMAGE" --deb "$TRACE_DEB" --unpacked "$TRACE_UNPACKED" --arch "$TRACE_ARCH" --out test-results/linux/linux-static.json
+      - name: Smoke-test the .deb under the stock user-namespace restriction (S1, sandbox on through its AppArmor profile)
+        if: "!cancelled() && steps.locate.outcome == 'success'"
+        timeout-minutes: 10
+        env:
+          TRACE_DEB: ${{ steps.locate.outputs.deb }}
+        run: |
+          set -euo pipefail
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=1
+          sudo apt-get install -y --no-install-recommends "./$TRACE_DEB"
+          test -f /etc/apparmor.d/trace-boardviewer
+          sudo cat /sys/kernel/security/apparmor/profiles | grep -F 'trace-boardviewer (unconfined)'
+          xvfb-run -a -s '-screen 0 1600x1000x24' node scripts/linux-smoke.cjs run --scenario S1 --target installed --arch "$TRACE_ARCH" --userns restricted --expect-sandbox on --expect-gate no --out test-results/linux/smoke-S1-deb-restricted.json
+      - name: Smoke-test the AppImage under the stock restriction (S2, no sandbox, the consent dialog is answered)
+        if: "!cancelled() && steps.locate.outcome == 'success'"
+        timeout-minutes: 10
+        env:
+          TRACE_APPIMAGE: ${{ steps.locate.outputs.appimage }}
+        run: |
+          set -euo pipefail
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=1
+          xvfb-run -a -s '-screen 0 1600x1000x24' node scripts/linux-smoke.cjs run --scenario S2 --target appimage --appimage "$TRACE_APPIMAGE" --arch "$TRACE_ARCH" --userns restricted --expect-sandbox off --expect-gate yes --out test-results/linux/smoke-S2-appimage-restricted.json
+      - name: Allow unprivileged user namespaces (the default of Fedora, Debian, Arch and older Ubuntu releases)
+        if: "!cancelled() && steps.locate.outcome == 'success'"
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Smoke-test the AppImage with user namespaces allowed (S3, sandbox on)
+        if: "!cancelled() && steps.locate.outcome == 'success'"
+        timeout-minutes: 10
+        env:
+          TRACE_APPIMAGE: ${{ steps.locate.outputs.appimage }}
+        run: xvfb-run -a -s '-screen 0 1600x1000x24' node scripts/linux-smoke.cjs run --scenario S3 --target appimage --appimage "$TRACE_APPIMAGE" --arch "$TRACE_ARCH" --userns allowed --expect-sandbox on --expect-gate no --out test-results/linux/smoke-S3-appimage-userns.json
+      - name: Smoke-test the unpacked app with user namespaces allowed (S4, sandbox on)
+        if: "!cancelled() && steps.locate.outcome == 'success'"
+        timeout-minutes: 10
+        env:
+          TRACE_UNPACKED: ${{ steps.locate.outputs.unpacked }}
+        run: xvfb-run -a -s '-screen 0 1600x1000x24' node scripts/linux-smoke.cjs run --scenario S4 --target unpacked --unpacked "$TRACE_UNPACKED" --arch "$TRACE_ARCH" --userns allowed --expect-sandbox on --expect-gate no --out test-results/linux/smoke-S4-unpacked-userns.json
+      - name: Show Linux smoke summary
+        if: always()
+        run: node scripts/linux-smoke.cjs summary --dir test-results/linux >> "$GITHUB_STEP_SUMMARY" || echo 'No Linux smoke summary could be written.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Scan the packages for private names and paths
+        # The release must carry nothing from the build machine. Every text file of the unpacked app, of the extracted AppImage and
+        # of the extracted .deb is searched (grep -I skips binaries), then app.asar (renderer, main-process sources, notices) as
+        # bytes. The Electron executable is upstream Electron with only its fuse bytes changed: its strings are reported, not gated.
+        if: "!cancelled() && steps.locate.outcome == 'success'"
+        env:
+          TRACE_APPIMAGE: ${{ steps.locate.outputs.appimage }}
+          TRACE_DEB: ${{ steps.locate.outputs.deb }}
+          TRACE_UNPACKED: ${{ steps.locate.outputs.unpacked }}
+        run: |
+          set -euo pipefail
+          pattern='/Users/runner|/home/runner|runner/work'
+          work="$RUNNER_TEMP/trace-scan"
+          rm -rf "$work" && mkdir -p "$work/appimage" "$work/deb"
+          (cd "$work/appimage" && "$GITHUB_WORKSPACE/$TRACE_APPIMAGE" --appimage-extract > /dev/null)
+          dpkg-deb -R "$TRACE_DEB" "$work/deb"
+          hits=0
+          for tree in "$TRACE_UNPACKED" "$work/appimage/squashfs-root" "$work/deb"; do
+            set +e
+            textHits="$(grep -r -I -i -l -E "$pattern" "$tree")"
+            status=$?
+            set -e
+            if [ "$status" -eq 0 ]; then
+              hits=1
+              echo "Text files with private names or paths in $tree:"
+              echo "$textHits"
+              grep -r -I -i -n -o -E ".{0,40}($pattern).{0,40}" "$tree" | head -n 40 || true
+            elif [ "$status" -ne 1 ]; then
+              echo "grep failed with exit code $status while scanning $tree." >&2
+              exit 1
+            fi
+          done
+          for file in "$TRACE_UNPACKED/resources/app.asar" "$work/appimage/squashfs-root/resources/app.asar" "$work/deb/opt/TRACE Boardviewer/resources/app.asar"; do
+            if [ ! -f "$file" ]; then echo "Cannot scan a missing file: $file" >&2; exit 1; fi
+            set +e
+            grep -a -i -q -E "$pattern" "$file"
+            status=$?
+            set -e
+            if [ "$status" -eq 0 ]; then
+              hits=1
+              echo "Private names or paths inside $file:"
+              strings -a "$file" | grep -i -E "$pattern" | head -n 20 || true
+            elif [ "$status" -ne 1 ]; then
+              echo "grep failed with exit code $status while scanning $file." >&2
+              exit 1
+            fi
+          done
+          if grep -a -i -q -E "$pattern" "$TRACE_UNPACKED/trace-boardviewer"; then
+            echo 'Note: the upstream Electron executable contains build paths (informational, not ours):'
+            strings -a "$TRACE_UNPACKED/trace-boardviewer" | grep -i -E "$pattern" | head -n 5 || true
+          fi
+          if [ "$hits" -ne 0 ]; then
+            echo 'The Linux packages contain private names or paths; they are not uploaded.' >&2
+            exit 1
+          fi
+          echo 'No private names or paths found in the Linux packages.'
+      - name: Upload Linux packages and checksums
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ steps.metadata.outputs.artifact_name }}
+          path: |
+            ${{ steps.locate.outputs.appimage }}
+            ${{ steps.locate.outputs.appimage }}.sha256
+            ${{ steps.locate.outputs.deb }}
+            ${{ steps.locate.outputs.deb }}.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Upload Linux smoke evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: linux-smoke-evidence-${{ steps.metadata.outputs.version }}
+          path: |
+            test-results/linux/*.json
+            test-results/linux/*.png
+          if-no-files-found: warn
+          retention-days: 14
+          overwrite: true
+      - name: Stop leftover app processes
+        # The smoke script kills what it started; this catches anything a cancelled or timed-out step left behind (app
+        # processes and AppImage mounts), so the runner can finish the job cleanly.
+        if: always()
+        run: |
+          appProcesses='(/opt/TRACE Boardviewer|linux-unpacked|/\.mount_[^/ ]*|/appimage_extracted_[^/ ]*)/trace-boardviewer( |$)|\.AppImage( |$)'
+          pgrep -a -f -- "$appProcesses" || echo 'No leftover app processes.'
+          pkill -KILL -f -- "$appProcesses" || true
+          for mountPoint in /tmp/.mount_*; do
+            if [ -d "$mountPoint" ]; then fusermount3 -u -z "$mountPoint" 2>/dev/null || true; fi
+          done
+
   draft-release:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: [build, portable-isolation, mac]
+    needs: [build, portable-isolation, mac, linux]
     runs-on: windows-latest
     timeout-minutes: 10
     permissions:
@@ -618,6 +865,11 @@ jobs:
         with:
           name: ${{ needs.mac.outputs.artifact_name }}
           path: release
+      - name: Download Linux build artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ needs.linux.outputs.artifact_name }}
+          path: release
       - name: Create draft GitHub release
         shell: pwsh
         env:
@@ -626,13 +878,17 @@ jobs:
           TRACE_TAG: ${{ github.ref_name }}
           TRACE_VERSION: ${{ needs.build.outputs.version }}
           TRACE_MAC_VERSION: ${{ needs.mac.outputs.version }}
+          TRACE_LINUX_VERSION: ${{ needs.linux.outputs.version }}
         run: |
           if ($env:TRACE_TAG -ne "v$env:TRACE_VERSION") { throw 'Release version does not match the tag.' }
           if ($env:TRACE_MAC_VERSION -ne $env:TRACE_VERSION) { throw 'The macOS build version does not match the Windows build version.' }
+          if ($env:TRACE_LINUX_VERSION -ne $env:TRACE_VERSION) { throw 'The Linux build version does not match the Windows build version.' }
           $traceExe = Join-Path release "TRACE-Boardviewer-$env:TRACE_VERSION.exe"
           $traceZip = Join-Path release "TRACE-Boardviewer-$env:TRACE_VERSION-mac-arm64.zip"
+          $traceAppImage = Join-Path release "TRACE-Boardviewer-$env:TRACE_VERSION-linux-x86_64.AppImage"
+          $traceDeb = Join-Path release "TRACE-Boardviewer-$env:TRACE_VERSION-linux-amd64.deb"
           $traceAssets = @()
-          foreach ($traceFile in @($traceExe, $traceZip)) {
+          foreach ($traceFile in @($traceExe, $traceZip, $traceAppImage, $traceDeb)) {
             $traceChecksum = "$traceFile.sha256"
             if (-not (Test-Path -LiteralPath $traceFile -PathType Leaf)) { throw "Release asset is missing: $traceFile" }
             if (-not (Test-Path -LiteralPath $traceChecksum -PathType Leaf)) { throw "Checksum file is missing: $traceChecksum" }
@@ -654,6 +910,14 @@ jobs:
                 xattr -dr com.apple.quarantine "/Applications/TRACE Boardviewer.app"
 
             then open the app normally. This removes only the download quarantine flag of that copy; the app itself is unchanged.
+          - TRACE-Boardviewer-${env:TRACE_VERSION}-linux-amd64.deb (+ .sha256): experimental Linux x86-64 package for Ubuntu 24.04 or newer and Debian 12 or newer. Install it with
+
+                sudo apt install ./TRACE-Boardviewer-${env:TRACE_VERSION}-linux-amd64.deb
+
+            and start TRACE Boardviewer from the application menu. On Ubuntu it adds an AppArmor profile so that the Chromium sandbox stays on.
+          - TRACE-Boardviewer-${env:TRACE_VERSION}-linux-x86_64.AppImage (+ .sha256): experimental portable Linux x86-64 build for other distributions. Make it executable (chmod +x) and run it; nothing is installed. On Ubuntu 23.10 and newer the system blocks the Chromium sandbox for AppImages, so TRACE asks before it starts without it: use the .deb there.
+
+          The Linux builds are tested automatically on Ubuntu 24.04 only.
 
           User board files are not included.
 
