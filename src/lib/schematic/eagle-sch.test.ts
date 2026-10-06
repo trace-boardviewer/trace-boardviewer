@@ -106,6 +106,13 @@ describe('malformed and hostile input', () => {
       const error = thrown(() => parse(valid.replace(from, to))); expect(error.code, `${from} -> ${to}`).toBe('INVALID_FORMAT');
     }
   });
+  it('reads a 40,000-digit coordinate and rejects a malformed one in linear time', () => {
+    const withX = (x: string) => valid.replace('x="10" y="10"', `x="${x}" y="10"`);
+    const started = performance.now();
+    expect(must(withX('0'.repeat(40_000) + '10'))).toEqual(must(valid));
+    for (const x of ['1'.repeat(40_000) + 'x', '1'.repeat(40_000) + 'e', '1'.repeat(40_000)]) expect(thrown(() => parse(withX(x))).code, x.slice(-1)).toBe('INVALID_FORMAT');
+    expect(performance.now() - started).toBeLessThan(250);
+  });
   it('never expands DOCTYPE entities (billion-laughs style) and rejects the declaration', () => {
     const lol = Array.from({ length: 9 }, (_, i) => `<!ENTITY l${i + 1} "${i ? Array.from({ length: 10 }, () => `&amp;l${i};`).join('') : 'lol'}">`).join('\n');
     const bomb = `<?xml version="1.0"?>\n<!DOCTYPE eagle [\n${lol}\n]>\n${valid.replace('<attributes/>', '<attributes><attribute name="A" value="&l9;"/></attributes>')}`;

@@ -20,7 +20,7 @@ export function reject(source: Source, line: number | undefined, message: string
 }
 
 // strtod also accepts "inf", "nan" and hex floats; a boardview coordinate never is one, so reject them instead of guessing.
-const DECIMAL = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/;
+const DECIMAL = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 export function decimal(source: Source, line: number, token: string | undefined, label: string): number {
   const value = token !== undefined && DECIMAL.test(token) ? Number(token) : NaN;
   if (!Number.isFinite(value)) reject(source, line, `invalid ${label}${token === undefined ? '' : ` "${token.slice(0, 40)}"`}.`);

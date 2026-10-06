@@ -305,6 +305,16 @@ describe('SVG policy', () => {
     expect(hasExternalUrl('url( "x.svg" )')).toBe(true);
     expect(hasExternalUrl('u\\72l(x)')).toBe(true);
   });
+  it('reads a 40,000-character length attribute in linear time and keeps its results', () => {
+    const started = performance.now();
+    expect(parseSvgLength('0'.repeat(40_000) + '5px')).toBe(5);
+    expect(parseSvgLength('7' + ' '.repeat(40_000))).toBe(7);
+    expect(parseSvgLength('7' + ' '.repeat(40_000) + 'mm')).toBeCloseTo(7 * 96 / 25.4);
+    expect(parseSvgLength('1'.repeat(40_000) + 'x')).toBeNull();
+    expect(parseSvgLength('1'.repeat(40_000) + '.x')).toBeNull();
+    expect(parseSvgLength('1' + ' '.repeat(40_000) + 'x')).toBeNull();
+    expect(performance.now() - started).toBeLessThan(250);
+  });
   it('resolves intrinsic sizes and bounds them', () => {
     expect(parseSvgLength('120')).toBe(120);
     expect(parseSvgLength('25.4mm')).toBeCloseTo(96);
@@ -592,6 +602,12 @@ describe('typed calibration distance', () => {
     for (const text of ['', ' ', '0', '0.0', '-5', 'abc', '12 cm', '1,2,3', '1.2.3', 'NaN', 'Infinity', '1e999', '--1', '0x10', '1 2']) {
       expect(parseKnownDistanceMm(text), JSON.stringify(text)).toMatchObject({ ok: false, message: expect.stringContaining('positive number of millimetres') });
     }
+  });
+  it('reads a 40,000-digit distance and rejects a malformed one in linear time', () => {
+    const started = performance.now();
+    expect(parseKnownDistanceMm('0'.repeat(40_000) + '5')).toEqual({ ok: true, value: 5 });
+    for (const text of ['1'.repeat(40_000) + 'x', '1'.repeat(40_000) + '.x', '1'.repeat(40_000)]) expect(parseKnownDistanceMm(text), text.slice(-1)).toMatchObject({ ok: false });
+    expect(performance.now() - started).toBeLessThan(250);
   });
   it('validates stored calibrations before they are trusted', () => {
     expect(isValidCalibration({ pixelsPerMm: 12 })).toBe(true);

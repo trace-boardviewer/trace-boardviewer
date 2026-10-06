@@ -5,7 +5,7 @@ TRACE's original source and artwork are covered by the root `LICENSE`. The appli
 | Component | License text |
 | --- | --- |
 | React and React DOM | [MIT](assets/licenses/react-LICENSE.txt) |
-| cfb (declared dependency; only the tests use it, to build synthetic OLE containers — the Altium reader is original code) | [Apache-2.0](assets/licenses/cfb-Apache-2.0.txt) |
+| cfb (development dependency, not part of the application; only the tests use it, to build synthetic OLE containers — the Altium reader is original code) | [Apache-2.0](assets/licenses/cfb-Apache-2.0.txt) |
 | fast-xml-parser (EAGLE XML) | [MIT](assets/licenses/fast-xml-parser-MIT.txt) |
 | fflate (project export in the main process, gzip prefix scan for ODB++ recognition) | [MIT](assets/licenses/fflate-MIT.txt) |
 | DES tables/algorithm used for XZZ record decryption (following dhuertas/DES) | [MIT](assets/licenses/des-dhuertas-MIT.txt) |

@@ -55,7 +55,7 @@ function decode(bytes: Uint8Array): string {
   try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { return new TextDecoder('windows-1252').decode(bytes); }
 }
 
-const NUM = /^[+-]?(?:\d+\.?\d*|\.\d+)$/;
+const NUM = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/;
 function num(token: string | undefined, what: string, where: string): number {
   if (token === undefined || !NUM.test(token)) throw invalid(`${where}: ${what} is not a number ("${(token ?? '').slice(0, 24)}")`);
   return Number(token);

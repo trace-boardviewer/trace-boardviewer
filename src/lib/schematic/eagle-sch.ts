@@ -48,7 +48,7 @@ const required = (node: Xml, name: string, context: string): string => {
   return value;
 };
 const content = (node: Xml): string => { const value = node['#text']; return typeof value === 'string' ? decodeEntities(value) : ''; };
-const NUMBER = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/;
+const NUMBER = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 function parseNumber(value: string, context: string): number {
   const result = NUMBER.test(value.trim()) ? Number(value) : Number.NaN;
   if (!Number.isFinite(result)) throw fail(`EAGLE ${context} is not a finite number ("${value.slice(0, 40)}").`);

@@ -34,7 +34,6 @@
   "dependencies": {
     "@fontsource/ibm-plex-mono": "5.3.0",
     "@fontsource/manrope": "5.3.0",
-    "cfb": "1.2.2",
     "fast-xml-parser": "5.11.2",
     "fflate": "0.8.3",
     "lucide-react": "1.52.0",
@@ -45,6 +44,7 @@
   "devDependencies": {
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
+    "cfb": "1.2.2",
     "electron": "44.5.1",
     "electron-builder": "26.15.3",
     "playwright": "1.62.1",

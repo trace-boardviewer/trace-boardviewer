@@ -94,7 +94,7 @@ export function decodeText(data: Uint8Array): string {
   return text;
 }
 export function textInput(text: string, name = 'board'): ParseInput { return { name, data: new TextEncoder().encode(text) }; }
-const DECIMAL = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/;
+const DECIMAL = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 export function number(value: string | number | undefined, context = 'coordinate'): number {
   if (value === undefined || typeof value === 'string' && !value.trim()) throw new BoardFormatError(`Missing ${context}.`);
   // Text must be a plain decimal (optionally with an exponent): Number() would also accept 0x10, 0b1, 0o7 and Infinity.

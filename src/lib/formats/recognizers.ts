@@ -83,7 +83,9 @@ function odbpp(data: Uint8Array): Detection | null {
   return paths.some(path => ODB_PATH.test(path)) ? { id: 'odbpp', detail: `${paths.length} tar entries inspected` } : null;
 }
 
-const IPC_ROOT = /^(?:﻿|\xEF\xBB\xBF)?\s*(?:<\?xml[^>]*\?>\s*)?(?:<!--[\s\S]*?-->\s*)*(?:<!DOCTYPE[^>]*>\s*)?(?:<!--[\s\S]*?-->\s*)*<IPC-2581(?=[\s/>])([^>]*)>/;
+// Linear time: a comment body never contains "-->", so a comment cannot be split in more than one way, and a trailing comment
+// run belongs to the DOCTYPE group (no split points for the engine to backtrack over, however many comments precede the root).
+const IPC_ROOT = /^(?:\uFEFF|\xEF\xBB\xBF)?\s*(?:<\?xml[^>]*\?>\s*)?(?:<!--(?:[^-]|-(?!->))*-->\s*)*(?:<!DOCTYPE[^>]*>\s*(?:<!--(?:[^-]|-(?!->))*-->\s*)*)?<IPC-2581(?=[\s/>])([^>]*)>/;
 function ipc2581(head: string): Detection | null {
   const match = IPC_ROOT.exec(head.slice(0, XML_SCAN_BYTES));
   if (!match) return null;

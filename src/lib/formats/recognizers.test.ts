@@ -163,6 +163,53 @@ describe('recognizeUnsupported', () => {
     expect(detectUnsupported(large)?.id).toBe('gerber');
   });
 
+  it('scans a prolog of many empty XML comments in linear time and keeps the result unchanged', () => {
+    const emptyComments = (count: number) => '<!---->'.repeat(count);
+    const detect = (text: string) => detectUnsupported(enc.encode(text));
+    const timed = <T>(work: () => T): { value: T; ms: number } => { const started = performance.now(); const value = work(); return { value, ms: performance.now() - started }; };
+    // Ascending sizes: a backtracking regex needs seconds for the first and never finishes the last, so a regression fails early and loudly.
+    for (const count of [26, 40, 1000, 1170]) {
+      const unclaimed = timed(() => detect(emptyComments(count) + '\n'));
+      expect(unclaimed.value, `${count} comments`).toBeNull();
+      expect(unclaimed.ms, `${count} comments`).toBeLessThan(200);
+    }
+    for (const count of [26, 40, 1000]) {
+      const claimed = timed(() => detect(emptyComments(count) + '<IPC-2581 revision="C">'));
+      expect(claimed.value, `${count} comments before the root`).toMatchObject({ id: 'ipc2581', detail: 'C' });
+      expect(claimed.ms, `${count} comments before the root`).toBeLessThan(200);
+    }
+    // The same through the dispatcher entry point, as a board file with an accepted extension would arrive.
+    const viaEntryPoint = timed(() => recognizeUnsupported({ name: 'board.xml', data: enc.encode(emptyComments(1170) + '\n') }));
+    expect(viaEntryPoint.value).toBeNull();
+    expect(viaEntryPoint.ms).toBeLessThan(200);
+    // Comments around a DOCTYPE, and other long runs that have no closing marker, are linear too.
+    const shapes: Array<[string, string, string | null]> = [
+      ['comments around a DOCTYPE', emptyComments(500) + '<!DOCTYPE IPC-2581>' + emptyComments(500) + '<IPC-2581 revision="B">', 'B'],
+      ['alternating DOCTYPE and comments', ('<!DOCTYPE a>' + emptyComments(1)).repeat(300) + '\n', null],
+      ['unterminated comments', '<!-- '.repeat(1600), null],
+      ['dashes without a closing marker', '<!--' + '-'.repeat(8000), null],
+      ['comments separated by whitespace', '<!-- a -->\n  '.repeat(600) + 'x', null],
+    ];
+    for (const [label, text, revision] of shapes) {
+      const result = timed(() => detect(text));
+      expect(result.value?.detail ?? null, label).toBe(revision);
+      expect(result.value === null, label).toBe(revision === null);
+      expect(result.ms, label).toBeLessThan(200);
+    }
+  });
+
+  it('keeps the prolog rules: a comment ends at its first closing marker and cannot hide or fake the root', () => {
+    const detect = (text: string) => detectUnsupported(enc.encode(text))?.id ?? null;
+    expect(detect('<!-- a --- b -->\n<IPC-2581 revision="B">')).toBe('ipc2581');
+    expect(detect('<!--a--->\n<IPC-2581 revision="B">')).toBe('ipc2581');
+    expect(detect('<?xml version="1.0"?>\n<!-- a -->\n<!DOCTYPE IPC-2581>\n<!-- b -->\n<IPC-2581 revision="B">')).toBe('ipc2581');
+    expect(detect('<!-- <IPC-2581 revision="B"> -->\n<project/>')).toBeNull();
+    expect(detect('<!-- unterminated\n<IPC-2581 revision="B">')).toBeNull();
+    expect(detect('<!-- a -->\n<project/>\n<!-- b -->\n<IPC-2581 revision="B">')).toBeNull();
+    expect(detect('<!DOCTYPE a><!DOCTYPE b>\n<IPC-2581 revision="B">')).toBeNull();
+    expect(detect('<IPC-25810 revision="B">')).toBeNull();
+  });
+
   it('does not decode binary files as text families', () => {
     const binary = Uint8Array.from([0, 1, 2, 3, ...enc.encode(GERBER)]);
     expect(detectUnsupported(binary)).toBeNull();

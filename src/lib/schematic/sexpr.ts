@@ -151,7 +151,7 @@ export function childList(list: SexprList, name: string): SexprList | undefined 
   return undefined;
 }
 
-const NUMBER = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/;
+const NUMBER = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 
 /** Strict finite number from a bare token (or its text); never returns NaN, Infinity or negative zero. */
 export function parseNumber(input: SexprNode | string, what: string): number {

@@ -199,6 +199,16 @@ describe('Honhan BDV (plain)', () => {
   });
 });
 
+describe('Honhan BDV: very long numeric tokens', () => {
+  it('reads a 40,000-digit coordinate and rejects a malformed one in linear time', () => {
+    const withCorner = (corner: string) => text(lines(['0.000 0.000', '2.000 0.000', '2.000 1.000', corner]));
+    const started = performance.now();
+    expect(must(withCorner(`0.000 ${'0'.repeat(40_000)}1.000`))).toEqual(must(GOLDEN));
+    for (const token of [`${'1'.repeat(40_000)}x`, `${'1'.repeat(40_000)}e`, '1'.repeat(40_000)]) expect(thrown(withCorner(`0.000 ${token}`)).message).toMatch(/invalid/i);
+    expect(performance.now() - started).toBeLessThan(250);
+  });
+});
+
 describe('Honhan BDV (encoded)', () => {
   it('starts with the signature "dd:1.3?,r?-=bb" because the first line uses key 160', () => {
     const encoded = encode(lines());

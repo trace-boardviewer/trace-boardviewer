@@ -323,6 +323,14 @@ describe('helpers', () => {
     for (const text of ['0x10', '0X1f', '0b11', '0o7', 'Infinity', '-Infinity', '1e999', 'NaN', '1_000', '1,5', '1 2', '5mil', '--1', '.', 'e5', '']) expect(() => number(text), text).toThrow(BoardFormatError);
     expect(number(0x10)).toBe(16); expect(() => number(Number.POSITIVE_INFINITY)).toThrow(BoardFormatError);
   });
+  it('number() takes a 40,000-digit token in linear time and keeps its results', () => {
+    const started = performance.now();
+    expect(number('0'.repeat(40_000) + '12')).toBe(12);
+    expect(number('0'.repeat(40_000) + '.5')).toBe(0.5);
+    expect(number('7.' + '0'.repeat(40_000))).toBe(7);
+    for (const token of ['1'.repeat(40_000) + 'x', '1'.repeat(40_000) + 'e', '1'.repeat(40_000) + '.x', '1'.repeat(40_000)]) expect(() => number(token)).toThrow(BoardFormatError);
+    expect(performance.now() - started).toBeLessThan(250);
+  });
   it('decodeText reports a UTF-16 BOM followed by invalid data as a descriptive TextDecodeError, never a raw TypeError', () => {
     for (const bytes of [[0xff, 0xfe, 0x41], [0xfe, 0xff, 0x41], [0xff, 0xfe, 0x00, 0xd8], [0xfe, 0xff, 0xdc, 0x00]]) {
       const failure = (() => { try { decodeText(Uint8Array.from(bytes)); } catch (error) { return error; } })();

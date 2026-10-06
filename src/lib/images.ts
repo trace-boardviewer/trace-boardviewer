@@ -200,7 +200,7 @@ export const serializeSvgElement: SvgSerializer = root => new XMLSerializer().se
 
 /** Default object size of a replaced element without usable intrinsic dimensions (CSS 2.1 section 10.3.2, CSS Images 3). */
 const DEFAULT_SVG_SIZE: Size = { width: 300, height: 150 };
-const lengthPattern = /^\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)\s*(px|mm|cm|in|pt|pc|em|ex|%)?\s*$/i;
+const lengthPattern = /^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)(?:\s*(px|mm|cm|in|pt|pc|em|ex|%))?\s*$/i;
 const unitScale: Readonly<Record<string, number>> = { '': 1, px: 1, mm: 96 / 25.4, cm: 96 / 2.54, in: 96, pt: 96 / 72, pc: 16, em: 16, ex: 8 };
 /** Absolute SVG length in CSS pixels; percentages and garbage give `null`. */
 export function parseSvgLength(value: string | null): number | null {
@@ -507,7 +507,7 @@ export const isValidCalibration = (value: Calibration | null | undefined): value
  */
 export function parseKnownDistanceMm(text: string): { ok: true; value: number } | { ok: false; message: string } {
   const normalized = text.trim().replace(/\s*mm$/i, '').replace(',', '.');
-  const value = /^\+?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(normalized) ? Number(normalized) : Number.NaN;
+  const value = /^\+?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(normalized) ? Number(normalized) : Number.NaN;
   return Number.isFinite(value) && value > 0 ? { ok: true, value } : { ok: false, message: 'Enter the known distance as a positive number of millimetres.' };
 }
 

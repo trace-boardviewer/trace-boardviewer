@@ -129,6 +129,14 @@ describe('parseNumber', () => {
     }
   });
 
+  it('takes a 40,000-digit token in linear time and keeps its results', () => {
+    const started = performance.now();
+    expect(parseNumber('0'.repeat(40_000) + '25', 'x')).toBe(25);
+    expect(parseNumber('0'.repeat(40_000) + '.5', 'x')).toBe(0.5);
+    for (const text of ['1'.repeat(40_000) + 'x', '1'.repeat(40_000) + 'e', '1'.repeat(40_000)]) fails(() => parseNumber(text, 'width'), 'INVALID_FORMAT', /width/);
+    expect(performance.now() - started).toBeLessThan(250);
+  });
+
   it('names the offending line when a node is passed', () => {
     const { root } = read('(a\n b)');
     fails(() => parseNumber(root.items[1] as never, 'x'), 'INVALID_FORMAT', /line 2/);
