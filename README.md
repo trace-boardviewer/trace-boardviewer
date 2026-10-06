@@ -18,6 +18,19 @@ A free boardviewer and repair workspace for electronics technicians.</p>
 <a href="https://github.com/trace-boardviewer/trace-boardviewer/issues/new?template=bug_report.yml">Report a bug</a> · 
 <a href="docs/SUPPORT.md">Supported formats</a></p>
 
+<p align="center">Open a board next to its schematic and datasheets, find a net or a part across all of them, keep your repair notes with the board, and work without an account or a connection.</p>
+
+<p align="center"><strong>Jump to:</strong>
+<a href="#run-the-portable-app">Run the app</a> ·
+<a href="#features">Features</a> ·
+<a href="docs/SUPPORT.md">Supported formats</a> ·
+<a href="#languages">Languages</a> ·
+<a href="#supported-data-and-limitations">Limitations</a> ·
+<a href="#develop-and-build">Build from source</a> ·
+<a href="#share-and-contribute">Contribute</a> ·
+<a href="CHANGELOG.md">Changelog</a> ·
+<a href="SECURITY.md">Security</a></p>
+
 <p align="center"><img src="docs/readme/hero.png" width="900" alt="TRACE Boardviewer showing a KiCad board with a highlighted net, its search results, and the connected parts"></p>
 
 An offline boardviewer and repair workspace for Windows. Open a board (GenCAD plus several boardview, EDA and encrypted formats — see the [exact support table](docs/SUPPORT.md)), attach its schematics, PDF datasheets and reference images, search across all of them, cross-probe between board, schematic and documents, and keep local repair notes that survive a restart. The interface is available in eight languages; see [Languages](#languages). The support notice shown at start opens the Stripe or Ko-fi page in your browser only when you click one of its buttons, and Not now skips it.
@@ -30,7 +43,7 @@ At start TRACE can ask GitHub once whether a newer release exists (one request t
 
 Download `TRACE-Boardviewer-<version>.exe` from a published GitHub release, or build it with the instructions below. The EXE contains the complete application and its Electron runtime. Copying that one file is enough: no installer, Node.js, source folder or `win-unpacked` directory is required to run it.
 
-Open a `.cad` or `.gcd` GENCAD file with **Open** (or the localized equivalent) or drag it into the window. TRACE restores the last available board at the next launch.
+Open a board file with **Open** (or the localized equivalent) or drag it into the window; the [support table](docs/SUPPORT.md) lists the accepted formats. TRACE restores the last available board at the next launch.
 
 The portable launcher extracts its runtime (about 500 MB) into a private temporary folder of its own for every launch (`%TEMP%\nsXXXX.tmp\app`; while the instance runs that folder holds about 1.1 GB in total, because the launcher keeps the packed archive and a second extracted copy next to the runtime) and removes it on normal exit, so several running instances — and a second launch that hands a board to a running instance — never touch each other's runtime. If a launch is killed (for example with Task Manager) or crashes, its folder may stay behind in `%TEMP%`; delete it by hand once no TRACE process is running. A 0-byte `%TEMP%\trace-boardviewer-portable-init.lock` is shared by all launches (it serializes their start-up for a few milliseconds) and can stay; it is safe to delete when no TRACE launch is starting. Settings, recent files and notes are stored separately in `%APPDATA%\TRACE Boardviewer`. Notes are associated with the board file's content hash, so renaming the board keeps its notes. Board files are read without modification. No board data is uploaded; the app works offline.
 
