@@ -99,6 +99,25 @@ Known limits: the window icon on GNOME under Wayland comes from an installed des
 
 On macOS, Cmd replaces Ctrl and Option replaces Alt.
 
+## Screenshots
+
+TRACE 1.2.0 with openly licensed designs. More screenshots, a one-minute demo and step-by-step guides are on the [website](https://trace-boardviewer.github.io/).
+
+<table>
+<tr>
+<td width="50%"><img src="docs/readme/shots/jetson-net.webp" width="440" alt="TRACE Boardviewer showing the 28 MB KiCad PCB of the Antmicro Jetson Nano baseboard with the 3V3_SYS net highlighted and its parts listed"><br><sub>A 28 MB KiCad board with one net highlighted (Antmicro Jetson Nano baseboard, Apache-2.0).</sub></td>
+<td width="50%"><img src="docs/readme/shots/eagle-split.webp" width="440" alt="SparkFun RedBoard EAGLE board and EAGLE schematic side by side in TRACE, the ATmega328P selected in both"><br><sub>EAGLE board and schematic cross-probed in the split view (SparkFun RedBoard, CC BY-SA 4.0).</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/readme/shots/pdf-parts.webp" width="440" alt="A part selected on a KiCad board and found in the plotted schematic PDF, references in the PDF linked to board parts, light theme"><br><sub>A board part found in the plotted schematic PDF, light theme (Pico 2 C from project-piCo, WTFPL).</sub></td>
+<td width="50%"><img src="docs/readme/shots/jetson-sheets.webp" width="440" alt="KiCad schematic with eight hierarchical sheets in TRACE, the sheet list and breadcrumb visible, the Supply sheet open"><br><sub>A hierarchical KiCad schematic: 8 sheets, sheet list and breadcrumb (Jetson Nano baseboard).</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/readme/shots/image-measure.webp" width="440" alt="Image viewer in TRACE: a layout drawing calibrated on its 100.23 mm dimension, the 55 mm board height measured as 55.01 mm"><br><sub>An image calibrated on a known dimension, then measured in millimetres; the calibration value was typed by hand (Jetson Nano baseboard drawing).</sub></td>
+<td width="50%"><img src="docs/readme/shots/bottom.webp" width="440" alt="Mirrored bottom side of the Jetson Nano baseboard in TRACE with the 5V0_SYS net highlighted"><br><sub>The mirrored bottom side with a net highlighted (Jetson Nano baseboard).</sub></td>
+</tr>
+</table>
+
 ## Languages
 
 | Language | Native name | Code |
@@ -128,7 +147,7 @@ Translations live in `electron/locales/`. See [CONTRIBUTING.md](CONTRIBUTING.md)
 - Landrex/TestLink BRD, TOPTEST BRD2, Honhan BDV, BVR (other than BVRAW_FORMAT_3), the ASC trio, FZ/CAE (RC6 key), XZZ PCB (optional DES key), CAST CST, Samsung CAD and Altium PcbDoc are **draft**: adapters exist and are proven on original synthetic fixtures only. No vendor file was available, no key ships with TRACE, and encrypted files need a key the user supplies for the session.
 - Mentor Neutral, Allegro BRD, Gerber, ODB++ and IPC-2581 are **recognized by their bytes and explained, not imported**; TVW is accepted by extension only.
 
-Guides on the website: [free EAGLE viewer](https://trace-boardviewer.github.io/eagle-viewer/) · [open a .brd file](https://trace-boardviewer.github.io/open-brd-file/) · [open a .bvr file](https://trace-boardviewer.github.io/open-bvr-file/) · [comparison with other boardviewers](https://trace-boardviewer.github.io/boardview-software-comparison/)
+Guides on the website: [getting started](https://trace-boardviewer.github.io/getting-started/) · [Linux packages](https://trace-boardviewer.github.io/linux/) · [1-minute demo](https://trace-boardviewer.github.io/demo/) · [KiCad PCB viewer](https://trace-boardviewer.github.io/kicad-pcb-viewer/) · [free EAGLE viewer](https://trace-boardviewer.github.io/eagle-viewer/) · [GenCAD viewer](https://trace-boardviewer.github.io/gencad-viewer/) · [open a .brd file](https://trace-boardviewer.github.io/open-brd-file/) · [open a .bvr file](https://trace-boardviewer.github.io/open-bvr-file/) · [comparison with other boardviewers](https://trace-boardviewer.github.io/boardview-software-comparison/) · [release notes](https://trace-boardviewer.github.io/changelog/)
 - Schematics: KiCad `.kicad_sch` (6.0–9.0), KiCad legacy `.sch` (with its `-cache.lib`/`.lib`) and EAGLE `.sch`. Altium schematics are not read.
 - A PDF is a document, not a boardview or a netlist. There is no OCR.
 - Files are limited to 64 MiB; larger or pathological inputs are rejected with a precise error rather than guessed.
