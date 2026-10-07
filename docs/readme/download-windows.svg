@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="248" height="56" viewBox="0 0 248 56" role="img" aria-label="Download for Windows">
   <rect x="0.5" y="0.5" width="247" height="55" rx="11" fill="#0e8f82" stroke="#0b6f66"/>
-  <g fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" transform="translate(16 16)">
-    <path d="M12 2v13M6 9.5l6 6 6-6M4 21h16"/>
+  <g fill="#ffffff" transform="translate(16 16)">
+    <path d="M3 5.6l7.4-1v7H3zm8.6-1.2L21 3v8.6h-9.4zM3 12.6h7.4v7L3 18.4zm8.6 0H21V21l-9.4-1.3z"/>
   </g>
   <text x="52" y="25" fill="#ffffff" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="16" font-weight="700">Download for Windows</text>
   <text x="52" y="43" fill="#d7f3ef" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12">Portable EXE, x64, no installer</text>
