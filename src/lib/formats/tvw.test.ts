@@ -28,6 +28,36 @@ describe('original TVW reader', () => {
   it('reads the metadata variant containing a height word', () => {
     expect(read(syntheticTvw({ oldMetadata: true, rotation: 180 })).pins).toHaveLength(4);
   });
+  it('preserves separately declared top and bottom pin groups of one component', () => {
+    const board = read(syntheticTvw({ layerList: ['empty', 'empty', 'top', 'bottom'], pinGroups: [
+      { kind: 2, uids: [0, 16], ordinals: [1, 3], names: ['A1', 'A3'] },
+      { kind: 3, uids: [24, 8], ordinals: [4, 2], names: ['B4', 'B2'] },
+    ] }));
+    expect(board.components[0].side).toBe('both');
+    expect(board.components[0].pinIds).toHaveLength(4);
+    expect(board.pins.map(pin => [pin.number, pin.net, pin.side])).toEqual([
+      ['A1', 'GND', 'top'], ['A3', 'GND', 'top'], ['B4', 'GND', 'bottom'], ['B2', 'GND', 'bottom'],
+    ]);
+    expect(board.pins[0].x).toBeCloseTo(19000 * 0.000254);
+    expect(board.pins[2].x).toBeCloseTo(21000 * 0.000254);
+    expect(board.pins[2].y).toBeCloseTo(11000 * 0.000254);
+    for (const groups of [
+      [{ kind: 2, uids: [0], ordinals: [1] }, { kind: 3, uids: [8], ordinals: [1] }],
+      [{ kind: 2, uids: [0], ordinals: [1] }, { kind: 4, uids: [8], ordinals: [2] }],
+      [{ kind: 2, uids: [0], ordinals: [1] }, { kind: 3, uids: [1], ordinals: [2] }],
+    ]) expect(() => read(syntheticTvw({ layerList: ['empty', 'empty', 'top', 'bottom'], pinGroups: groups }))).toThrow();
+  });
+  it('preserves references with an annotation prefix or an embedded space', () => {
+    for (const componentRef of ['@U1', '+NODE1', 'FID 1']) expect(read(syntheticTvw({ componentRef })).components[0].ref).toBe(componentRef);
+  });
+  it('imports a one-pin unnamed record with the unknown classification marker', () => {
+    expect(read(syntheticTvw({ testPoint: true, classification: 0xffffffff })).pins[0]).toMatchObject({ number: '1', numberGenerated: true });
+  });
+  it('imports an unnamed test-point pin whose component has a package name', () => {
+    const board = read(syntheticTvw({ testPoint: true, namedTestPoint: true }));
+    expect(board.components[0].package).toBe('TEST4');
+    expect(board.pins[0]).toMatchObject({ number: '1', numberGenerated: true, net: 'GND' });
+  });
   it('keeps the BOM value when two extra Pascal fields follow it', () => {
     const board = read(syntheticTvw({ extraMetadata: true }));
     expect(board.components[0].value).toBe('SYNTHETIC');
@@ -104,12 +134,20 @@ describe('original TVW reader', () => {
         expect(nets(syntheticTvw({ layerList: list, pinKind: 2 }))).toEqual(['GND', 'VCC', 'GND', 'VCC']);
       }
     });
+    it('counts complete empty logical slots without shifting the physical layer references', () => {
+      const layerList = ['empty', 'empty', 'top', 'empty', 'empty', 'empty', 'bottom'] as const;
+      const board = read(syntheticTvw({ layerList: [...layerList], pinKind: 6 }));
+      expect(board.pins.map(pin => pin.net)).toEqual(['VCC', 'GND', 'VCC', 'GND']);
+      expect(board.pins.every(pin => pin.side === 'bottom')).toBe(true);
+    });
     it('resolves a layer only through its own header: another top and bottom order is followed, not assumed', () => {
       const reversed = ['bottom', 3, 'top'] as Array<'top' | 'bottom' | number>;
       expect(nets(syntheticTvw({ layerList: reversed, pinKind: 0 }))).toEqual(['VCC', 'GND', 'VCC', 'GND']);
       expect(read(syntheticTvw({ layerList: reversed, pinKind: 0 })).pins[0].side).toBe('bottom');
     });
     it('never turns an unknown or non-copper layer number into TOP or BOTTOM', () => {
+      expect(() => read(syntheticTvw({ layerList: aux, pinKind: 5 }))).toThrow(/names layer 5, which is not a top or bottom layer/);
+      expect(() => read(syntheticTvw({ layerList: aux, pinKind: 7 }))).toThrow(/names layer 7, which is not a top or bottom layer/);
       expect(() => read(syntheticTvw({ layerList: aux, pinKind: 4 }))).toThrow(/names layer 4, which is not a top or bottom layer/);
       expect(() => read(syntheticTvw({ layerList: aux, pinKind: 14 }))).toThrow(/names layer 14/);
       expect(() => read(syntheticTvw({ layerList: aux, pinKind: 13000 }))).toThrow(/unsupported or incomplete record/);
@@ -121,6 +159,29 @@ describe('original TVW reader', () => {
     it.each([35, 0x17])('accepts the net-table closing word with low byte %i', closingTag => {
       expect(hasTvwNetTable(syntheticTvw({ closingTag }))).toBe(true);
       expect(read(syntheticTvw({ closingTag })).pins).toHaveLength(4);
+    });
+    it.each([7874, 11811, 15748])('validates a complete probe header with a declared size of %i', probeSize => {
+      const data = syntheticTvw({ probeSize });
+      expect(hasTvwNetTable(data)).toBe(true);
+      expect(read(data).pins).toHaveLength(4);
+    });
+    it('preserves empty net-table entries without shifting later indices', () => {
+      expect(read(syntheticTvw({ netNames: ['', 'POWER'] })).pins.map(pin => pin.net)).toEqual(['', 'POWER', '', 'POWER']);
+    });
+    it('reads a complete named probe registry with a nonzero origin', () => {
+      const board = read(syntheticTvw({ probeSize: 11811, probeName: 'Original registry', probeOrigin: { x: -800000, y: -600000 } }));
+      expect(board.pins.map(pin => pin.net)).toEqual(['GND', 'VCC', 'GND', 'VCC']);
+    });
+    it('reads an explicitly empty net table when all physical pads are unconnected', () => {
+      const data = syntheticTvw({ netNames: [], probeSize: 11811 });
+      expect(hasTvwNetTable(data)).toBe(true);
+      expect(read(data).pins).toHaveLength(4);
+      expect(read(data).nets).toEqual([]);
+    });
+    it('refuses invalid complete probe-size and pack-count fields', () => {
+      for (const options of [{ probeSize: 0 }, { probeSize: 2_000_001 }, { probeSize: 7874, probePacks: 0 }, { probeSize: 7874, probePacks: 4097 }, { probeSize: 11811, probePacks: 0 }, { probeSize: 11799, probePacks: 4097 }]) {
+        expect(parseTvw({ name: 'test.tvw', data: syntheticTvw(options) })).toBeNull();
+      }
     });
     it('does not accept an unknown closing byte, so a coincidental text fragment is no table', () => {
       for (const closingTag of [0, 0x20, 0x2e, 0x24, 0x16, 0x18, 0xff]) {

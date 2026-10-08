@@ -22,5 +22,7 @@
   "info.format": "Format",
   "info.size": "Rozmiar płytki",
   "info.counts": "Elementy / piny / sieci",
-  "info.footer": "Linie pomocnicze pokazują łączność sieci. Nie zastępują geometrii ścieżek miedzianych zapisanej w pliku."
+  "info.footer": "Linie pomocnicze pokazują łączność sieci. Nie zastępują geometrii ścieżek miedzianych zapisanej w pliku.",
+
+  "key.skipHelp": "Możesz pominąć ten krok i dalej korzystać z aplikacji. Ten zaszyfrowany plik pozostanie zamknięty do czasu podania pasującego klucza."
 }

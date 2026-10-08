@@ -1,0 +1,2 @@
+- Alternate ASC outlines use the chosen complete file set for parsing and saved-note identity. Pin/nail entries prefer the ordinary outline and fall back to the exact `@format.asc` export when needed. Unselected outlines do not consume the import budget or block a readable set. ZIP import recognizes fixed extensionless companion roles and groups alternative sets within each directory.
+- Format diagnostics now describe bounded GenCAD storage pages, encoded nails-first BDV exports and alternate ASC outline roles using the same framing as the readers.

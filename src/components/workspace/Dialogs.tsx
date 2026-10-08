@@ -80,6 +80,7 @@ export function KeyDialog({ request, onSubmit, onCancel }: { request: KeyRequest
   const invalid = 'error' in check;
   return <Modal title={T.keyTitle(request.kind)} closeLabel={t('common.close')} initialFocus="#board-key" close={onCancel} testId="key-dialog">
     <p className="data-warning"><KeyRound size={16} /><span>{request.fileName}: {request.message}</span></p>
+    <p>{t('key.skipHelp')}</p>
     <label className="note-label" htmlFor="board-key">{T.keyLabel(request.kind)}</label>
     <textarea id="board-key" className="note-editor mono" spellCheck={false} autoComplete="off" value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !invalid) { e.preventDefault(); onSubmit(draft); } }} />
     <div className="note-counter mono" role="status">{invalid ? check.error : T.keyValid}</div>

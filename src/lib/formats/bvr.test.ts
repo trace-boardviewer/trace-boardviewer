@@ -40,6 +40,13 @@ const BVR1 = [
 ];
 
 describe('BVRAW_FORMAT_1', () => {
+  it('validates and discloses numeric outline metadata while preserving the X/Y contour', () => {
+    const rows = BVR1.map((row, index) => index >= 3 && index <= 6 ? `${row.replace(',', ' ')} 0 1` : row);
+    const board = must(text(rows));
+    expect(board.outline).toEqual(must(text(BVR1)).outline);
+    expect(notes(board)).toContain('4 outline records have additional numeric columns; only their X/Y coordinates are used.');
+  });
+
   it('parses the golden fixture: inch units, per-line sides, comma or blank separated outline', () => {
     const board = must(text(BVR1));
     expect(board.format).toBe('BVR raw boardview (BVRAW_FORMAT_1)');
@@ -89,7 +96,7 @@ describe('BVRAW_FORMAT_1', () => {
       [body('U1 (T) 1 1 0.1 0.1 1.2 A'), /invalid pin layer/],
       [body('U1 (T) 1 1 0.1 0.1 1 A -3'), /invalid probe/],
       [text(['BVRAW_FORMAT_1', '<<Layout>>', 'h', '1']), /an outline point needs two coordinates/],
-      [text(['BVRAW_FORMAT_1', '<<Layout>>', 'h', '1,2,3', '<<Pin>>', 'h']), /two coordinates/],
+      [text(['BVRAW_FORMAT_1', '<<Layout>>', 'h', '1,2,x', '<<Pin>>', 'h']), /invalid outline metadata/],
       [text(['BVRAW_FORMAT_1', '<<Layout>>', 'h', '1,x']), /invalid outline Y "x"/],
       [text(['BVRAW_FORMAT_1', '<<Layout>>', 'h', '1,2']), /missing <<Pin>> section/],
       [text(['BVRAW_FORMAT_1', '<<Pin>>', 'h']), /no component with pins was found/],
@@ -333,6 +340,21 @@ describe('BVRAW_FORMAT_3 as written by kicad-boardview (real-file shape, Raspber
 });
 
 describe('BVRAW_FORMAT_3 component names', () => {
+  it('retains positioned pinless parts whose boundary is the next PART_NAME and discloses that variant', () => {
+    const rows = ['BVRAW_FORMAT_3', 'PART_NAME C1', 'PART_SIDE B', 'PART_ORIGIN 100 200',
+      'PART_NAME C2', 'PART_SIDE T', 'PART_ORIGIN 300 400',
+      'PART_NAME U1', 'PART_SIDE T', 'PART_ORIGIN 500 600', 'PIN_ORIGIN 1 2', 'PIN_NET GND', 'PIN_END', 'PART_END'];
+    const board = must(text(rows));
+    expect(board.components.map(part => [part.ref, part.side, part.pinIds.length])).toEqual([['C1', 'bottom', 0], ['C2', 'top', 0], ['U1', 'top', 1]]);
+    expect(board.components[0].position).toEqual({ x: mil(100), y: mil(200) });
+    expect(board.pins[0]).toMatchObject({ x: mil(501), y: mil(602), net: 'GND' });
+    expect(notes(board)).toContain('2 positioned components without pins ended at the next PART_NAME or at the end of this export instead of PART_END; their origins and sides are retained.');
+    const trailing = must(text([...rows, 'PART_NAME C3', 'PART_SIDE T', 'PART_ORIGIN 700 800']));
+    expect(trailing.components.at(-1)).toMatchObject({ ref: 'C3', side: 'top', position: { x: mil(700), y: mil(800) }, pinIds: [] });
+    expect(thrown(text(rows.slice(0, -1))).message).toMatch(/missing PART_END/);
+    expect(thrown(text(rows.map(row => row === 'PIN_END' ? 'PART_NAME BAD' : row))).message).toMatch(/previous part reached PART_END/);
+  });
+
   it('keeps a reference designator that contains blanks whole (the exporter writes the raw KiCad reference) and still rejects an empty one', () => {
     const rows = ['BVRAW_FORMAT_3', 'PART_NAME TP 1', 'PART_SIDE T', 'PART_ORIGIN 0 0', 'PIN_ORIGIN 5 5', 'PIN_END', 'PART_END'];
     expect(must(text(rows)).components.map(c => c.ref)).toEqual(['TP 1']);

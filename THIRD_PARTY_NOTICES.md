@@ -11,6 +11,7 @@ TRACE's original source and artwork are covered by the root `LICENSE`. The appli
 | DES tables/algorithm used for XZZ record decryption (following dhuertas/DES) | [MIT](assets/licenses/des-dhuertas-MIT.txt) |
 | OpenBoardView (file-format reference for BDV/BVR/ASC/BRD semantics; no code is copied) | [MIT](assets/licenses/openboardview-MIT.txt) |
 | teboviewformat (TVW record-description reference; the reader is original code) | [MIT](assets/licenses/teboviewformat-MIT.txt) |
+| mdb-reader 3.2.0 (Jet scalar-record descriptions and independent test oracle; no package or Buffer polyfill is shipped) | [MIT](assets/licenses/mdb-reader-MIT.txt) |
 | FZ / CAE default RC6 key words (two 44-word numeric tables in `src/lib/formats/fz-default-keys.ts`; data only, no code is copied). FZ key: [FZkey.md in the cryptonek/illegal-numbers repository, commit 3c3ab6f](https://github.com/cryptonek/illegal-numbers/blob/3c3ab6f38b6a4493730fb063ba12cb5c260b6a7e/FZkey.md). CAE key: [OpenBoardView issue 162, comment 2576037248](https://github.com/OpenBoardView/OpenBoardView/issues/162#issuecomment-2576037248) | Licence of both sources not established (see the note below) |
 | Lucide React and derived Feather icons | [ISC and MIT](assets/licenses/lucide-LICENSE.txt) |
 | IBM Plex Mono font | [SIL Open Font License 1.1](assets/licenses/ibm-plex-mono-OFL.txt) |

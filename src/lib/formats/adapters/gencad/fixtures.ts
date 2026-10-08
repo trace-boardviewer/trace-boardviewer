@@ -9,4 +9,9 @@ const fixtures: AdapterFixture[] = [
   { label: 'GenCAD 1.4 board', name: 'board.cad', data: lines(GENCAD) },
   { label: 'comment line before $HEADER, CRLF', name: 'board.gcd', data: lines(['# exported', ...GENCAD], '\r\n') },
 ];
+const storage = new Uint8Array(4096), view = new DataView(storage.buffer);
+storage[0] = 0x9c; storage[2] = 1; storage[31] = 4;
+view.setUint32(16, storage.length, true); view.setUint32(20, storage.length + 4096, true);
+storage.set(lines(GENCAD, '\r\n'), 32);
+fixtures.push({ label: 'GenCAD 1.4 in bounded CAD storage pages', name: 'storage.cad', data: storage });
 export default fixtures;

@@ -4,6 +4,7 @@ import { CERTAIN, defineBoardAdapter, NO_MATCH, sniffed } from '../../adapter';
 import { decodeText, type ParseInput } from '../../common';
 import { headText, hasUtf16Mark, ruleHolds } from '../../sniff';
 import { gencadHook } from '../../../diagnostics/hooks-text';
+import { genCadStorageText, hasGenCadStorageHeader } from '../../gencad-framing';
 
 const GENCAD_SNIFF_CHARS = 16 * 1024;
 /**
@@ -15,14 +16,17 @@ const GENCAD_SNIFF_CHARS = 16 * 1024;
 const GENCAD_HEADER = /^[ \t]*\$HEADER[ \t]*$/im;
 /** GenCAD keeps its own structured errors (GenCadParseError.issue) for the localized UI. */
 export function parseGenCadBoard(input: ParseInput): Board | null {
-  const text = decodeText(input.data);
+  const storage = genCadStorageText(input.data);
+  const text = decodeText(storage ?? input.data);
   if (!GENCAD_HEADER.test(text.slice(0, GENCAD_SNIFF_CHARS))) return null;
-  return parseGenCad(text, input.name);
+  const board = parseGenCad(text, input.name);
+  if (storage) board.warnings.push({ key: 'parse.warning.formatNote', params: { message: 'Read GenCAD text from a length-checked 32-byte CAD storage wrapper; only trailing zero storage padding was removed.' } });
+  return board;
 }
 
 export default defineBoardAdapter({
   capability: {
-    id: 'gencad', name: 'GenCAD 1.4', extensions: ['.cad', '.gcd'], variants: ['GENCAD 1.4 ($HEADER … $SIGNALS)'], status: 'supported', validation: 'real-files', electrical: 'nets', geometry: 'mixed',
+    id: 'gencad', name: 'GenCAD 1.4', extensions: ['.cad', '.gcd'], variants: ['GENCAD 1.4 ($HEADER … $SIGNALS)', 'length-checked 32-byte CAD storage wrapper with zero page padding'], status: 'supported', validation: 'real-files', electrical: 'nets', geometry: 'mixed',
     units: 'UNITS header: MM, INCH, THOU/MIL, USER (25.4 / divisor)', sides: 'LAYER TOP/BOTTOM; SHAPE MIRRORX/Y/XY and FLIP select padstack layers',
     notes: ['Exact ROUND/RECTANGLE pads keep their dimensions; other pad shapes are approximated by bounding rectangles.', 'Only the outer closed board contour is drawn; cutouts are disclosed as a warning.', 'Shape instancing is preflighted against an expanded-output budget (250,000 components, 1,000,000 pins, 8,000,000 placed outline, body and pad-corner points) before any pin is created; a file may hold up to 8,000,000 lines within the 64 MiB limit.'],
   },
@@ -31,6 +35,7 @@ export default defineBoardAdapter({
   detection: 'signature',
   // The claim rule reads the first 16 Ki characters, which lie within the first 64 KiB in every encoding decodeText uses.
   sniff(input) {
+    if (hasGenCadStorageHeader(input.head)) return sniffed(CERTAIN, 'fixed CAD storage header followed by $HEADER and GENCAD at byte 32');
     if (hasUtf16Mark(input.head)) return NO_MATCH;
     const verdict = ruleHolds(input, text => GENCAD_HEADER.test(text.slice(0, GENCAD_SNIFF_CHARS)));
     if (verdict === 'all') {

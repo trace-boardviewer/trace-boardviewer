@@ -380,7 +380,7 @@ test('desktop IPC, local import, persistence and boundary checks', async (t) => 
       assert.equal(payload.name, path.basename(filename));
       assert.equal(bytesOf(payload.data).toString('utf8'), `bytes of ${extension}`);
     }
-    for (const name of ['board.unsupported', 'board.cad.bak', 'board', 'board.CAD.exe', 'cad']) {
+    for (const name of ['board.unsupported', 'board.cad.bak', 'unrelated-board', 'board.CAD.exe', 'cad']) {
       await assert.rejects(invoke('trace:read-board', path.join(samples, name)), { message: i18n.translate('hu', 'native.error.unsupportedFile') });
     }
     // External launches: --board=, a bare absolute path, and an unsupported bare path that is ignored without a dialog.
@@ -403,14 +403,16 @@ test('desktop IPC, local import, persistence and boundary checks', async (t) => 
     const opened = launched.window.webContents.sent.find((event) => event.channel === 'trace:board-opened').value;
     assert.equal(bytesOf(opened.data).toString('utf8'), 'str_length:\n');
     assert.equal(opened.key, sha256('str_length:\n'));
-    // The chooser: one filter with every supported extension under the localized name, then English families repeating only supported ones.
+    // The chooser: all supported extensions, English families, and a translated choice for fixed extensionless roles.
     launched.dialog.choice = { canceled: true, filePaths: [] };
     await launched.invoke('trace:open-board');
     const filters = launched.dialog.openOptions.at(-1).filters;
     assert.equal(filters[0].name, i18n.translate('hu', 'native.dialog.openFilter'));
     assert.deepEqual(Array.from(filters[0].extensions), formats.SUPPORTED_EXTENSIONS.map((extension) => extension.slice(1)));
     assert.ok(filters.length > 1);
-    for (const filter of filters.slice(1)) {
+    assert.equal(filters.at(-1).name, i18n.translate('hu', 'native.dialog.allFiles'));
+    assert.deepEqual(Array.from(filters.at(-1).extensions), ['*']);
+    for (const filter of filters.slice(1, -1)) {
       assert.ok(typeof filter.name === 'string' && filter.name && !/[^\x20-\x7e]/.test(filter.name), 'family names are plain English');
       assert.ok(filter.extensions.length);
       for (const extension of filter.extensions) assert.ok(formats.SUPPORTED_EXTENSIONS.includes(`.${extension}`), `${filter.name}: .${extension}`);
@@ -459,6 +461,32 @@ test('desktop IPC, local import, persistence and boundary checks', async (t) => 
     await accepting.invoke('trace:accept-board', read.path, read.key);
     assert.equal((await accepting.invoke('trace:recent-boards'))[0].name, 'Format.ASC', 'the recent is the primary file, like any single-file board');
     assert.equal((await accepting.invoke('trace:initial-board')).key, read.key, 'a restored companion board carries the same identity');
+    // The explicit alternate outline has its own complete-set key. Shared-role entries prefer the ordinary outline.
+    const alternatePath = path.join(trio, '@FORMAT.ASC');
+    await fs.writeFile(alternatePath, 'alternate format bytes');
+    const alternate = await invoke('trace:read-board', alternatePath);
+    assert.deepEqual(Object.keys(alternate.companions).sort(), ['nails.asc', 'pins.asc']);
+    assert.equal(alternate.key, boardKey({ '@format.asc': 'alternate format bytes', 'pins.asc': 'pins bytes v2', 'nails.asc': 'nails bytes' }));
+    assert.notEqual(alternate.key, edited.key, 'different outlines must never share notes');
+    assert.equal((await invoke('trace:read-board', path.join(trio, 'PINS.asc'))).key, edited.key, 'an unselected alternate does not change the normal model identity');
+    await fs.rename(primary, path.join(trio, 'saved.txt'));
+    assert.equal((await invoke('trace:read-board', path.join(trio, 'PINS.asc'))).key, alternate.key, 'shared-role fallback uses the complete alternate set');
+    await fs.rename(path.join(trio, 'saved.txt'), primary);
+    const inaccessible = new Proxy(fs, { get(target, property) {
+      if (property !== 'stat') return target[property];
+      return async (filename, ...args) => {
+        if (path.basename(filename).toLowerCase() === '@format.asc') throw Object.assign(new Error('unreadable alternate'), { code: 'EACCES' });
+        return target.stat(filename, ...args);
+      };
+    } });
+    const withUnreadableAlternate = await desktopHarness(path.join(directory, 'asc-unreadable-profile'), { fs: inaccessible });
+    assert.equal((await withUnreadableAlternate.invoke('trace:read-board', path.join(trio, 'PINS.asc'))).key, edited.key, 'an unselected unreadable outline has no impact');
+    await fs.rename(primary, path.join(trio, 'saved.txt'));
+    await assert.rejects(withUnreadableAlternate.invoke('trace:read-board', path.join(trio, 'PINS.asc')), /hozzáférési jogosultságot/, 'an unreadable selected outline remains an error');
+    await fs.rename(path.join(trio, 'saved.txt'), primary);
+    await fs.truncate(alternatePath, 64 * 1024 * 1024 + 1);
+    assert.equal((await invoke('trace:read-board', path.join(trio, 'PINS.asc'))).key, edited.key, 'an unselected outline does not consume the byte budget');
+    await fs.writeFile(alternatePath, 'alternate format bytes');
     // A directory named like a sidecar is skipped; without usable companions the key is the plain primary hash.
     const lone = path.join(directory, 'asc-lone');
     await fs.mkdir(path.join(lone, 'pins.asc'), { recursive: true });
@@ -486,6 +514,21 @@ test('desktop IPC, local import, persistence and boundary checks', async (t) => 
   });
 
   // fs wrapper for the files below `directory`: hooks see every stat/read/close of their handles.
+  await t.test('fixed extensionless companion files travel with the same complete-set identity', async () => {
+    const pair = path.join(directory, 'ict-pair');
+    await fs.mkdir(pair, { recursive: true });
+    const program = path.join(pair, 'BOARD'), geometry = path.join(pair, 'BOARD_XY');
+    await fs.writeFile(program, 'synthetic program bytes');
+    await fs.writeFile(geometry, 'synthetic geometry bytes');
+    const first = await invoke('trace:read-board', program), second = await invoke('trace:read-board', geometry);
+    assert.equal(first.key, second.key);
+    assert.equal(first.key, boardKey({ board: 'synthetic program bytes', board_xy: 'synthetic geometry bytes' }));
+    assert.deepEqual(Object.keys(first.companions), ['board_xy']);
+    assert.deepEqual(Object.keys(second.companions), ['board']);
+    await fs.writeFile(path.join(pair, 'unrelated'), 'synthetic unrelated file');
+    await assert.rejects(invoke('trace:read-board', path.join(pair, 'unrelated')), /nem támogatott/);
+  });
+
   const watchedFs = (directory, hooks = {}) => new Proxy(fs, { get(target, property) {
     if (property === 'open') return async (filename, ...rest) => {
       const handle = await target.open(filename, ...rest);
@@ -1128,7 +1171,7 @@ test('format manifest: electron/formats.cjs mirrors electron/formats.json and re
   assert.equal(formats.companionNames('format.asc').includes('other.asc'), false, 'callers receive a copy');
   assert.equal(formats.isSupportedExtension('C:\\Boards\\BOARD.CAD'), true);
   assert.equal(formats.isSupportedExtension('board.kicad_pcb'), formats.SUPPORTED_EXTENSIONS.includes('.kicad_pcb'));
-  for (const value of ['board.unsupported', 'board.cad.bak', 'board', '', 'cad', undefined, null, 7]) assert.equal(formats.isSupportedExtension(value), false, String(value));
+  for (const value of ['board.unsupported', 'board.cad.bak', 'unrelated-board', '', 'cad', undefined, null, 7]) assert.equal(formats.isSupportedExtension(value), false, String(value));
   const filters = formats.dialogFilters('Every board');
   assert.deepEqual(filters[0], { name: 'Every board', extensions: formats.SUPPORTED_EXTENSIONS.map((extension) => extension.slice(1)) });
   for (const filter of filters) assert.ok(filter.extensions.every((extension) => !extension.startsWith('.') && formats.SUPPORTED_EXTENSIONS.includes(`.${extension}`)), filter.name);
@@ -1140,6 +1183,8 @@ test('format manifest: electron/formats.cjs mirrors electron/formats.json and re
     { extensions: ['.c ad'] }, { extensions: ['.cad'], companions: [] }, { extensions: ['.cad'], companions: { 'format.asc': 'pins.asc' } },
     { extensions: ['.cad'], companions: { 'format.asc': ['format.asc'] } }, { extensions: ['.cad'], companions: { 'Format.asc': ['pins.asc'] } },
     { extensions: ['.cad'], companions: { 'format.asc': ['../pins.asc'] } }, { extensions: ['.cad'], companions: { 'format.asc': ['PINS.asc'] } },
+    { extensions: ['.cad'], companionSets: {} }, { extensions: ['.cad'], companionSets: [['only']] },
+    { extensions: ['.cad'], companionSets: [['a', 'a']] }, { extensions: ['.cad'], companionSets: [['a', 'b']] },
     { extensions: ['.cad'], families: {} }, { extensions: ['.cad'], families: [{ name: 'GenCAD', extensions: ['.brd'] }] }, { extensions: ['.cad'], families: [{ name: 'Gén', extensions: ['.cad'] }] },
     { extensions: ['.cad'], families: [{ name: 'GenCAD', extensions: '.cad' }] }, { extensions: ['.cad'], families: [null] },
   ]) assert.throws(() => load(bad), /formats\.json/, JSON.stringify(bad));
@@ -1148,6 +1193,24 @@ test('format manifest: electron/formats.cjs mirrors electron/formats.json and re
   assert.deepEqual([...loaded.SUPPORTED_EXTENSIONS], ['.cad']);
   assert.deepEqual([...loaded.companionNames('A.ASC')], ['b.asc']);
   assert.deepEqual(Array.from(loaded.dialogFilters('x'), (filter) => Array.from(filter.extensions)), [['cad'], ['cad']]);
+  const paired = load({ extensions: ['.ict'], companions: { board: ['board_xy'], board_xy: ['board'] } });
+  for (const name of ['board', 'BOARD_XY', path.join('C:\\Boards', 'BoArD'), '/tmp/BOARD_XY']) {
+    assert.equal(paired.isSupportedExtension(name), true, name);
+  }
+  for (const name of ['other', 'board.bak', 'board_xy.tmp', '.board', 'board-old']) {
+    assert.equal(paired.isSupportedExtension(name), false, name);
+  }
+  assert.deepEqual(Array.from(paired.dialogFilters('Boards', 'All files'), (filter) => ({ name: filter.name, extensions: Array.from(filter.extensions) })), [
+    { name: 'Boards', extensions: ['ict'] }, { name: 'All files', extensions: ['*'] },
+  ]);
+  assert.deepEqual(Array.from(loaded.dialogFilters('Boards', 'All files'), (filter) => Array.from(filter.extensions)), [['cad'], ['cad']], 'no extensionless roles: no all-files filter');
+  const alternatives = load({ extensions: ['.asc'], companions: {
+    'format.asc': ['pins.asc', 'nails.asc'], '@format.asc': ['pins.asc', 'nails.asc'],
+    'pins.asc': ['format.asc', 'nails.asc', '@format.asc'], 'nails.asc': ['format.asc', 'pins.asc', '@format.asc'],
+  }, companionSets: [['format.asc', 'pins.asc', 'nails.asc'], ['@format.asc', 'pins.asc', 'nails.asc']] });
+  assert.deepEqual([...alternatives.companionNames('PINS.ASC', ['PINS.ASC', '@FORMAT.ASC', 'nails.asc'])], ['@format.asc', 'nails.asc']);
+  assert.deepEqual([...alternatives.companionNames('PINS.ASC', ['PINS.ASC', '@FORMAT.ASC', 'format.asc', 'nails.asc'])], ['format.asc', 'nails.asc']);
+  assert.deepEqual([...alternatives.companionNames('@FORMAT.ASC', ['PINS.ASC', '@FORMAT.ASC', 'format.asc', 'nails.asc'])], ['pins.asc', 'nails.asc']);
 });
 
 // ---------------------------------------------------------------------------------------------

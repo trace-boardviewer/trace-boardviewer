@@ -3,9 +3,13 @@
     ".cad",
     ".gcd",
     ".brd",
+    ".gr",
     ".bdv",
     ".bvr",
     ".asc",
+    ".bv",
+    ".bv2",
+    ".ict",
     ".fz",
     ".cae",
     ".pcb",
@@ -15,6 +19,8 @@
     ".cmpcbdoc",
     ".cspcbdoc",
     ".neu",
+    ".lst",
+    ".f2b",
     ".tvw",
     ".json",
     ".gbr",
@@ -28,6 +34,9 @@
     ".hyp",
     ".fab",
     ".fatf",
+    ".far",
+    ".farc",
+    ".faz",
     ".ipc",
     ".356",
     ".d356",
@@ -45,13 +54,51 @@
     ],
     "pins.asc": [
       "format.asc",
-      "nails.asc"
+      "nails.asc",
+      "@format.asc"
     ],
     "nails.asc": [
       "format.asc",
-      "pins.asc"
+      "pins.asc",
+      "@format.asc"
+    ],
+    "@format.asc": [
+      "pins.asc",
+      "nails.asc"
+    ],
+    "board": [
+      "board_xy"
+    ],
+    "board_xy": [
+      "board"
+    ],
+    "board.ict": [
+      "board_xy.ict"
+    ],
+    "board_xy.ict": [
+      "board.ict"
     ]
   },
+  "companionSets": [
+    [
+      "format.asc",
+      "pins.asc",
+      "nails.asc"
+    ],
+    [
+      "@format.asc",
+      "pins.asc",
+      "nails.asc"
+    ],
+    [
+      "board",
+      "board_xy"
+    ],
+    [
+      "board.ict",
+      "board_xy.ict"
+    ]
+  ],
   "families": [
     {
       "name": "GenCAD",
@@ -64,13 +111,18 @@
       "name": "Boardview",
       "extensions": [
         ".brd",
+        ".gr",
         ".bdv",
         ".bvr",
         ".asc",
+        ".bv",
+        ".bv2",
+        ".ict",
         ".fz",
         ".cae",
         ".pcb",
         ".cst",
+        ".lst",
         ".tvw"
       ]
     },
@@ -82,6 +134,7 @@
         ".cmpcbdoc",
         ".cspcbdoc",
         ".neu",
+        ".f2b",
         ".json",
         ".epro",
         ".epcb",
@@ -93,6 +146,9 @@
         ".hyp",
         ".fab",
         ".fatf",
+        ".far",
+        ".farc",
+        ".faz",
         ".ipc",
         ".356",
         ".d356",

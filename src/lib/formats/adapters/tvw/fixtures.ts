@@ -16,9 +16,16 @@ const words = (...values: number[]): Uint8Array => {
 const text = (value: string): Uint8Array => join(Uint8Array.of(value.length), new TextEncoder().encode(value));
 const localPoints: Point[] = [{ x: -1000, y: -1000 }, { x: 1000, y: -1000 }, { x: 1000, y: 1000 }, { x: -1000, y: 1000 }];
 
-export function syntheticTvw(options: { rotation?: number; oldMetadata?: boolean; extraMetadata?: boolean; ordinals?: number[]; uids?: number[]; testPoint?: boolean; omitMaster?: boolean; conflictingPads?: boolean; oppositeSidePads?: boolean; corruptDcode?: boolean; masterName?: string; masterPoints?: Point[]; classification?: number; padLayerTag?: number; pinKind?: number;
+export function syntheticTvw(options: { rotation?: number; oldMetadata?: boolean; extraMetadata?: boolean; ordinals?: number[]; uids?: number[]; testPoint?: boolean; namedTestPoint?: boolean; omitMaster?: boolean; conflictingPads?: boolean; oppositeSidePads?: boolean; corruptDcode?: boolean; masterName?: string; masterPoints?: Point[]; classification?: number; padLayerTag?: number; pinKind?: number;
   /** Headers of the full layer list in file order: 'top' and 'bottom' carry pads (the bottom pads have swapped nets), a number is another kind (3 = aux, 4 = silk, ...) with an uninterpreted body. */
-  layerList?: Array<'top' | 'bottom' | number>;
+  layerList?: Array<'top' | 'bottom' | 'empty' | number>;
+  pinGroups?: Array<{ kind: number; uids: number[]; ordinals: number[]; names?: string[] }>;
+  componentRef?: string;
+  probeSize?: number;
+  probePacks?: number;
+  probeName?: string;
+  probeOrigin?: Point;
+  netNames?: string[];
   /** The byte after the ProbeDB text (35 by default). */
   closingTag?: number;
   /** Length of the bytes in front of the net table's first count; the default 69 carries the usual marker words, any other length does not. */
@@ -28,7 +35,7 @@ export function syntheticTvw(options: { rotation?: number; oldMetadata?: boolean
   const rotation = options.rotation ?? 90, angle = -rotation * Math.PI / 180;
   const points = options.masterPoints ?? localPoints;
   const world = points.map(({ x, y }) => ({ x: Math.round(20000 + x * Math.cos(angle) - y * Math.sin(angle)), y: Math.round(10000 + x * Math.sin(angle) + y * Math.cos(angle)) }));
-  const pad = ({ x, y }: Point, net: number): Uint8Array => join(words(net, options.corruptDcode ? 0 : 10, y, x), Uint8Array.of(0, 1, 0, 1), words(-200, -300, 200, 300), Uint8Array.of(0, options.padLayerTag ?? 0));
+  const pad = ({ x, y }: Point, net: number): Uint8Array => join(words(options.netNames?.length === 0 ? -1 : net, options.corruptDcode ? 0 : 10, y, x), Uint8Array.of(0, 1, 0, 1), words(-200, -300, 200, 300), Uint8Array.of(0, options.padLayerTag ?? 0));
   const pads = world.map((point, i) => pad(point, i % 2));
   if (options.conflictingPads) pads.push(...[0, 1, 2].map(i => pad(world[i], 1 - i % 2)));
   const prefixWord = options.layerPrefixWord ?? 3;
@@ -37,17 +44,24 @@ export function syntheticTvw(options: { rotation?: number; oldMetadata?: boolean
   const kind = options.pinKind ?? (options.masterName?.endsWith('_B') ? 7 : 2), side = kind === 2 ? 1 : 2;
   const otherLayer = (type: number) => join(words(0, prefixWord, 2, 1), text(`LAYER${type}`), text('PHYSICAL'), text(''), words(type, 0, 0, 11), words(0, 0, 0, 0));
   const flipped = world.map((point, i) => pad(point, 1 - i % 2));
+  const emptyLayer = () => join(words(0, 3, 2, 1), text(''), text(''), text(''), words(0, 255, 65280, 0, 0, 0, 7, 0, 0, 4, 0, 0, 0, 0, 0, 0));
   const layers = options.layerList
-    ? join(...options.layerList.map(entry => entry === 'top' ? layer(1, pads) : entry === 'bottom' ? layer(2, flipped) : otherLayer(entry)))
+    ? join(...options.layerList.map(entry => entry === 'top' ? layer(1, pads) : entry === 'bottom' ? layer(2, flipped) : entry === 'empty' ? emptyLayer() : otherLayer(entry)))
     : join(layer(side, pads), ...(options.oppositeSidePads ? [layer(side === 1 ? 2 : 1, flipped)] : []));
   const netHeader = new Uint8Array(options.netPrefix ?? 69);
   if (options.netPrefix === undefined) { netHeader[13] = 7; netHeader[25] = 4; }
-  const table = join(netHeader, words(2, 2), text('GND'), text('VCC'), words(0, 0, 4), text('ProbeDB'), Uint8Array.of(options.closingTag ?? 35));
-  const metadata = words(5000, 15000, 15000, 25000, options.testPoint ? world[0].y : 10000, options.testPoint ? world[0].x : 20000, rotation, 0, options.testPoint ? 18 : options.classification ?? 0, 0, 0);
+  const netNames = options.netNames ?? ['GND', 'VCC'];
+  const table = join(netHeader, words(netNames.length, netNames.length), ...netNames.map(text), words(options.probeOrigin?.y ?? 0, options.probeOrigin?.x ?? 0, 4), text(options.probeName ?? 'ProbeDB'),
+    options.probeSize === undefined ? Uint8Array.of(options.closingTag ?? 35) : words(options.probeSize, options.probePacks ?? 4));
+  const metadata = words(5000, 15000, 15000, 25000, options.testPoint ? world[0].y : 10000, options.testPoint ? world[0].x : 20000, rotation, 0, options.classification ?? (options.testPoint ? 18 : 0), 0, 0);
   const ordinals = options.ordinals ?? (options.testPoint ? [1] : [3, 4, 7, 8]);
   const pins = ordinals.map((ordinal, i) => join(words(options.uids?.[i] ?? i * 8, 0, ordinal), text(options.testPoint ? '' : `P${i + 1}`), words(0)));
-  const bom = options.testPoint ? Uint8Array.of(0) : join(Uint8Array.of(1), text('SYNTHETIC'), ...(options.extraMetadata ? [text('1'), text('1')] : [new Uint8Array(2)]), text('TEST4'), text(''));
-  const part = join(text('U1'), metadata, ...(options.oldMetadata ? [words(0)] : []), bom, words(0, pins.length, kind), ...(options.oldMetadata ? [] : [words(0)]), ...pins);
+  const bom = options.testPoint && !options.namedTestPoint ? Uint8Array.of(0) : join(Uint8Array.of(1), text(options.testPoint ? '' : 'SYNTHETIC'), ...(options.extraMetadata ? [text('1'), text('1')] : [new Uint8Array(2)]), text('TEST4'), text(''));
+  const groups = options.pinGroups?.map(group => join(words(group.uids.length, group.kind), ...group.uids.map((uid, i) =>
+    join(words(0, uid, 0, group.ordinals[i]), text(group.names?.[i] ?? `P${group.ordinals[i]}`)))))
+    ?? [join(words(pins.length, kind), words(0), ...pins.map((pin, i) => i + 1 < pins.length ? pin : pin.subarray(0, pin.length - 4)))];
+  const pinTable = options.oldMetadata ? join(words(0, pins.length, kind), ...pins) : join(words(0), ...groups, ...(groups.length === 1 ? [words(0)] : []));
+  const part = join(text(options.componentRef ?? 'U1'), metadata, ...(options.oldMetadata ? [words(0)] : []), bom, pinTable);
   const master = join(Uint8Array.of(1), text(options.masterName ?? 'TEST4'), words(0, 0x80000001, 0x80000001), new Uint8Array(64), words(4, 2), ...points.map(({ x, y }) => join(words(-1, 10, y, x), new Uint8Array(3))));
   return join(layers, table, new Uint8Array(16), words(1, 12), part, ...(options.omitMaster ? [] : [master]));
 }

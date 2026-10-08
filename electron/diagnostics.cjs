@@ -244,8 +244,8 @@ function dedupeCode(secret, entries) {
 // --- What the renderer gets for the chosen file ------------------------------------------------------------------------------------
 /**
  * The name the parsers see. The report never carries a name, and the renderer does not get the user's one either: only the
- * lowercase extension (it selects some readers) survives, or the fixed public basename of a companion set member (format.asc,
- * pins.asc, nails.asc), whose role the ASC reader needs.
+ * lowercase extension (it selects some readers) survives, or the fixed public basename of a registered companion set member,
+ * whose role the paired reader needs.
  */
 function parserName(basename, isCompanionMember) {
   const lower = String(basename).toLowerCase();

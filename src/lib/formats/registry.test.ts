@@ -7,7 +7,7 @@ import { BoardFormatError, TextDecodeError, type ParseInput } from './common';
 import { detectFormat, parseBoardDetailed, rankAdapters, sniffInputOf } from './dispatch';
 import type { AdapterFixture } from './fixture';
 import { parseWith } from './index';
-import { BOARD_ADAPTERS, buildFormatsManifest, companionNames, CONTAINER_ADAPTERS, FORMAT_CAPABILITIES, formatsManifestText, SUPPORTED_EXTENSIONS, validateAdapters } from './registry';
+import { BOARD_ADAPTERS, buildFormatsManifest, companionNames, CONTAINER_ADAPTERS, FORMAT_CAPABILITIES, formatsManifestText, selectCompanionSet, SUPPORTED_EXTENSIONS, validateAdapters } from './registry';
 
 const MANIFEST = path.join(process.cwd(), 'electron', 'formats.json');
 const FIXTURES = Object.entries(import.meta.glob<AdapterFixture[]>('./adapters/*/fixtures.ts', { eager: true, import: 'default' }))
@@ -36,6 +36,15 @@ function claims(adapter: BoardAdapter, input: ParseInput): boolean {
 }
 
 describe('format registry: one source for every derived table', () => {
+  it('selects a present alternative outline without overwriting the preferred shared-role set', () => {
+    const normal = ['format.asc', 'pins.asc', 'nails.asc'], alternate = ['@format.asc', 'pins.asc', 'nails.asc'];
+    const sets = [normal, alternate];
+    expect(selectCompanionSet(sets, 'PINS.ASC', alternate)).toEqual(alternate);
+    expect(selectCompanionSet(sets, 'nails.asc', [...normal, '@format.asc'])).toEqual(normal);
+    expect(selectCompanionSet(sets, '@FORMAT.ASC', [...normal, '@format.asc'])).toEqual(alternate);
+    expect(selectCompanionSet(sets, 'format.asc', alternate)).toEqual(normal);
+    expect(selectCompanionSet(sets, 'unrelated.asc', normal)).toBeUndefined();
+  });
   it('electron/formats.json is generated from the registry (regenerate with UPDATE_FORMATS=1)', () => {
     const generated = formatsManifestText();
     if (process.env.UPDATE_FORMATS === '1') writeFileSync(MANIFEST, generated);
@@ -110,10 +119,10 @@ describe('extension collisions are resolved by content', () => {
   for (const adapter of BOARD_ADAPTERS) for (const extension of adapter.extensions) owners.set(extension, [...owners.get(extension) ?? [], adapter]);
   const shared = [...owners].filter(([, list]) => list.length > 1);
 
-  it('documents the shared extensions (.brd has four owners, .cad two, .bvr two)', () => {
+  it('documents the shared extensions (.brd has five owners, .cad three, .bvr two)', () => {
     const ids = (extension: string) => (owners.get(extension) ?? []).map(adapter => adapter.id).sort();
-    expect(ids('.brd')).toEqual(['allegro-brd', 'brd', 'brd2', 'eagle']);
-    expect(ids('.cad')).toEqual(['gencad', 'samsung-cad']);
+    expect(ids('.brd')).toEqual(['allegro-brd', 'brd', 'brd-v1', 'brd2', 'eagle']);
+    expect(ids('.cad')).toEqual(['gencad', 'mentor-neutral', 'samsung-cad']);
     expect(ids('.bvr')).toEqual(['bvr', 'bvr1']);
   });
   it('lets at most one adapter of a shared extension rely on the name, and gives every content rule a fixture', () => {

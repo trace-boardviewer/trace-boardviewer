@@ -32,11 +32,7 @@ class Bytes {
   }
 }
 
-/**
- * The byte that follows the Pascal text "ProbeDB" and ends the net table. It is the low byte of a little-endian word:
- * 0x00002e23 on one family of exports and 0x00002e17 on another (both observed on real exports). The rest of the word is
- * not interpreted, and any other value ends the search for this candidate.
- */
+/** Established one-byte endings retained for compact table framing. Full registries declare a size and pack count. */
 const CLOSING_TAGS: readonly number[] = [0x23, 0x17];
 /** The fixed prefix the table has on most exports: the words 7 and 4 sit 56 and 44 bytes before the first count. */
 const PREFIX = 69;
@@ -44,27 +40,37 @@ const PREFIX = 69;
 interface NameBudget { names: number; exhausted: boolean }
 
 /**
- * A net table is the count twice, that many Pascal names, the words 0, 0, 4, the Pascal text "ProbeDB" and a closing tag.
- * `q` is the offset of the first count. Duplicate counts and the exact terminator are required, so a text fragment alone
- * never identifies a file.
+ * A net table is the count twice, that many Pascal names, a probe-registry origin,
+ * kind 4, a Pascal registry name, a positive probe size and a bounded pack count.
+ * Compact framing retains the established zero origin / ProbeDB / one-byte ending.
+ * Duplicate counts and the complete registry framing identify the table.
  */
 function tableAt(bytes: Bytes, q: number, budget: NameBudget, start: number): NetTable | undefined {
   const { data } = bytes;
   if (q + 9 >= data.length) return undefined;
   const count = bytes.u32(q);
-  if (!count || count > MAX_NETS || bytes.u32(q + 4) !== count) return undefined;
+  if (count > MAX_NETS || bytes.u32(q + 4) !== count) return undefined;
   let p = q + 8;
   const names: string[] = [];
   for (let i = 0; i < count; i++) {
-    const field = bytes.text(p);
+    const field = bytes.text(p, true);
     if (!field) return undefined;
     if (++budget.names > MAX_NETS * 4) { budget.exhausted = true; return undefined; }
     names.push(field.value); p = field.end;
   }
   if (p + 21 > data.length) return undefined;
-  if (bytes.u32(p) !== 0 || bytes.u32(p + 4) !== 0 || bytes.u32(p + 8) !== 4) return undefined;
+  if (Math.abs(bytes.i32(p)) > 2_000_000 || Math.abs(bytes.i32(p + 4)) > 2_000_000 || bytes.u32(p + 8) !== 4) return undefined;
   const probe = bytes.text(p + 12);
-  if (probe?.value !== 'ProbeDB' || !CLOSING_TAGS.includes(data[probe.end])) return undefined;
+  if (!probe) return undefined;
+  // ProbeDB is followed by a physical probe size and a pack count, not a
+  // constant closing tag. Validate that full header when it is available.
+  if (probe.end + 8 <= data.length) {
+    const size = bytes.u32(probe.end), packs = bytes.u32(probe.end + 4);
+    if (size > 0 && size <= 2_000_000 && packs > 0 && packs <= 4096) return { names, start, end: probe.end + 8 };
+  }
+  // Retain the established minimal table framing used by compact exports.
+  if (bytes.u32(p) !== 0 || bytes.u32(p + 4) !== 0 || probe.value !== 'ProbeDB' || !CLOSING_TAGS.includes(data[probe.end])) return undefined;
+  if (probe.end + 4 <= data.length && bytes.u32(probe.end) !== data[probe.end]) return undefined;
   return { names, start, end: p + 21 };
 }
 
@@ -111,7 +117,7 @@ function layerFor(kind: number, layers: TvwLayerResult): TvwLayer {
   if (header?.layer) return header.layer;
   const top = layers.layers.filter(layer => layer.side === 'top'), bottom = layers.layers.filter(layer => layer.side === 'bottom');
   const legacy = kind === LEGACY_TOP ? top : LEGACY_BOTTOM.includes(kind) ? bottom : undefined;
-  if (legacy?.length === 1) return legacy[0];
+  if (!header && legacy?.length === 1) return legacy[0];
   if (header) fail(`a pin list refers to layer ${kind} ("${header.name.slice(0, 40)}", type ${header.type}), which is not a top or bottom layer; this export variant is not supported.`, false, true);
   return fail(`a pin list refers to layer ${kind}, but only ${layers.headers.length} layer ${layers.headers.length === 1 ? 'header was' : 'headers were'} found; this export variant is not supported.`, false, true);
 }
@@ -126,24 +132,29 @@ export function parseTvw(input: ParseInput): Board | null {
   if (layers.skippedLayers) fail('physical layer tables are incomplete or unsupported.');
   if (!layers.layers.length) fail('no top or bottom layer header with a known prefix was found before the net table; this export uses a layer-header variant that is not supported.', false, true);
   // A pin list may name any top or bottom header of the full list, plus the first established numbers.
-  const references = new Set<number>([LEGACY_TOP, ...LEGACY_BOTTOM, ...layers.headers.filter(header => header.layer).map(header => header.index)]);
+  const references = new Set<number>([LEGACY_TOP, ...LEGACY_BOTTOM].filter(index => !layers.headers[index]));
+  for (const header of layers.headers) if (header.layer) references.add(header.index);
   const components = readTvwComponents(input.data, table.end, kind => references.has(kind)), parts = components.parts;
   const pins: RawPin[] = [];
   for (const part of parts) {
-    // The pin list's layer reference selects its physical-pad namespace and, through the layer header type, its side.
+    // Each pin group's layer reference selects its own physical-pad namespace.
     // UID is eight times the pad ordinal. This explicit link preserves pin labels even when master order is reversed
     // or a symmetric bottom footprint swaps the labels under a mirror.
     if (!part.pins.length) continue;
-    const layer = layerFor(part.pinKind, layers), side = layer.side;
-    part.raw.side = side;
-    for (const source of part.pins) {
-      if (source.uid % 8 || source.uid / 8 >= layer.pads.length) fail('pin reference is not aligned or exceeds its declared physical pad table.');
-      const pad = layer.pads[source.uid / 8];
-      const round = pad.shapeType === 0 && pad.width === pad.height;
-      pins.push({ x: pad.x, y: pad.y, part: part.raw.key, number: source.number || String(source.ordinal),
-        ...(!source.number ? { numberGenerated: true } : {}), net: pad.net < 0 ? '' : table.names[pad.net], side,
-        width: pad.width, height: pad.height, shape: round ? 'round' : 'rect', ...(round ? { radius: pad.width / 2 } : {}) });
+    const sides = new Set<'top' | 'bottom'>();
+    for (const group of part.pinGroups) {
+      const layer = layerFor(group.kind, layers), side = layer.side;
+      sides.add(side);
+      for (const source of group.pins) {
+        if (source.uid % 8 || source.uid / 8 >= layer.pads.length) fail('pin reference is not aligned or exceeds its declared physical pad table.');
+        const pad = layer.pads[source.uid / 8];
+        const round = pad.shapeType === 0 && pad.width === pad.height;
+        pins.push({ x: pad.x, y: pad.y, part: part.raw.key, number: source.number || String(source.ordinal),
+          ...(!source.number ? { numberGenerated: true } : {}), net: pad.net < 0 ? '' : table.names[pad.net], side,
+          width: pad.width, height: pad.height, shape: round ? 'round' : 'rect', ...(round ? { radius: pad.width / 2 } : {}) });
+      }
     }
+    part.raw.side = sides.size === 1 ? [...sides][0] : 'both';
   }
   if (!pins.length) fail('the component table contains no pins.');
   return buildBoard(input, { format: FORMAT, parts: parts.map(part => part.raw), pins, unitsToMm: SCALE,

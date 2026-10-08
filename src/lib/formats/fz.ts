@@ -11,7 +11,7 @@
  * CAE differs from FZ only in the key (its parity table) and the extension.
  */
 import type { Board, BoardSide, ParseIssue } from '../types';
-import { asciiPrefix, BoardFormatError, buildBoard, decodeText, MAX_IMPORT_BYTES, note, vendorDisconnected, type FormatErrorCode, type ParseInput, type RawBoard, type RawPart, type RawPin } from './common';
+import { asciiPrefix, BoardFormatError, buildBoard, decodeText, localizedFormatError, MAX_IMPORT_BYTES, note, vendorDisconnected, type FormatErrorCode, type ParseInput, type RawBoard, type RawPart, type RawPin } from './common';
 import { inflateZlib } from './compression';
 import { fzKeyParityValid, rc6Feedback } from './crypto';
 import { CAE_DEFAULT_KEY, FZ_DEFAULT_KEY } from './fz-default-keys';
@@ -22,12 +22,26 @@ const MIN_ZLIB = 6; // 2-byte header + 4-byte Adler-32
 const MAX_PARTS = 250_000, MAX_PINS = 1_000_000; // the same record budgets buildBoard enforces, applied while reading
 const BLOCKS: Record<string, number> = { REFDES: 1, NET_NAME: 2, TESTVIA: 3, GRAPHIC_DATA_NAME: 4, CLASS: 5, LOGOInfo: 6, UnDrawSym: 7 };
 type Variant = 'fz' | 'cae';
-interface Container { content: Uint8Array; description: Uint8Array; contentBytes?: number; descriptionBytes?: number; layout: number }
+export interface FzContainer { content: Uint8Array; description: Uint8Array; contentBytes?: number; descriptionBytes?: number; layout: number }
 
 const zlibHeaderAt = (data: Uint8Array, offset: number) =>
   offset + MIN_ZLIB <= data.length && (data[offset] & 15) === 8 && data[offset] >>> 4 <= 7 && ((data[offset] << 8) | data[offset + 1]) % 31 === 0 && !(data[offset + 1] & 32);
 /** A plaintext-container clue at its fixed offset, shared by the bounded sniffer and parser; the complete framing and streams still need validation. */
 export const hasFzZlibHeader = (data: Uint8Array): boolean => zlibHeaderAt(data, 4);
+/** Fixed outer-envelope tag found on compressed RC6 exports. The envelope is verified before reading its inner container. */
+export const hasFzWrappedHeader = (data: Uint8Array): boolean => data.length >= 4 && data[0] === 0x0d && data[1] === 0x0f && data[2] === 0x3e && data[3] === 3;
+export function unwrapFzContainer(data: Uint8Array): Uint8Array {
+  if (!hasFzWrappedHeader(data)) return data;
+  if (data.length > MAX_IMPORT_BYTES) throw new BoardFormatError('FZ/CAE: outer envelope exceeds the import limit.', 'LIMIT_EXCEEDED', 'FZ/CAE');
+  if (data.length < 8 + MIN_ZLIB || !zlibHeaderAt(data, 8)) throw new BoardFormatError('FZ/CAE: invalid compressed outer envelope.', 'INVALID_FORMAT', 'FZ/CAE');
+  const size = new DataView(data.buffer, data.byteOffset, data.byteLength).getUint32(4, true);
+  if (size > MAX_IMPORT_BYTES) throw new BoardFormatError('FZ/CAE: outer envelope declares more than 64 MiB.', 'LIMIT_EXCEEDED', 'FZ/CAE');
+  const inner = inflateZlib(data.subarray(8), size);
+  if (inner.length !== size || hasFzWrappedHeader(inner)) throw new BoardFormatError('FZ/CAE: outer envelope length is inconsistent or nested.', 'INVALID_FORMAT', 'FZ/CAE');
+  return inner;
+}
+/** macOS companion metadata may retain a board extension after extraction. */
+export const isAppleDoubleMetadata = (data: Uint8Array): boolean => data.length >= 26 && data[0] === 0 && data[1] === 5 && data[2] === 0x16 && data[3] === 7;
 /** A bounded clue using the variant's published default key; full framing/checksums remain mandatory. */
 export const hasFzDefaultKeyHeader = (data: Uint8Array, variant: Variant): boolean => hasFzZlibHeader(rc6Feedback(data.subarray(0, 4 + MIN_ZLIB), variant === 'cae' ? CAE_DEFAULT_KEY : FZ_DEFAULT_KEY));
 /** Plain text rather than ciphertext: the leading bytes are valid UTF-8 without control characters (random bytes fail this almost surely, even for a 20-byte file). */
@@ -52,7 +66,7 @@ function inflatedText(bytes: Uint8Array): string {
  * Real FZ containers use that word as the inflated content size and put two size words between the streams:
  * `[u32 inflatedContent][content zlib][u32 contentZlib+8][u32 inflatedDescription][description zlib][u32 descriptionZlib+8]`.
  */
-export function splitFzContainer(data: Uint8Array): Container | undefined {
+export function splitFzContainer(data: Uint8Array): FzContainer | undefined {
   const size = data.length;
   if (size < 4 + MIN_ZLIB + MIN_ZLIB + 4) return undefined;
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
@@ -73,8 +87,14 @@ export function splitFzContainer(data: Uint8Array): Container | undefined {
   const descriptionLength = footer - 8, start = size - footer + 4;
   if (descriptionLength >= MIN_ZLIB && start >= 4 + MIN_ZLIB && start + descriptionLength === size - 4 && zlibHeaderAt(data, start)) {
     if (start >= 4 + MIN_ZLIB + 8 && view.getUint32(start - 8, true) === start - 4) {
-      return { content: data.subarray(4, start - 8), description: data.subarray(start, size - 4), contentBytes: contentLength, descriptionBytes: view.getUint32(start - 4, true), layout: 6 };
+      const descriptionBytes = view.getUint32(start - 4, true);
+      // Some exports use the literal four-byte tag "PC6 " in both length slots. These are framing tags, not byte counts.
+      if (contentLength === 0x20364350 && descriptionBytes === contentLength) return { content: data.subarray(4, start - 8), description: data.subarray(start, size - 4), layout: 7 };
+      return { content: data.subarray(4, start - 8), description: data.subarray(start, size - 4), contentBytes: contentLength, descriptionBytes, layout: 6 };
     }
+    // The zero-tag spelling has one zero word between the two streams and another at the start. Keep the delimiter
+    // out of the content stream; the decompressor still checks its exact boundary and Adler-32 checksum.
+    if (contentLength === 0 && start >= 4 + MIN_ZLIB + 4 && view.getUint32(start - 4, true) === 0) return { content: data.subarray(4, start - 4), description: data.subarray(start, size - 4), layout: 8 };
     return { content: data.subarray(4, start), description: data.subarray(start, size - 4), layout: 5 };
   }
   return undefined;
@@ -186,7 +206,7 @@ export function parseFzContent(content: string, description: string | undefined,
   return { format, parts: drawable, pins, unitsToMm, warnings };
 }
 
-function inflateContainer(container: Container, onError: (error: BoardFormatError) => never): { content: string; description: string } {
+function inflateContainer(container: FzContainer, onError: (error: BoardFormatError) => never): { content: string; description: string } {
   try {
     const content = inflateZlib(container.content), description = inflateZlib(container.description, MAX_DESCRIPTION_BYTES);
     if ((container.contentBytes !== undefined && container.contentBytes !== content.length) || (container.descriptionBytes !== undefined && container.descriptionBytes !== description.length)) {
@@ -207,10 +227,15 @@ export const CONTENT_SIGNATURE = /^(?:\xef\xbb\xbf)?\s*(?:A!|UNIT:)/;
  * key; an explicit user key overrides it. Unsupported key variants retain the session-key error path.
  */
 export function parseFz(input: ParseInput): Board | null {
+  // Resource-fork metadata is sometimes renamed without its "._" prefix. Its own magic, not its filename, identifies it.
+  if (isAppleDoubleMetadata(input.data)) {
+    throw localizedFormatError('This file is macOS companion metadata. Open the original board file beside it.', 'WRONG_KIND', { key: 'parse.error.appleDoubleMetadata' }, 'FZ/CAE');
+  }
   const match = /\.(fz|cae)$/i.exec(input.name);
   if (!match) return null;
   const variant = match[1].toLowerCase() as Variant, format = variant === 'cae' ? 'CAE' : 'FZ (RC6)';
-  const { data } = input;
+  if (input.data.length > MAX_IMPORT_BYTES) throw new BoardFormatError(`${format}: file exceeds the 64 MiB import limit.`, 'LIMIT_EXCEEDED', 'FZ/CAE');
+  const data = unwrapFzContainer(input.data);
   if (data.length > MAX_IMPORT_BYTES) throw new BoardFormatError(`${format}: file exceeds the 64 MiB import limit.`, 'LIMIT_EXCEEDED', 'FZ/CAE');
   // keyKind travels only with key errors: the UI opens its key dialog on these two codes and nothing else.
   function fail(message: string, code: FormatErrorCode = 'INVALID_FORMAT'): never {
@@ -219,10 +244,11 @@ export function parseFz(input: ParseInput): Board | null {
   if (CONTENT_SIGNATURE.test(asciiPrefix(data, 64))) return buildBoard(input, parseFzContent(decodeText(data), undefined, format)); // already decoded content (upstream only reads containers)
   if (looksLikeText(data)) return null; // any other text belongs to another format
   if (data.length < 4 + MIN_ZLIB + MIN_ZLIB + 4) fail('file is too short to be an FZ container.');
-  if (hasFzZlibHeader(data)) {
-    // Unencrypted container variant ("zip-encoded" files noted by upstream): never decrypted. A zlib header at the fixed
-    // offset is evidence of it; the complete framing and both checksums must validate before any board is imported.
-    const container = splitFzContainer(data) ?? fail('unencrypted container lengths are inconsistent.');
+  const plainContainer = hasFzZlibHeader(data) ? splitFzContainer(data) : undefined;
+  if (plainContainer) {
+    // A two-byte header can occur by chance in ciphertext. Only complete matching framing selects plaintext;
+    // once selected, both stream checksums and all records must validate without switching interpretations.
+    const container = plainContainer;
     const { content, description } = inflateContainer(container, error => fail(`unencrypted container: ${error.message}`));
     return buildBoard(input, parseFzContent(content, description, format));
   }
@@ -237,6 +263,7 @@ export function parseFz(input: ParseInput): Board | null {
   // Without a session key only the built-in key was tried: when it does not open the file the user has to supply the key
   // (KEY_REQUIRED). Once the built-in key has produced the container header, a later failure means the file is damaged.
   if (!hasFzZlibHeader(head)) {
+    if (hasFzZlibHeader(data)) fail('unencrypted container lengths are inconsistent.');
     if (explicitKey === undefined) fail('this file is encrypted and the built-in key does not open it; the vendor RC6 key (44 32-bit words) is required.', 'KEY_REQUIRED');
     fail('the key did not produce a valid container; check the key.', 'INVALID_KEY');
   }

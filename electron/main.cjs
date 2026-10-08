@@ -368,11 +368,11 @@ function updateConfig(updater) {
 
 const superseded = () => Object.assign(new Error('superseded'), { superseded: true });
 
-// Companion sidecars (the ASC trio) of a board file are gathered only from the primary file's own
+// Companion sidecars of a board file are gathered only from the primary file's own
 // directory, matched by case-insensitive basename and never followed outside that directory. The plan
 // lists what exists and what it weighs BEFORE any byte is allocated; a missing sibling is simply
 // omitted (the parser decides what it needs). The primary and every companion together stay within
-// MAX_BOARD_BYTES. `formats.companionNames` lists the siblings of whichever trio member was chosen, so the
+// MAX_BOARD_BYTES. `formats.companionNames` lists the siblings of whichever set member was chosen, so the
 // same complete file set (and therefore the same board key, B32) results from every entry file.
 async function planCompanions(primaryPath, primaryBytes) {
   const wanted = formats.companionNames(path.basename(primaryPath));
@@ -380,7 +380,7 @@ async function planCompanions(primaryPath, primaryBytes) {
   const directory = path.dirname(primaryPath);
   const entries = (await fs.readdir(directory)).sort();
   const items = [];
-  let total = primaryBytes;
+  const candidateErrors = new Map();
   for (const name of wanted) {
     const entry = entries.find((candidate) => candidate === name) ?? entries.find((candidate) => candidate.toLowerCase() === name);
     if (entry === undefined) continue;
@@ -389,15 +389,21 @@ async function planCompanions(primaryPath, primaryBytes) {
       if (!samePath(path.dirname(canonical), directory)) continue; // A link leaving the directory is not a sibling.
       const stat = await fs.stat(canonical);
       if (!stat.isFile()) continue; // A directory named like a sidecar is not one.
-      if (stat.size > MAX_BOARD_BYTES - total) throw new Error(t('native.error.boardTooLarge', { max: 64 }));
-      total += stat.size;
       items.push({ name, canonical, size: stat.size });
     } catch (error) {
       if (error.code === 'ENOENT' || error.code === 'ENOTDIR') continue; // Removed between listing and reading.
-      throw error;
+      candidateErrors.set(name, error); // An unselected alternative must not prevent opening the chosen set.
     }
   }
-  return { items, bytes: total - primaryBytes };
+  const selected = new Set(formats.companionNames(primaryPath, [path.basename(primaryPath), ...items.map((item) => item.name), ...candidateErrors.keys()]));
+  for (const [name, error] of candidateErrors) if (selected.has(name)) throw error;
+  const chosen = items.filter((item) => selected.has(item.name));
+  let total = primaryBytes;
+  for (const item of chosen) {
+    if (item.size > MAX_BOARD_BYTES - total) throw new Error(t('native.error.boardTooLarge', { max: 64 }));
+    total += item.size;
+  }
+  return { items: chosen, bytes: total - primaryBytes };
 }
 
 async function readCompanions(plan, checkpoint) {
@@ -846,7 +852,7 @@ function installIpc() {
     supersedeDeliveries();
     const choice = await dialog.showOpenDialog(mainWindow, {
       title: t('native.dialog.openTitle'), buttonLabel: t('native.dialog.openButton'), properties: ['openFile'],
-      filters: formats.dialogFilters(t('native.dialog.openFilter')),
+      filters: formats.dialogFilters(t('native.dialog.openFilter'), t('native.dialog.allFiles')),
     });
     if (choice.canceled || !choice.filePaths[0]) return null;
     boardOpen();

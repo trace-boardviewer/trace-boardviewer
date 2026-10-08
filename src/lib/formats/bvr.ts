@@ -33,12 +33,15 @@ function parseBvr1(input: ParseInput, text: string): Board {
   const source: Source = { label: 'BVR1', format: `${BVR_FORMAT} (BVRAW_FORMAT_1)` };
   const tally = new Tally();
   const sections = scanSections(splitLines(text, source), source, HEADERS, tally, /^BVRAW_FORMAT_1$/);
+  let extraOutline = 0;
   // `x,y` (comma, optionally followed by blanks) or `x y`.
   const outline: Point[] = (sections.get(LAYOUT) ?? []).map(({ no, text: row }) => {
     const fields = row.split(/\s*,\s*|\s+/);
-    if (fields.length !== 2) reject(source, no, 'an outline point needs two coordinates.');
+    if (fields.length < 2 || fields.length > 4) reject(source, no, 'an outline point needs two coordinates and at most two numeric metadata columns.');
+    if (fields.length > 2) { extraOutline++; for (const field of fields.slice(2)) decimal(source, no, field, 'outline metadata'); }
     return { x: decimal(source, no, fields[0], 'outline X'), y: decimal(source, no, fields[1], 'outline Y') };
   });
+  if (extraOutline) tally.extra.push(`${extraOutline} outline records have additional numeric columns; only their X/Y coordinates are used.`);
   if (outline.length > MAX_OUTLINE_POINTS) reject(source, undefined, 'outline point count exceeds the import limit.', 'LIMIT_EXCEEDED');
   const pinRows = sections.get(PIN);
   if (!pinRows) reject(source, undefined, `missing ${PIN} section.`);
@@ -86,7 +89,22 @@ function parseBvr3(input: ParseInput, text: string): Board {
   const lines = splitLines(text, source);
   const parts: RawPart[] = [], pins: RawPin[] = [], loops: Point[][] = [], segments: Array<readonly [Point, Point]> = [];
   const ignored = new Set<string>();
-  let part: Bvr3Part | undefined, pin: Bvr3Pin | undefined, outlineLines = 0, ignoredOutlines = 0, radii = 0, pointCount = 0;
+  let part: Bvr3Part | undefined, pin: Bvr3Pin | undefined, outlineLines = 0, ignoredOutlines = 0, radii = 0, pointCount = 0, implicitPartEnds = 0;
+  const finishPart = (no: number) => {
+    const owner = part!;
+    if (pin) reject(source, no, 'PART_END while a pin has no PIN_END.');
+    if (!owner.origin) reject(source, no, `part ${owner.name} has no PART_ORIGIN.`);
+    const key = `part:${parts.length}`, origin = owner.origin;
+    if (!owner.side) tally.defaultedSides++;
+    parts.push({ key, ref: owner.name, side: owner.side ?? 'both', position: origin });
+    owner.pins.forEach((item, ordinal) => {
+      if (!item.side) tally.defaultedSides++;
+      const given = item.number || item.name, number = given || `~${ordinal + 1}`;
+      pins.push({ part: key, number, ...(given ? {} : { numberGenerated: true }), name: item.name || number, net: tally.net(item.net ?? ''), side: item.side ?? 'both',
+        x: origin.x + item.origin!.x, y: origin.y + item.origin!.y, ...item.radius === undefined ? {} : { radius: item.radius } });
+    });
+    part = undefined;
+  };
   for (let index = 0; index < lines.length; index++) {
     const row = lines[index].trim();
     if (!row) continue;
@@ -114,7 +132,12 @@ function parseBvr3(input: ParseInput, text: string): Board {
     };
     switch (keyword) {
       case 'PART_NAME':
-        if (part) reject(source, no, 'PART_NAME starts before the previous part reached PART_END.');
+        if (part) {
+          // Some exporters omit the terminator of positioned pinless parts.
+          // A next PART_NAME delimits those only; never recover an incomplete or pin-bearing block.
+          if (part.origin && part.side && !part.pins.length && !pin) { finishPart(no); implicitPartEnds++; }
+          else reject(source, no, 'PART_NAME starts before the previous part reached PART_END.');
+        }
         part = { name: rest() || reject(source, no, 'PART_NAME needs a name.'), pins: [] }; // the exporter writes the raw reference; OpenBoardView would keep only its first blank-delimited word
         if (parts.length >= MAX_PARTS) reject(source, no, 'component count exceeds the import limit.', 'LIMIT_EXCEEDED');
         break;
@@ -141,21 +164,7 @@ function parseBvr3(input: ParseInput, text: string): Board {
         owner.pins.push(pin); pin = undefined; break;
       }
       case 'PART_END': {
-        const owner = inPart();
-        if (pin) reject(source, no, 'PART_END while a pin has no PIN_END.');
-        if (!owner.origin) reject(source, no, `part ${owner.name} has no PART_ORIGIN.`);
-        const key = `part:${parts.length}`, origin = owner.origin;
-        if (!owner.side) tally.defaultedSides++;
-        parts.push({ key, ref: owner.name, side: owner.side ?? 'both', position: origin });
-        owner.pins.forEach((item, ordinal) => {
-          if (!item.side) tally.defaultedSides++;
-          // A pad with neither PIN_NUMBER nor PIN_NAME (fiducial, mounting hole, unconnected pad) gets "~" and its position in the part, like the KiCad reader
-          // numbers its unnumbered pads: the marker cannot be a real pin number of the part, and a board fingerprint leaves such pads out.
-          const given = item.number || item.name, number = given || `~${ordinal + 1}`;
-          pins.push({ part: key, number, ...(given ? {} : { numberGenerated: true }), name: item.name || number, net: tally.net(item.net ?? ''), side: item.side ?? 'both',
-            x: origin.x + item.origin!.x, y: origin.y + item.origin!.y, ...item.radius === undefined ? {} : { radius: item.radius } });
-        });
-        part = undefined; break;
+        inPart(); finishPart(no); break;
       }
       case 'OUTLINE_POINTS': {
         outlineLines++;
@@ -180,7 +189,9 @@ function parseBvr3(input: ParseInput, text: string): Board {
     }
   }
   if (pin) reject(source, undefined, 'the file ends inside a pin (missing PIN_END).');
+  if (part && implicitPartEnds && part.origin && part.side && !part.pins.length) { finishPart(lines.length); implicitPartEnds++; }
   if (part) reject(source, undefined, `the file ends inside part ${part.name} (missing PART_END).`);
+  if (implicitPartEnds) tally.extra.push(`${implicitPartEnds} positioned components without pins ended at the next PART_NAME or at the end of this export instead of PART_END; their origins and sides are retained.`);
   const stitched = stitchOutlines(segments);
   // i18n: pending
   if (ignored.size) tally.extra.push(`Lines with unrecognized keywords were ignored: ${[...ignored].slice(0, 5).join(', ')}${ignored.size > 5 ? ', …' : ''}.`);

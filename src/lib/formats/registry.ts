@@ -12,7 +12,7 @@
  */
 import { ADAPTER_API_VERSION, DIALOG_FAMILIES, type BoardAdapter, type ContainerAdapter, type ContainerCapability, type FormatAdapter, type FormatCapability, type RealFileEvidence } from './adapter';
 
-const EXTENSION = /^\.[a-z0-9_]+$/, ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/, COMPANION = /^[a-z0-9_][a-z0-9_. -]*$/;
+const EXTENSION = /^\.[a-z0-9_]+$/, ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/, COMPANION = /^@?[a-z0-9_][a-z0-9_. -]*$/;
 
 const modules = import.meta.glob<FormatAdapter>('./adapters/*/index.ts', { eager: true, import: 'default' });
 
@@ -54,16 +54,38 @@ const unique = (values: readonly string[]): string[] => [...new Set(values)];
 /** Lowercase extensions with a leading dot, in list order: everything the chooser may open, recognized-unsupported families and archives included. */
 export const SUPPORTED_EXTENSIONS: readonly string[] = Object.freeze(unique(ADAPTERS.flatMap(adapter => adapter.extensions)));
 
-const COMPANIONS: ReadonlyMap<string, readonly string[]> = new Map(BOARD_ADAPTERS.flatMap(adapter => (adapter.companions?.sets ?? []).flatMap(set => set.map(member => [member, Object.freeze(set.filter(other => other !== member))] as const))));
+const COMPANION_SETS = BOARD_ADAPTERS.flatMap(adapter => adapter.companions?.sets ?? []);
+const companionTable = (sets: readonly (readonly string[])[]): Map<string, string[]> => {
+  const table = new Map<string, string[]>();
+  for (const set of sets) for (const member of set) table.set(member, unique([...(table.get(member) ?? []), ...set.filter(other => other !== member)]));
+  return table;
+};
+const COMPANIONS = companionTable(COMPANION_SETS);
+const basename = (name: string): string => name.split(/[\\/]/).pop()?.toLowerCase() ?? '';
+/** Choose among overlapping sets by available fixed names; declaration order breaks ties. Missing siblings remain a parser error. */
+export function selectCompanionSet(sets: readonly (readonly string[])[], name: string, availableNames: readonly string[]): readonly string[] | undefined {
+  const base = basename(name), available = new Set(availableNames.map(basename));
+  available.add(base);
+  let chosen: readonly string[] | undefined, most = -1;
+  for (const set of sets) {
+    if (!set.includes(base)) continue;
+    const present = set.filter(member => available.has(member)).length;
+    if (present > most) { chosen = set; most = present; }
+  }
+  return chosen;
+}
 /** Lowercase basenames of the sidecars that belong to `name` in the same directory ([] for single-file formats). */
-export function companionNames(name: string): string[] {
-  const base = name.split(/[\\/]/).pop()?.toLowerCase() ?? '';
+export function companionNames(name: string, availableNames?: readonly string[]): string[] {
+  const base = basename(name);
+  if (availableNames) return [...selectCompanionSet(COMPANION_SETS, base, availableNames) ?? []].filter(member => member !== base);
   return [...COMPANIONS.get(base) ?? []];
 }
 
 export interface FormatsManifest {
   extensions: string[];
   companions: Record<string, string[]>;
+  /** Ordered sets preserve selection when two fixed outlines share the same pin files. */
+  companionSets: string[][];
   /** Secondary filters of the open dialog: every extension belongs to the family of the first adapter (in list order) that declares it. */
   families: Array<{ name: string; extensions: string[] }>;
 }
@@ -72,10 +94,12 @@ export function buildFormatsManifest(adapters: readonly FormatAdapter[] = ADAPTE
   const familyOf = new Map<string, string>();
   for (const adapter of adapters) for (const extension of adapter.extensions) if (!familyOf.has(extension)) familyOf.set(extension, adapter.family);
   const extensions = unique(adapters.flatMap(adapter => adapter.extensions));
-  const companions = new Map(adapters.flatMap(adapter => (adapter.kind === 'board' ? adapter.companions?.sets ?? [] : []).flatMap(set => set.map(member => [member, set.filter(other => other !== member)] as const))));
+  const companionSets = adapters.flatMap(adapter => adapter.kind === 'board' ? (adapter.companions?.sets ?? []).map(set => [...set]) : []);
+  const companions = companionTable(companionSets);
   return {
     extensions,
     companions: Object.fromEntries(companions),
+    companionSets,
     families: DIALOG_FAMILIES.map(name => ({ name, extensions: extensions.filter(extension => familyOf.get(extension) === name) })).filter(family => family.extensions.length),
   };
 }

@@ -23,7 +23,7 @@ describe('sniffBoard: sniff-only identification for listings', () => {
     expect(sniff(of('kicad')).best).toMatchObject({ format: 'KiCad PCB', status: 'supported', meta: { fileVersion: 20240108, generator: 'synthetic' } });
     expect(sniff(of('gencad')).best?.meta).toEqual({ version: '1.4', units: 'MM' });
     expect(sniff(of('eagle')).best?.meta).toEqual({ version: '9.6.2' });
-    expect(sniff(of('bvr')).best).toMatchObject({ variant: 'BVRAW_FORMAT_3', meta: { version: 3 }, status: 'open-tool-validated' });
+    expect(sniff(of('bvr')).best).toMatchObject({ variant: 'BVRAW_FORMAT_3', meta: { version: 3 }, status: 'supported' });
     expect(sniff(of('xzz', 1)).best?.meta).toEqual({ obfuscated: true });
     expect(sniff(of('brd', 1)).best?.meta).toEqual({ encoded: true });
     expect(sniff(of('ipc2581')).best).toMatchObject({ status: 'open-tool-validated', meta: { revision: 'C' } });

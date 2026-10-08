@@ -49,6 +49,14 @@ describe('parseCst', () => {
     expect(error(() => parse(makeCst({ pins: [[1, 0, 100, 200]] }))).message).toMatch(/pin 1 references component 1/);
   });
 
+  it('recognizes observed but unvalidated layer variants without inventing a side', () => {
+    for (const layer of [4, 8, 9, 10]) {
+      const failure = error(() => parse(makeCst({ layer })));
+      expect(failure).toMatchObject({ code: 'UNSUPPORTED_VARIANT', format: 'CST' });
+      expect(failure.message).toMatch(/top\/bottom mapping is not validated/);
+    }
+  });
+
   it('B04: rejects undocumented layer codes instead of inventing a side', () => {
     const failure = error(() => parse(makeCst({ layer: 255 })));
     expect(failure).toMatchObject({ code: 'INVALID_FORMAT', format: 'CST' });
@@ -70,7 +78,7 @@ describe('parseCst', () => {
     expect(failure.message).toMatch(/unsupported component layer code 0xff for R7/);
     const board = parse(makeCst({ parts: ['U1', 'R7', 'C1'], partLayers: [12, 1, 12], pins: [[0, 0, 1, 1], [1, 0, 2, 2], [2, 0, 3, 3]] }))!;
     expect(board.components.map(part => part.side)).toEqual(['top', 'bottom', 'top']);
-    for (const layer of [2, 3, 8, 0x0b, 0x0d, 0x80, 0xfe]) expect(error(() => parse(makeCst({ layer }))).code, `layer ${layer}`).toBe('INVALID_FORMAT');
+    for (const layer of [2, 3, 8, 0x0b, 0x0d, 0x80, 0xfe]) expect(error(() => parse(makeCst({ layer }))).code, `layer ${layer}`).toBe(layer === 8 ? 'UNSUPPORTED_VARIANT' : 'INVALID_FORMAT');
   });
 
   it('decodes binary names without byte-order-mark sniffing, so hostile bytes cannot escape as a TypeError', () => {

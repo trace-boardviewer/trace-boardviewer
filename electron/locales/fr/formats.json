@@ -84,5 +84,6 @@
   "parse.error.archiveNoBoard": "L’archive ZIP ne contient aucun fichier de carte que TRACE peut ouvrir.",
   "parse.warning.archiveEntry": "{entry} a été ouvert depuis l’archive {archive}.",
   "parse.warning.tvwSummary": "TVW : broches liées aux pastilles déclarées : {mapped} ; références de pastille non résolues : {unresolved} ; broches omises : {omitted}.",
-  "parse.warning.tvwLimits": "Import TVW : le contour de la carte et les pistes de cuivre ne sont pas importés. Les dimensions et la face des pastilles proviennent des données de couche déclarées ; les formes personnalisées sont représentées par leur rectangle englobant. Les pastilles sans réseau attribué gardent un nom de réseau vide. Les enregistrements et références de pastille non pris en charge ou endommagés entraînent le refus de l’import."
+  "parse.warning.tvwLimits": "Import TVW : le contour de la carte et les pistes de cuivre ne sont pas importés. Les dimensions et la face des pastilles proviennent des données de couche déclarées ; les formes personnalisées sont représentées par leur rectangle englobant. Les pastilles sans réseau attribué gardent un nom de réseau vide. Les enregistrements et références de pastille non pris en charge ou endommagés entraînent le refus de l’import.",
+  "parse.error.appleDoubleMetadata": "Ce fichier contient des métadonnées macOS. Ouvre le fichier de carte original à côté."
 }

@@ -18,5 +18,6 @@ function encode(data: Uint8Array): Uint8Array {
 const fixtures: AdapterFixture[] = [
   { label: 'plain sections', name: 'board.bdv', data: lines(BDV, '\r\n') },
   { label: 'encoded', name: 'board.bdv', data: encode(lines(BDV, '\r\n')) },
+  { label: 'encoded nails-first without an outline', name: 'board.bdv', data: encode(lines(['<<nails.asc>>', ...header(7, 'nails'), '<<pins.asc>>', ...header(8, 'pins'), 'Part U1 (T)', '1 1 .1 .2 1 VCC 5'], '\r\n')) },
 ];
 export default fixtures;

@@ -45,6 +45,7 @@ export function parseCst(input: ParseInput): Board | null {
     if (!ref) fail('empty component name.');
     skip(4);
     const layer = byte();
+    if ([0x04, 0x08, 0x09, 0x0a].includes(layer)) throw new BoardFormatError(`CST: component layer code 0x${layer.toString(16).padStart(2, '0')} occurs in real exports but its top/bottom mapping is not validated.`, 'UNSUPPORTED_VARIANT', 'CST');
     // Only the two layer codes documented by CSTFile.cpp are known; anything else is reported, never guessed.
     const side = layer === 0x0c ? 'top' : layer === 0x01 ? 'bottom' : fail(`unsupported component layer code 0x${layer.toString(16).padStart(2, '0')} for ${ref}.`);
     parts.push({ key: String(index), ref, side });

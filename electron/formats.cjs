@@ -31,15 +31,44 @@ const COMPANIONS = new Map(Object.entries(companionTable).map(([primary, sibling
     return sibling;
   }))];
 }));
+const EXTENSIONLESS_COMPANIONS = new Set(
+  [...COMPANIONS].flatMap(([primary, siblings]) => [primary, ...siblings]).filter((name) => !path.extname(name)),
+);
+const companionSets = manifest.companionSets ?? [];
+if (!Array.isArray(companionSets)) throw new TypeError('formats.json: "companionSets" must be an array.');
+const COMPANION_SETS = Object.freeze(companionSets.map((set) => {
+  if (!Array.isArray(set) || set.length < 2) throw new TypeError('formats.json: invalid companion set.');
+  const names = set.map((name) => lowercaseName(name, 'companion set member'));
+  if (new Set(names).size !== names.length) throw new TypeError('formats.json: duplicate companion set member.');
+  for (const name of names) for (const sibling of names) {
+    if (sibling !== name && !COMPANIONS.get(name)?.includes(sibling)) throw new TypeError('formats.json: companion set differs from companion table.');
+  }
+  return Object.freeze(names);
+}));
 
 function isSupportedExtension(filename) {
-  return typeof filename === 'string' && SUPPORTED_EXTENSIONS.includes(path.extname(filename).toLowerCase());
+  if (typeof filename !== 'string') return false;
+  const extension = path.extname(filename).toLowerCase();
+  return SUPPORTED_EXTENSIONS.includes(extension)
+    || (!extension && EXTENSIONLESS_COMPANIONS.has(path.basename(filename).toLowerCase()));
 }
 
-/** Lowercase sidecar basenames to gather next to `filename` (the ASC trio); empty for single-file formats. */
-function companionNames(filename) {
+/** Lowercase sidecar basenames to gather next to `filename`; empty for single-file formats. */
+function companionNames(filename, availableNames) {
   if (typeof filename !== 'string') return [];
-  return [...(COMPANIONS.get(path.basename(filename).toLowerCase()) ?? [])];
+  const base = path.basename(filename).toLowerCase();
+  if (availableNames && COMPANION_SETS.length) {
+    const available = new Set(availableNames.map((name) => path.basename(name).toLowerCase()));
+    available.add(base);
+    let chosen, most = -1;
+    for (const set of COMPANION_SETS) {
+      if (!set.includes(base)) continue;
+      const present = set.filter((name) => available.has(name)).length;
+      if (present > most) { chosen = set; most = present; }
+    }
+    return (chosen ?? []).filter((name) => name !== base);
+  }
+  return [...(COMPANIONS.get(base) ?? [])];
 }
 
 // i18n: pending — English family names for the optional secondary filters of the open dialog (generated with the rest of
@@ -56,14 +85,16 @@ const FAMILIES = Object.freeze(familyTable.map((family) => {
   return Object.freeze({ name: family.name, extensions: Object.freeze([...family.extensions]) });
 }));
 
-/** Open-dialog filters: every supported extension under the localized name first, then the English families. */
-function dialogFilters(everyFormatName) {
+/** Supported extensions, then families, plus a localized all-files choice for fixed extensionless companion roles. */
+function dialogFilters(everyFormatName, allFilesName) {
   const bare = (extensions) => extensions.map((extension) => extension.slice(1));
   return [
     { name: everyFormatName, extensions: bare(SUPPORTED_EXTENSIONS) },
     ...FAMILIES
       .map(({ name, extensions }) => ({ name, extensions: bare(extensions.filter((extension) => SUPPORTED_EXTENSIONS.includes(extension))) }))
       .filter((filter) => filter.extensions.length),
+    ...(EXTENSIONLESS_COMPANIONS.size && typeof allFilesName === 'string' && allFilesName
+      ? [{ name: allFilesName, extensions: ['*'] }] : []),
   ];
 }
 

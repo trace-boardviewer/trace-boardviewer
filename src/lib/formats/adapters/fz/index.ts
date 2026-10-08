@@ -1,6 +1,6 @@
 import { defineBoardAdapter, NO_MATCH, sniffed } from '../../adapter';
 import { asciiPrefix } from '../../common';
-import { CONTENT_SIGNATURE, hasFzDefaultKeyHeader, hasFzZlibHeader, looksLikeText, parseFz } from '../../fz';
+import { CONTENT_SIGNATURE, hasFzDefaultKeyHeader, hasFzWrappedHeader, hasFzZlibHeader, looksLikeText, parseFz } from '../../fz';
 import { fzHook } from '../../../diagnostics/hooks-binary';
 
 const NAME = /\.(fz|cae)$/i;
@@ -19,6 +19,7 @@ export default defineBoardAdapter({
   sniff(input) {
     const extension = NAME.exec(input.name)?.[1].toLowerCase();
     if (!extension) return NO_MATCH;
+    if (hasFzWrappedHeader(input.head)) return sniffed(80, '.fz/.cae compressed outer envelope');
     if (CONTENT_SIGNATURE.test(asciiPrefix(input.head, 64))) return sniffed(70, '.fz/.cae file holding decoded A!/UNIT: records', { meta: { encrypted: false } });
     if (hasFzZlibHeader(input.head)) return sniffed(70, '.fz/.cae file with a plaintext zlib stream at byte 4', { meta: { encrypted: false } });
     if (looksLikeText(input.head)) return NO_MATCH; // any other text belongs to another format

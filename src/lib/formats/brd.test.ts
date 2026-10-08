@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Board } from '../types';
-import { BoardFormatError, textInput } from './common';
+import { BoardFormatError, MAX_IMPORT_BYTES, textInput } from './common';
 import { parseBrd } from './brd';
+import { parseBoardDetailed } from './dispatch';
 import { expectScaling } from '../../test-support/timing';
 
 const mm = (mil: number) => mil * 0.0254;
@@ -75,6 +76,15 @@ NAILS: 2
 `;
 
 describe('Landrex / TestLink BRD', () => {
+  it('preserves spaced component and net names and resolves a missing pin net from the complete nail name', () => {
+    const board = must(LANDREX.replace('U1 1 3', 'TP 1 1 3').replaceAll('VCC', 'POWER RAIL').replaceAll('SCL', 'CLOCK RAIL'));
+    expect(board.components[0].ref).toBe('TP 1');
+    expect(board.pins[0].net).toBe('POWER RAIL');
+    expect(board.pins[2].net).toBe('CLOCK RAIL');
+    expect(board.pins.at(-2)?.net).toBe('POWER RAIL');
+    expect(netNames(board)).toEqual(['CLOCK RAIL', 'GND', 'POWER RAIL', 'SDA']);
+  });
+
   it('parses the plaintext golden fixture with mil units, component-derived pin sides and nail nets', () => {
     const board = must(LANDREX);
     expect(board.format).toBe('Landrex / TestLink BRD');
@@ -166,7 +176,7 @@ describe('Landrex / TestLink BRD', () => {
     expect(thrown(LANDREX.replace('Nails:', 'Parts:')).message).toMatch(/duplicate Parts section/);
     expect(thrown(LANDREX.replace('var_data:\n4 3 7 2\n', 'var_data:\n4 3 7 2\n1 2 3 4\n')).message).toMatch(/record counts/);
     expect(thrown(LANDREX.replace('0 1000\nParts', '0 1000 5\nParts')).message).toMatch(/two coordinates/);
-    const error = thrown(LANDREX.replace('1 100 100 1 VCC', '1 100 100 1 VCC extra'));
+    const error = thrown(LANDREX.replace('1 100 100 1 VCC', '1 100 100'));
     expect(error.format).toBe('Landrex / TestLink BRD');
     expect(error.code).toBe('INVALID_FORMAT');
   });
@@ -216,6 +226,15 @@ describe('Landrex / TestLink BRD', () => {
 });
 
 describe('TOPTEST BRD2', () => {
+  it('keeps empty net-table names disconnected and preserves signed ids and names containing blanks', () => {
+    const board = must(BRD2.replace('1 GND', '-1 POWER RAIL').replace('2 VCC', '2').replaceAll('250 250 1 1', '250 250 -1 1').replaceAll('550 150 1 2', '550 150 -1 2').replace('2 550 850 1 0', '2 550 850 -1 0'));
+    expect(board.pins.slice(0, 3).map(pin => pin.net)).toEqual(['', 'POWER RAIL', 'POWER RAIL']);
+    expect(netNames(board)).toEqual(['POWER RAIL']);
+    expect(noteMessages(board).some(note => note.includes('undefined net id'))).toBe(false);
+    expect(thrown(BRD2.replace('1 GND', 'x GND')).message).toMatch(/net id/);
+    expect(thrown(BRD2.replace('1 GND', '1.5 GND')).message).toMatch(/net id/);
+  });
+
   it('parses the golden fixture with bottom mirroring, pin start ranges, net ids and nail sides', () => {
     const board = must(BRD2);
     expect(board.format).toBe('TOPTEST BRD2');
@@ -400,6 +419,42 @@ describe('Landrex / TestLink BRD: OpenBoardView edge conformance (synthetic, mod
 });
 
 describe('Landrex / TestLink BRD export variants (original synthetic regressions)', () => {
+  const encode = (value: string) => new TextEncoder().encode(value).map(byte => {
+    if (byte === 0 || byte === 10 || byte === 13) return byte;
+    const inverted = ~byte & 0xff; return ((inverted >>> 2) | (inverted << 6)) & 0xff;
+  });
+  it('reads extended Pins1 first-pin indices without mistaking numeric metadata for component types', () => {
+    const source = 'str_length:\n0\nvar_data:\n0 2 4 0\nPins1:\nU1 5 0 -500 -500 2500 1500\nR1 8 2 0 0 1000 1000\nPins2:\n100 100 1 1 VCC\n200 100 2 1 GND\n300 100 3 2 GND\n400 100 4 1 VCC\n';
+    for (const data of [textInput(source).data, encode(source)]) {
+      const board = parseBrd({ name: 'synthetic.brd', data })!;
+      expect(pinRows(board)).toEqual([['U1', '1', mm(100), mm(100), 'VCC', 'top'], ['U1', '2', mm(200), mm(100), 'GND', 'top'], ['R1', '1', mm(300), mm(100), 'GND', 'bottom'], ['U1', '3', mm(400), mm(100), 'VCC', 'top']]);
+      expect(board.components[0].bounds.maxX).toBeCloseTo(mm(400) + .3);
+      expect(noteMessages(board).join(' ')).toMatch(/Four additional numeric component fields.*not used/);
+    }
+    expect(thrown(source.replace('R1 8 2', 'R1 8 3')).message).toMatch(/first-pin index conflicts/);
+    expect(thrown(source.replace('-500 -500 2500 1500', '-500 bad 2500 1500')).message).toMatch(/numeric metadata/);
+    expect(thrown('str_length:\n0\nvar_data:\n0 1 2 0\nPins1:\nTP 1 0 0 0 1 2\nPins2:\n10 20 1 1 N\n30 40 2 1 N\n').code).toBe('UNSUPPORTED_VARIANT');
+  });
+  it('accepts only a terminal raw DOS EOF marker or newline-separated NUL/whitespace padding after a complete board', () => {
+    const baseline = must(LANDREX);
+    for (const data of [textInput(`${LANDREX}\0 \t\r\n\0`).data, Uint8Array.from([...encode(LANDREX), 0x1a, 0, 10])]) {
+      const board = parseBrd({ name: 'synthetic.brd', data })!;
+      expect(board.pins).toEqual(baseline.pins);
+      expect(board.components).toEqual(baseline.components);
+      expect(noteMessages(board).join(' ')).toMatch(/terminal/);
+      expect(parseBoardDetailed({ name: 'synthetic.brd', data }).adapter).toBe('brd');
+    }
+    const paddedBrd2 = must(`${BRD2}\0 \n\0`);
+    expect(paddedBrd2.pins).toEqual(must(BRD2).pins);
+    expect(parseBoardDetailed(textInput(`${BRD2}\0 \n\0`, 'synthetic.brd')).adapter).toBe('brd2');
+    expect(() => parseBrd({ name: 'synthetic.brd', data: Uint8Array.from([...encode(LANDREX), 0x1a, 65]) })).toThrow(BoardFormatError);
+    for (const invalid of [`${LANDREX}\0junk`, `${BRD2}\0binary`, `${BRD2}<html>`, `${LANDREX.trimEnd()}\0`, LANDREX.replace('100 100 1 1 VCC', '10\0 100 1 1 VCC'), LANDREX.replace('4 3 7 2', '4 3 7 3') + '\0']) expect(() => must(invalid)).toThrow(BoardFormatError);
+  });
+  it('checks the entire source-byte budget before removing a terminal suffix', () => {
+    const oversized = new Uint8Array(MAX_IMPORT_BYTES + 1);
+    oversized.set(encode(LANDREX));
+    expect(() => parseBrd({ name: 'synthetic.brd', data: oversized })).toThrow(expect.objectContaining({ code: 'LIMIT_EXCEEDED' }));
+  });
   it('accepts two extra signed var_data fields in both plain and encoded data without guessing an offset', () => {
     const source = LANDREX.replace('4 3 7 2\n', '4 3 7 2 -1000 -500\n');
     const encode = (value: string) => new TextEncoder().encode(value).map(byte => {

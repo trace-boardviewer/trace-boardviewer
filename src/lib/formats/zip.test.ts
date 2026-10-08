@@ -12,6 +12,7 @@ import zipAdapter from './adapters/zip';
 import { BoardFormatError, MAX_IMPORT_BYTES } from './common';
 import { detectFormat, parseBoardAsync, parseBoardDetailed } from './dispatch';
 import { crc32, readZip } from './zip';
+import { syntheticTeboIct } from './tebo-ict-fixtures';
 
 const encoder = new TextEncoder();
 const GENCAD = gencad[0].data, KICAD = kicad[0].data;
@@ -59,6 +60,24 @@ function rawZip(entries: RawEntry[], options: { zip64?: boolean; prefix?: Uint8A
 }
 
 describe('ZIP import: the one board of an archive', () => {
+  it('opens a fixed extensionless electrical/geometry pair as one board in either archive order', () => {
+    const pair = syntheticTeboIct(), program = encoder.encode(pair.program), geometry = encoder.encode(pair.geometry);
+    for (const files of [{ 'job/BOARD': program, 'job/BOARD_XY': geometry }, { 'job/BOARD_XY': geometry, 'job/BOARD': program }]) {
+      const result = open(zipSync(files));
+      expect(result).toMatchObject({ adapter: 'tebo-ict', container: 'zip', entry: 'job/BOARD' });
+      expect(result.board.pins).toHaveLength(4);
+      expect(result.board.nets.map(net => net.name).sort()).toEqual(['GND', 'POWER']);
+    }
+    expect(failure(() => open(zipSync({ 'a/BOARD': program, 'b/BOARD_XY': geometry }))).code).toBe('UNSUPPORTED_VARIANT');
+  });
+  it('groups an alternate ASC outline with its shared pin files, and refuses two distinct outlines', () => {
+    const standard = asc.find(fixture => fixture.name === 'format.asc')!;
+    const pins = standard.companions!['pins.asc'], nails = standard.companions!['nails.asc'];
+    const result = open(zipSync({ 'job/PINS.ASC': pins, 'job/@FORMAT.ASC': standard.data, 'job/NAILS.ASC': nails }));
+    expect(result).toMatchObject({ adapter: 'asc', container: 'zip', entry: 'job/@FORMAT.ASC' });
+    expect(result.board.pins).toHaveLength(1);
+    expect(failure(() => open(zipSync({ 'job/format.asc': standard.data, 'job/@format.asc': standard.data, 'job/pins.asc': pins, 'job/nails.asc': nails }))).issue?.key).toBe('parse.error.archiveSeveralBoards');
+  });
   it('opens a board from a folder of the archive exactly as the unpacked file, and says which entry it opened', () => {
     const unpacked = parseBoardDetailed({ name: 'board.cad', data: GENCAD }).board;
     for (const level of [0, 6, 9] as const) {

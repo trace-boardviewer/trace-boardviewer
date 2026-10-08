@@ -8,10 +8,11 @@ const BRDOUT_LINE = /^[ \t]*BRDOUT:/m;
 
 export default defineBoardAdapter({
   capability: {
-    id: 'brd2', name: 'TOPTEST BRD2', extensions: ['.brd'], variants: ['BRDOUT/NETS/PARTS/PINS/NAILS'], status: 'draft', validation: 'synthetic-fixtures', electrical: 'nets', geometry: 'estimated',
+    id: 'brd2', name: 'TOPTEST BRD2', extensions: ['.brd', '.gr'], variants: ['BRDOUT/NETS/PARTS/PINS/NAILS'], status: 'supported', validation: 'real-files', electrical: 'nets', geometry: 'estimated',
     units: 'mil (×0.0254)', sides: 'side codes 1 top, 2 bottom, 0 both; bottom Y is boardHeight − rawY; a part with no pin on its own side becomes both; nails side 1 top, otherwise bottom',
-    notes: ['Pads carry no physical size (radius 0); part body rectangles and the outline come from the file.', 'A truncated BRDOUT file is reported as a malformed BRD2, not as unrecognized.', 'A component without pins keeps its declared side and body rectangle (OpenBoardView turns it into a through-hole part on both sides); header counts that disagree with the rows are rejected.', 'Remaining gap to supported: no real BRD2 file was available.'],
+    notes: ['Pads carry no physical size (radius 0); part body rectangles and the outline come from the file.', 'A truncated BRDOUT file is reported as a malformed BRD2, not as unrecognized.', 'A component without pins keeps its declared side and body rectangle (OpenBoardView turns it into a through-hole part on both sides); header counts that disagree with the rows are rejected.', 'Signed net ids, empty disconnected net names and net names containing blanks are retained; duplicate net ids are rejected.'],
   },
+  evidence: { status: 'validated with selected real files', validatedWith: 'selected BRDOUT exports; canonical geometry, sides, component links and net membership checked', rewrites: [], extra: ['Signed and empty net-table variants have synthetic regressions. No sample is distributed.'] },
   listOrder: 30,
   family: 'Boardview',
   detection: 'signature',

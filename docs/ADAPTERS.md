@@ -41,6 +41,15 @@ export default defineBoardAdapter({
 });
 ```
 
+Companion sets declare fixed, case-insensitive basenames. The native opener gathers only those siblings in the
+same directory, checks their combined byte budget before reading, and gives every entry role the same board key.
+An extensionless member is openable only when its exact basename belongs to a declared set. The normal file chooser
+adds its localized all-files filter for these sets; arbitrary extensionless files remain outside normal board opening.
+Sets may share pin files while supplying alternative outlines. Discovery returns the union of possible siblings;
+selection uses the set with the most available fixed names, with declaration order breaking ties. Only that selected
+set is read, budgeted and hashed. Explicit outline entries keep their own set. ZIP import applies the same selection
+within each folder; two separately supplied outlines remain an ambiguous choice.
+
 **sniff** sees at most the first 64 KiB of the file (`SNIFF_BYTES`, after UTF-16 files were re-encoded as UTF-8),
 the file name and the full size. It must be total (never throws), bounded (no allocation in proportion to the file,
 linear time) and side-effect free. It returns a confidence and a short English reason:

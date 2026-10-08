@@ -99,9 +99,10 @@ function definitions(cursor: Cursor, count: number, budget: Budget): Definition[
     if (cursor.u32() !== 1) invalid();
     // A disk width measures the first coordinate axis (Y); convert the dimensions as well as the points.
     const height = cursor.dimension(), width = cursor.dimension(), shapeType = cursor.u32(), extra = cursor.u32();
-    if (!width || !height) invalid();
+    const empty = !width && !height && shapeType === 0 && extra === 0;
+    if ((!width || !height) && !empty) invalid();
     let polygon: Point[] | undefined;
-    if (shapeType <= 3) cursor.u32();
+    if (shapeType <= 3) { const tail = cursor.u32(); if (empty && tail !== 0) invalid(); }
     else if (shapeType === 5 && extra === 0) polygon = customDefinition(cursor, budget);
     else invalid();
     result.push({ width, height, shapeType, ...(polygon ? { polygon } : {}) });
@@ -144,14 +145,21 @@ function readPads(cursor: Cursor, defs: Definition[], side: 'top' | 'bottom', ne
         const hole = cursor.u8();
         if (hole > 1) invalid();
         if (hole) { cursor.point(); cursor.dimension(); cursor.dimension(); }
-      } else if (geometry === 0) {
+      } else if (geometry === 0 && (flag || cursor.at + 9 <= cursor.data.length
+        && cursor.view.getUint32(cursor.at, true) === 1 && cursor.view.getUint32(cursor.at + 4, true) === 0 && cursor.data[cursor.at + 8] === 0)) {
         // Observed round geometry: fixed words [1,0], a zero byte and radii in disk Y/X order.
         if (cursor.u32() !== 1 || cursor.u32() !== 0 || cursor.u8() !== 0) invalid();
         height = cursor.dimension() * 2; width = cursor.dimension() * 2;
         if (!width || !height) invalid();
+      } else if (geometry === 0) {
+        // An unexposed copper pad can omit the exposed-area geometry entirely.
+        const hole = cursor.u8();
+        if (hole > 1) invalid();
+        if (hole) { cursor.point(); cursor.dimension(); cursor.dimension(); }
       } else invalid();
     }
     cursor.u8(); // Opaque final flag: it is not a board-side indicator.
+    if (!width || !height) invalid(); // A zero aperture may occur in the table, but cannot supply pad geometry.
     pads.push({ ...point, net, dcode, side, sourceOffset, width, height, shapeType: definition.shapeType,
       ...(bounds ? { bounds } : {}), ...(definition.polygon ? { polygon: definition.polygon } : {}) });
   }
@@ -177,7 +185,7 @@ function checkLines(cursor: Cursor, defs: Definition[], netCount: number, budget
  */
 export function readTvwLayers(data: Uint8Array, netCount: number): TvwLayerResult {
   if (data.length > MAX_IMPORT_BYTES) limit('file exceeds the 64 MiB import limit.');
-  if (!Number.isInteger(netCount) || netCount < 1 || netCount > 100_000) invalid();
+  if (!Number.isInteger(netCount) || netCount < 0 || netCount > 100_000) invalid();
   const layers: TvwLayer[] = [], headers: TvwLayerHeader[] = [], budget: Budget = { definitions: 0, pads: 0, vertices: 0, lines: 0 };
   let skippedLayers = 0;
   for (let p = 0; p + 35 <= data.length; p++) {
@@ -190,7 +198,23 @@ export function readTvwLayers(data: Uint8Array, netCount: number): TvwLayerResul
       cursor.u32(); cursor.u32(); count = cursor.u32();
       named = Boolean(name && initial);
     } catch { continue; }
-    if (!named) continue;
+    if (!named) {
+      // Empty logical slots still occupy a layer index. Their complete 83-byte
+      // record is fixed; checking every word avoids counting header-like pad bytes.
+      if (data[p + 4] !== 3 || name! !== '' || type! !== 0 || count! !== 0 || cursor.at !== p + 35) continue;
+      const empty = new Cursor(data, p + 19);
+      const words = [0, 255, 65280, 0, 0, 0, 7, 0, 0, 4, 0, 0, 0, 0, 0, 0];
+      let valid = false;
+      try { valid = words.every(word => empty.u32() === word); } catch { /* incomplete slot */ }
+      if (!valid) {
+        if (p + 31 <= data.length && empty.view.getUint32(p + 23, true) === 255 && empty.view.getUint32(p + 27, true) === 65280) skippedLayers++;
+        continue;
+      }
+      if (headers.length >= MAX_HEADERS) limit('layer header count exceeds the limit.');
+      headers.push({ index: headers.length, name: '', type: 0, sourceOffset: p });
+      p = empty.at - 1;
+      continue;
+    }
     if (headers.length >= MAX_HEADERS) limit('layer header count exceeds the limit.');
     if (type !== TVW_LAYER_TOP && type !== TVW_LAYER_BOTTOM) {
       // Aux, silk, mask and inner layers occupy an index of the pin lists, but their bodies are never interpreted.

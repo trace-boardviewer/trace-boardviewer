@@ -89,5 +89,6 @@
   "parse.error.archiveNoBoard": "Archív ZIP neobsahuje žiadny súbor dosky, ktorý dokáže TRACE otvoriť.",
   "parse.warning.archiveEntry": "Položka {entry} bola otvorená z archívu {archive}.",
   "parse.warning.tvwSummary": "TVW: vývody priradené k deklarovaným ploškám: {mapped}; nevyriešené odkazy na plošky: {unresolved}; vynechané vývody: {omitted}.",
-  "parse.warning.tvwLimits": "Import TVW: obrys dosky a medené spoje sa neimportujú. Rozmery a strany plošiek vychádzajú z deklarovaných údajov vrstiev; vlastné tvary sa zobrazujú ohraničujúcimi obdĺžnikmi. Plošky bez priradenej siete si zachovajú prázdny názov siete. Nepodporované alebo poškodené záznamy a odkazy na plošky spôsobia odmietnutie importu."
+  "parse.warning.tvwLimits": "Import TVW: obrys dosky a medené spoje sa neimportujú. Rozmery a strany plošiek vychádzajú z deklarovaných údajov vrstiev; vlastné tvary sa zobrazujú ohraničujúcimi obdĺžnikmi. Plošky bez priradenej siete si zachovajú prázdny názov siete. Nepodporované alebo poškodené záznamy a odkazy na plošky spôsobia odmietnutie importu.",
+  "parse.error.appleDoubleMetadata": "Tento súbor obsahuje sprievodné údaje macOS. Otvor pôvodný súbor dosky vedľa neho."
 }

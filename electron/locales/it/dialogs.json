@@ -22,5 +22,7 @@
   "info.format": "Formato",
   "info.size": "Dimensioni della scheda",
   "info.counts": "Componenti / pin / net",
-  "info.footer": "Le linee ausiliarie mostrano la connettività dei net. Non sostituiscono la geometria delle piste in rame presenti nel file."
+  "info.footer": "Le linee ausiliarie mostrano la connettività dei net. Non sostituiscono la geometria delle piste in rame presenti nel file.",
+
+  "key.skipHelp": "Puoi saltare questo passaggio e continuare a usare l’app. Questo file cifrato resta chiuso fino a quando viene fornita la chiave corretta."
 }

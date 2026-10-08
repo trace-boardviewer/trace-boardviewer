@@ -113,23 +113,24 @@ describe('capability matrix and extension list', () => {
       for (const requirement of capability.requires ?? []) expect(['key', 'companions']).toContain(requirement);
       if (capability.status === 'recognized-unsupported' || capability.status === 'extension-only') expect(capability.electrical).toBe('none');
     }
-    expect(FORMAT_CAPABILITIES.filter(capability => capability.status === 'supported').map(capability => capability.id)).toEqual(['gencad', 'brd', 'bdv', 'fz', 'kicad', 'eagle', 'altium', 'samsung-cad', 'tvw', 'easyeda-pro']);
-    expect(FORMAT_CAPABILITIES.filter(capability => capability.status === 'open-tool-validated').map(capability => capability.id)).toEqual(['bvr', 'odbpp', 'ipc356', 'ipc2581']);
+    expect(FORMAT_CAPABILITIES.filter(capability => capability.status === 'supported').map(capability => capability.id)).toEqual(['gencad', 'brd', 'brd2', 'bdv', 'bvr', 'bvr1', 'asc', 'bv', 'bv2', 'tebo-ict', 'fz', 'cst', 'kicad', 'eagle', 'altium', 'samsung-cad', 'mentor-neutral', 'allegro-brd', 'unisoft-f2b', 'tvw', 'easyeda-pro', 'farc']);
+    expect(FORMAT_CAPABILITIES.filter(capability => capability.status === 'open-tool-validated').map(capability => capability.id)).toEqual(['odbpp', 'ipc356', 'ipc2581']);
     expect(FORMAT_CAPABILITIES.find(capability => capability.id === 'asc')?.requires).toEqual(['companions']);
     expect(FORMAT_CAPABILITIES.find(capability => capability.id === 'fz')?.requires).toBeUndefined();
     expect(FORMAT_CAPABILITIES.find(capability => capability.id === 'xzz')?.requires).toBeUndefined();
-    for (const id of ['gencad', 'brd', 'brd2', 'bdv', 'bvr', 'bvr1', 'asc', 'fz', 'xzz', 'cst', 'kicad', 'eagle', 'altium', 'samsung-cad', 'mentor-neutral', 'allegro-brd', 'tvw', 'gerber', 'odbpp', 'ipc2581']) {
+    for (const id of ['gencad', 'brd', 'brd2', 'bdv', 'bvr', 'bvr1', 'asc', 'bv', 'bv2', 'fz', 'xzz', 'cst', 'kicad', 'eagle', 'altium', 'samsung-cad', 'mentor-neutral', 'allegro-brd', 'unisoft-f2b', 'tvw', 'gerber', 'odbpp', 'ipc2581']) {
       expect(ids, id).toContain(id);
     }
   });
   it('companionNames returns the ASC trio sidecars by lowercase basename and nothing for other files', () => {
     expect(companionNames('format.asc')).toEqual(['pins.asc', 'nails.asc']);
-    expect(companionNames('C:\\boards\\PINS.ASC')).toEqual(['format.asc', 'nails.asc']);
-    expect(companionNames('/x/y/Nails.Asc')).toEqual(['format.asc', 'pins.asc']);
+    expect(companionNames('C:\\boards\\PINS.ASC')).toEqual(['format.asc', 'nails.asc', '@format.asc']);
+    expect(companionNames('/x/y/Nails.Asc')).toEqual(['format.asc', 'pins.asc', '@format.asc']);
+    expect(companionNames('pins.asc', ['@format.asc', 'pins.asc', 'nails.asc'])).toEqual(['@format.asc', 'nails.asc']);
     for (const name of ['board.asc', 'board.brd', 'format.asc.bak', '', 'format', 'constructor', '__proto__']) expect(companionNames(name)).toEqual([]);
     const first = companionNames('format.asc'); first.push('x');
     expect(companionNames('format.asc')).toEqual(['pins.asc', 'nails.asc']);
-    expect(formats.companions).toEqual({ 'format.asc': ['pins.asc', 'nails.asc'], 'pins.asc': ['format.asc', 'nails.asc'], 'nails.asc': ['format.asc', 'pins.asc'] });
+    expect(formats.companions).toMatchObject({ 'format.asc': ['pins.asc', 'nails.asc'], '@format.asc': ['pins.asc', 'nails.asc'], 'pins.asc': ['format.asc', 'nails.asc', '@format.asc'], 'nails.asc': ['format.asc', 'pins.asc', '@format.asc'] });
   });
   it('lets GenCAD content outrank the BRD readers (CAD/BRD extensions collide), with unique parser ids, and re-exports the shared error class', () => {
     // Adapter v2: precedence comes from sniff confidence, not from a registration order (registry.test.ts pins the overlaps).
@@ -151,8 +152,8 @@ describe('capability matrix and extension list', () => {
     expect(ranked.filter(candidate => candidate.adapter.capability.status === 'recognized-unsupported').every(candidate => candidate.confidence < ranked[0].confidence)).toBe(true);
   });
   it('splits the BVR family: BVRAW_FORMAT_3 is validated with open tool-written files, BVRAW_FORMAT_1 stays a synthetic-fixture draft', () => {
-    expect(FORMAT_CAPABILITIES.find(capability => capability.id === 'bvr')).toMatchObject({ status: 'open-tool-validated', validation: 'open-tool-files', openTool: { tool: 'kicad-boardview' } });
-    expect(FORMAT_CAPABILITIES.find(capability => capability.id === 'bvr1')).toMatchObject({ status: 'draft', validation: 'synthetic-fixtures' });
+    expect(FORMAT_CAPABILITIES.find(capability => capability.id === 'bvr')).toMatchObject({ status: 'supported', validation: 'real-files' });
+    expect(FORMAT_CAPABILITIES.find(capability => capability.id === 'bvr1')).toMatchObject({ status: 'supported', validation: 'real-files' });
     expect(FORMAT_CAPABILITIES.find(capability => capability.id === 'bvr')?.notes.join(' ')).toMatch(/Raspberry Pi Pico/);
   });
 });

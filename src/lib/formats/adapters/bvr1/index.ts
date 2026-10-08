@@ -6,10 +6,11 @@ import { bvrHook } from '../../../diagnostics/hooks-text';
 
 export default defineBoardAdapter({
   capability: {
-    id: 'bvr1', name: 'BVR raw boardview (BVRAW_FORMAT_1)', extensions: ['.bvr'], variants: ['BVRAW_FORMAT_1 (<<Layout>>/<<Pin>>/<<Nail>>)'], status: 'draft', validation: 'synthetic-fixtures', electrical: 'nets', geometry: 'estimated',
+    id: 'bvr1', name: 'BVR raw boardview (BVRAW_FORMAT_1)', extensions: ['.bvr'], variants: ['BVRAW_FORMAT_1 (<<Layout>>/<<Pin>>/<<Nail>>)'], status: 'supported', validation: 'real-files', electrical: 'nets', geometry: 'estimated',
     units: 'inch (×25.4)', sides: 'per-line (T) top, otherwise bottom',
-    notes: ['The one-line section headers follow the OpenBoardView reference reader; no real BVRAW_FORMAT_1 file was available, so this dialect is proven on synthetic fixtures only.', 'Pads carry no physical size; components without pins are omitted with a note.'],
+    notes: ['The one-line section headers follow the OpenBoardView reference reader. Layout records may contain two additional numeric metadata fields; only X/Y determine the outline, with a note.', 'Pads carry no physical size; components without pins are omitted with a note.'],
   },
+  evidence: { status: 'validated with selected real files', validatedWith: 'selected BVRAW_FORMAT_1 exports; canonical geometry, sides, component links and net membership checked', rewrites: [], extra: ['Additional numeric layout metadata has synthetic regressions. No sample is distributed.'] },
   listOrder: 60,
   family: 'Boardview',
   detection: 'signature',

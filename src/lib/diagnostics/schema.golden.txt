@@ -5,27 +5,27 @@ root.app: object
 root.dedupe: string(^[0-9a-f]{16}$)?
 root.detection.adapters: array
 root.detection.adapters[].code: enum(errorCode: 10)?
-root.detection.adapters[].format: enum(formatId: 28)?
-root.detection.adapters[].id: enum(formatId: 28)
+root.detection.adapters[].format: enum(formatId: 36)?
+root.detection.adapters[].id: enum(formatId: 36)
 root.detection.adapters[].keyKind: enum(keyKind: 2)?
 root.detection.adapters[].result: enum(detectionResult: 4)
 root.detection.adapters[].sniff: enum(sniff: 4)
 root.detection.adapters[].stage: enum(stage: 6)?
 root.detection.adapters[]: object
 root.detection.ambiguous: boolean
-root.detection.format: enum(formatId: 28)?
+root.detection.format: enum(formatId: 36)?
 root.detection.outcome: enum(outcome: 3)
-root.detection.selected: enum(formatId: 28)?
+root.detection.selected: enum(formatId: 36)?
 root.detection: object
 root.input.companions.count: integer(0..8)
 root.input.companions.extensions: array
-root.input.companions.extensions[]: enum(extension: 64)
+root.input.companions.extensions[]: enum(extension: 68)
 root.input.companions: object
 root.input.container: enum(container: 8)
 root.input.encoding: enum(encoding: 7)
 root.input.entropy: array
 root.input.entropy[]: number(0..8, 1 decimals)
-root.input.extension: enum(extension: 64)
+root.input.extension: enum(extension: 68)
 root.input.lineEndings: enum(lineEndings: 6)
 root.input.magic: enum(magic: 32)
 root.input.sizeLog2: integer(0..27)
@@ -81,19 +81,19 @@ root.structure.blocks.tags: record
 root.structure.blocks.tags{^(?:0|[1-9][0-9]{0,4})$}: sig2(..100000000)
 root.structure.blocks: object?
 root.structure.fields: record
-root.structure.fields{enum keyword: 307}.max: integer(0..1000000)
-root.structure.fields{enum keyword: 307}.median: number(0..1000000, 1 decimals)
-root.structure.fields{enum keyword: 307}.min: integer(0..1000000)
-root.structure.fields{enum keyword: 307}: object
+root.structure.fields{enum keyword: 315}.max: integer(0..1000000)
+root.structure.fields{enum keyword: 315}.median: number(0..1000000, 1 decimals)
+root.structure.fields{enum keyword: 315}.min: integer(0..1000000)
+root.structure.fields{enum keyword: 315}: object
 root.structure.header.codes: record
 root.structure.header.codes{enum headerCode: 11}: integer(0..4294967295)
 root.structure.header.counts: record
 root.structure.header.counts{enum headerCount: 12}: sig2(..100000000)
 root.structure.header: object
 root.structure.headerOk: boolean
-root.structure.hook: enum(hookId: 14)
+root.structure.hook: enum(hookId: 20)
 root.structure.keywords: record
-root.structure.keywords{enum keyword: 307}: sig2(..100000000)
+root.structure.keywords{enum keyword: 315}: sig2(..100000000)
 root.structure.kind: enum(structureKind: 2)
 root.structure.linesLog2: integer(0..27)?
 root.structure.numbers.count: sig2(..100000000)
@@ -104,14 +104,14 @@ root.structure.numbers.magnitude{^(?:zero|-?(?:[0-9]|1[0-5]))$}: sig2(..10000000
 root.structure.numbers: object?
 root.structure.sections: array
 root.structure.sections[].distinctShapes(optional): sig2(..100000000) [level 2]
-root.structure.sections[].name: enum(keyword: 307)
+root.structure.sections[].name: enum(keyword: 315)
 root.structure.sections[].records: sig2(..100000000)
 root.structure.sections[].shapes(optional): array [level 2]
 root.structure.sections[].shapes(optional)[].count: integer(1..32)
 root.structure.sections[].shapes(optional)[].shape: string(^[A9 !-/:-@\[-`{-~]{1,120}$)
 root.structure.sections[].shapes(optional)[]: object
 root.structure.sections[]: object
-root.structure.variant: enum(variant: 30)?
+root.structure.variant: enum(variant: 37)?
 root.structure: object?
 root: object
 
@@ -125,9 +125,11 @@ enum extension
   other
   .cad
   .gcd
+  .gr
   .brd
   .bdv
   .bv
+  .bv2
   .bvr
   .fz
   .cae
@@ -185,6 +187,8 @@ enum extension
   .boardview
   .asm
   .lst
+  .f2b
+  .ict
 enum container
   none
   zip
@@ -249,6 +253,9 @@ enum formatId
   bdv
   brd
   brd2
+  brd-v1
+  bv
+  bv2
   bvr
   bvr1
   cst
@@ -256,6 +263,7 @@ enum formatId
   easyeda-pro
   easyeda-std
   fabmaster
+  farc
   fz
   gencad
   gerber
@@ -265,9 +273,13 @@ enum formatId
   kicad
   mentor-neutral
   odbpp
+  pads-binary
   pinlist
   samsung-cad
+  tebo-ict
   tvw
+  unisoft-f2b
+  vs2
   xzz
   zip
   other
@@ -289,6 +301,12 @@ enum hookId
   eagle
   altium
   samsung-cad
+  allegro-brd
+  farc
+  bv
+  unisoft-f2b
+  pads-binary
+  brd-v1
   generic-text
   generic-binary
 enum detectionResult
@@ -355,6 +373,13 @@ enum variant
   cae-text
   cae-zlib
   cae-rc6
+  farc-ascii
+  farc-faz
+  bv-jet3
+  bv-jet4
+  pads-sdb-2026
+  pads-sdb-2027
+  brd-v1-opaque
 enum unitKind
   mm
   inch
@@ -433,6 +458,14 @@ enum headerCount
   companionFiles
 enum keyword
   (none)
+  :SECTION
+  :EOSECTION
+  FABMASTER
+  PARTS
+  NETS
+  FABXYDATA
+  FORMAT
+  EOARCHIVE
   $HEADER
   $ENDHEADER
   $BOARD

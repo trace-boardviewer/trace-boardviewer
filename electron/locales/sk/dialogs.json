@@ -22,5 +22,7 @@
   "info.format": "Formát",
   "info.size": "Rozmery dosky",
   "info.counts": "Súčiastky / piny / siete",
-  "info.footer": "Pomocné čiary zobrazujú prepojenie sietí. Nenahrádzajú geometriu medených ciest v súbore."
+  "info.footer": "Pomocné čiary zobrazujú prepojenie sietí. Nenahrádzajú geometriu medených ciest v súbore.",
+
+  "key.skipHelp": "Tento krok môžete preskočiť a aplikáciu ďalej používať. Tento šifrovaný súbor zostane zatvorený, kým nezadáte zodpovedajúci kľúč."
 }

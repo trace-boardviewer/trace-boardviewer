@@ -164,7 +164,7 @@ interface Section {
 function readFabmaster(text: string): RawBoard {
   const components = new Map<string, Component>(), pins: PinRow[] = [], nets = new Map<string, string>(), padstacks = new Map<string, Padstack>();
   const shapes = new Map<string, Bounds>(), outline = new Map<string, Primitive[]>([['OUTLINE', []], ['DESIGNOUTLINE', []]]);
-  let rows = 0, padRows = 0, outlinePrimitives = 0, strayLines = 0, anonymous = 0, repeated = 0, vias = 0, unitless = 0, mixed = 0, noPosition = 0, netRows = 0;
+  let rows = 0, padRows = 0, outlinePrimitives = 0, ignoredOutlineGraphics = 0, strayLines = 0, anonymous = 0, repeated = 0, vias = 0, unitless = 0, mixed = 0, noPosition = 0, netRows = 0;
   let fileUnit: number | undefined, sections = 0, section: Section | undefined, no = 0;
 
   const unitFor = (current: Section, column: number): number => {
@@ -293,9 +293,16 @@ function readFabmaster(text: string): RawBoard {
     const klass = cell(fields, col('CLASS')).toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (cell(fields, col('REFDES')) || klass && klass !== 'BOARDGEOMETRY') return; // symbol-level graphics and other classes are not the board edge
     if (++outlinePrimitives > MAX_OUTLINE_PRIMITIVES) throw fail('board outline record count exceeds the import limit.', 'LIMIT_EXCEEDED');
+    const name = cell(fields, col('GRAPHICDATANAME')).toUpperCase();
+    // GRAPHIC_DATA columns are primitive-specific. In particular TEXT's DATA_4
+    // is YES/NO, DATA_5 alignment and DATA_6 font metadata, not edge coordinates.
+    // Read only the coordinates used by supported edge primitives; annotations
+    // cannot turn an otherwise valid contour into malformed numeric geometry.
+    const coordinateFields = name === 'ARC' ? 6 : name === 'LINE' || name === 'RECTANGLE' ? 4 : name === 'CIRCLE' ? 3 : 0;
+    if (!coordinateFields) { ignoredOutlineGraphics++; return; }
     const values: number[] = [];
-    for (let i = 1; i <= 8; i++) values.push(lengthAt(current, fields, col(`GRAPHICDATA${i}`), `GRAPHIC_DATA_${i}`) ?? Number.NaN);
-    bucket.push({ name: cell(fields, col('GRAPHICDATANAME')).toUpperCase(), values, direction: cell(fields, col('GRAPHICDATA9')).toUpperCase() });
+    for (let i = 1; i <= coordinateFields; i++) values.push(lengthAt(current, fields, col(`GRAPHICDATA${i}`), `GRAPHIC_DATA_${i}`) ?? Number.NaN);
+    bucket.push({ name, values, direction: cell(fields, col('GRAPHICDATA9')).toUpperCase() });
   };
 
   let lf = text.indexOf('\n'), cr = text.indexOf('\r');
@@ -433,7 +440,7 @@ function readFabmaster(text: string): RawBoard {
   // Board edge: OUTLINE, else DESIGN_OUTLINE; arcs and circles are sampled.
   const primitives = outline.get('OUTLINE')!.length ? outline.get('OUTLINE')! : outline.get('DESIGNOUTLINE')!;
   const segments: Array<[Point, Point]> = [];
-  let arcs = 0, unreadable = 0, directionless = 0;
+  let arcs = 0, unreadable = ignoredOutlineGraphics, directionless = 0;
   const addPath = (path: Point[]) => { for (let i = 1; i < path.length; i++) segments.push([path[i - 1], path[i]]); };
   for (const item of primitives) {
     const v = item.values;

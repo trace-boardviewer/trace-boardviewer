@@ -53,7 +53,7 @@ export interface DiagnosticEnv {
   containers?: readonly ContainerAdapter[];
 }
 
-const COMPANION_ROLES = new Set(['format.asc', 'pins.asc', 'nails.asc']);
+const COMPANION_ROLES = new Set(['format.asc', '@format.asc', 'pins.asc', 'nails.asc']);
 const PLACEHOLDER_NETS = [/^N\/?C(?:$|[_\-\d])/i, /^N\$\d+$/, /^Net-\(/, /^unconnected-\(/, /^\$?NET\d+$/i];
 const isPlaceholderNet = (name: string): boolean => vendorDisconnected(name) || PLACEHOLDER_NETS.some(pattern => pattern.test(name));
 const baseName = (name: string): string => (name.split(/[\\/]/).pop() ?? '').toLowerCase();

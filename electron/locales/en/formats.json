@@ -84,5 +84,6 @@
   "parse.error.archiveNoBoard": "The ZIP archive contains no board file that TRACE can open.",
   "parse.warning.archiveEntry": "Opened {entry} from the archive {archive}.",
   "parse.warning.tvwSummary": "TVW: pins linked to declared pads: {mapped}; unresolved pad references: {unresolved}; omitted pins: {omitted}.",
-  "parse.warning.tvwLimits": "TVW import: the board outline and copper traces are not imported. Pad dimensions and side assignments come from the declared layer data; custom shapes are represented by bounding boxes. Pads without a network assignment retain an empty net name. Unsupported or damaged records and pad references cause the import to be refused."
+  "parse.warning.tvwLimits": "TVW import: the board outline and copper traces are not imported. Pad dimensions and side assignments come from the declared layer data; custom shapes are represented by bounding boxes. Pads without a network assignment retain an empty net name. Unsupported or damaged records and pad references cause the import to be refused.",
+  "parse.error.appleDoubleMetadata": "This file is macOS companion metadata. Open the original board file beside it."
 }

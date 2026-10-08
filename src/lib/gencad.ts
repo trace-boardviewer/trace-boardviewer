@@ -5,7 +5,7 @@ import { reportParseProgress } from './parse-progress';
 
 interface RecordLine { tokens: string[]; line: number }
 interface Path { points: Point[]; kind: string }
-interface Pad { kind: string; paths: Path[] }
+interface Pad { kind: string; aperture: number; paths: Path[] }
 /** What a pad definition contributes to every pin that uses it; `localBounds` is absent for a pad without geometry. */
 interface PadExtent { localBounds?: Bounds; round: boolean; exactRectangle: boolean }
 interface StackPad { name: string; layer: string; rotation: number; mirror: string }
@@ -81,12 +81,22 @@ function tokenize(text: string, line: number): string[] {
   return tokens;
 }
 
-function sectionsFrom(text: string): Map<string, RecordLine[]> {
+function sectionsFrom(text: string, warnings: ParseIssue[]): Map<string, RecordLine[]> {
   if (!text.trim()) fail('parse.error.empty');
   if (text.length > 64 * 1024 * 1024) fail('parse.error.tooLarge');
-  if (text.includes('\0')) fail('parse.error.binary');
+  if (text.includes('\0')) {
+    // A completed text export may carry its C-string terminator. Embedded NULs,
+    // or a NUL before any section terminator, still identify invalid binary data.
+    const nul = text.indexOf('\0');
+    const prefix = text.slice(0, nul).trimEnd();
+    if (/^[\0\s]*$/.test(text.slice(nul)) && /(?:^|[\r\n])\$END[A-Z0-9_]+$/.test(prefix)) {
+      text = prefix;
+      warnings.push({ key: 'parse.warning.formatNote', params: { message: 'A trailing NUL terminator after the completed GENCAD text was ignored.' } });
+    } else fail('parse.error.binary');
+  }
   const sections = new Map<string, RecordLine[]>();
   let current = '';
+  let repeatedEmptyChanges = false, changesHadData = false, emptyChanges = 0;
   const lines = text.replace(/^\uFEFF/, '').split(/\r\n|\n|\r/);
   if (lines.length > GENCAD_LIMITS.lines) fail('parse.error.tooManyRecords');
   for (let index = 0; index < lines.length; index++) {
@@ -98,21 +108,39 @@ function sectionsFrom(text: string): Map<string, RecordLine[]> {
       if (!/^\$[A-Z0-9_]+$/.test(marker)) fail('parse.error.badSectionMarker', index + 1);
       if (marker.startsWith('$END')) {
         if (!current || marker !== `$END${current}`) fail('parse.error.mismatchedSectionEnd', index + 1);
+        if (repeatedEmptyChanges) emptyChanges++;
+        repeatedEmptyChanges = false;
         current = '';
       } else {
-        if (current) fail('parse.error.missingSectionEnd', index + 1, { section: current });
+        if (current) {
+          // Legacy exports terminate their header at $BOARD. Limit this compatibility
+          // rule to a declared 1.4 header; all other section terminators stay mandatory.
+          const version = sections.get('HEADER')?.filter(row => row.tokens[0] === 'GENCAD');
+          if (current === 'HEADER' && marker === '$BOARD' && version?.length === 1 && version[0].tokens[1] === '1.4') {
+            warnings.push({ key: 'parse.warning.formatNote', params: { message: 'The GENCAD header ends at $BOARD without $ENDHEADER; its unit and origin records were validated.' } });
+          } else fail('parse.error.missingSectionEnd', index + 1, { section: current });
+        }
         current = marker.slice(1);
-        if (sections.has(current)) fail('parse.error.duplicateSection', index + 1, { section: current });
-        sections.set(current, []);
+        // Some completed exports append another empty CHANGES block. It carries no
+        // geometry or edits; only empty repetitions of this metadata section qualify.
+        repeatedEmptyChanges = current === 'CHANGES' && sections.get(current)?.length === 0 && !changesHadData;
+        if (sections.has(current) && !repeatedEmptyChanges) fail('parse.error.duplicateSection', index + 1, { section: current });
+        if (!repeatedEmptyChanges) sections.set(current, []);
       }
       continue;
     }
     if (!current) fail('parse.error.dataOutsideSection', index + 1);
+    if (repeatedEmptyChanges) fail('parse.error.duplicateSection', index + 1, { section: current });
+    if (current === 'CHANGES') changesHadData = true;
+    // ATTRIBUTE is opaque exporter metadata, including literal Windows paths and quotes.
+    // It has no geometry or electrical meaning and is not consumed by this importer.
+    if (/^ATTRIBUTE(?:\s|$)/i.test(line)) continue;
     const tokens = tokenize(line, index + 1);
     tokens[0] = tokens[0].toUpperCase();
     sections.get(current)!.push({ tokens, line: index + 1 });
   }
   if (current) fail('parse.error.missingSectionEnd', undefined, { section: current });
+  if (emptyChanges) warnings.push({ key: 'parse.warning.formatNote', params: { message: `${emptyChanges} repeated empty CHANGES ${emptyChanges === 1 ? 'section was' : 'sections were'} omitted.` } });
   for (const name of ['HEADER', 'SHAPES', 'COMPONENTS']) {
     if (!sections.has(name)) fail('parse.error.missingSection', undefined, { section: name });
   }
@@ -155,8 +183,8 @@ function mirrorFlag(row: RecordLine, index: number): string {
 
 function padLayer(row: RecordLine, index: number, allowInner: boolean): string {
   const value = row.tokens[index].toUpperCase();
-  if (['TOP', 'BOTTOM', 'ALL', 'BOTH'].includes(value) || (allowInner && /^INNER\d+$/.test(value))) return value;
-  if (/^INNER\d+$/.test(value)) fail('parse.error.innerLayerPin', row.line, { layer: value });
+  if (['TOP', 'BOTTOM', 'ALL', 'BOTH'].includes(value) || (allowInner && (/^INNER\d*$/.test(value) || /^(?:SOLDERMASK|SOLDERPASTE)_(?:TOP|BOTTOM)$/.test(value)))) return value;
+  if (/^INNER\d*$/.test(value)) fail('parse.error.innerLayerPin', row.line, { layer: value });
   fail(allowInner ? 'parse.error.unknownStackLayer' : 'parse.error.unknownPinLayer', row.line, { layer: value });
 }
 
@@ -353,34 +381,51 @@ function units(header: RecordLine[]): number {
  * Outer-layer mounting-side compatibility follows the supplied repair-board exporter.
  */
 export function parseGenCad(text: string, fileName: string): Board {
-  const sections = sectionsFrom(text);
+  const warnings: ParseIssue[] = [];
+  const sections = sectionsFrom(text, warnings);
   const header = sections.get('HEADER')!;
   const scale = units(header);
   // ORIGIN records the source origin; placements and outlines already share the exported frame.
   for (const row of header.filter(row => row.tokens[0] === 'ORIGIN')) { args(row, 3); point(row, 1, scale); }
-  const warnings: ParseIssue[] = [];
   const pads = new Map<string, Pad>(); const stacks = new Map<string, PadStack>();
   const shapes = new Map<string, Shape>(); const devices = new Map<string, Device>();
   const placements: Placement[] = [];
   let pad: Pad | undefined; let stack: PadStack | undefined; let shape: Shape | undefined;
   let placement: Placement | undefined; let device: Device | undefined;
+  let padName = '', padLine = 0;
+  const finishPad = () => {
+    if (!pad) return;
+    const previous = pads.get(padName);
+    if (previous && JSON.stringify(previous) !== JSON.stringify(pad)) fail('parse.error.duplicatePad', padLine, { name: padName });
+    if (!previous) pads.set(padName, pad);
+  };
   for (const row of sections.get('PADS') ?? []) {
     const t = row.tokens;
     if (t[0] === 'PAD') {
-      args(row, 4); number(row, 3); if (pads.has(t[1])) fail('parse.error.duplicatePad', row.line, { name: t[1] });
-      pad = { kind: t[2].toUpperCase(), paths: [] }; pads.set(t[1], pad);
+      finishPad(); args(row, 4);
+      padName = t[1]; padLine = row.line;
+      pad = { kind: t[2].toUpperCase(), aperture: number(row, 3), paths: [] };
     } else if (GEOMETRY.has(t[0])) { if (!pad) fail('parse.error.padGeometryWithoutPad', row.line); pad.paths.push(geometry(row, scale)); }
   }
+  finishPad();
+  let stackName = '', stackLine = 0;
+  const finishStack = () => {
+    if (!stack) return;
+    const previous = stacks.get(stackName);
+    if (previous && JSON.stringify(previous) !== JSON.stringify(stack)) fail('parse.error.duplicatePadstack', stackLine, { name: stackName });
+    if (!previous) stacks.set(stackName, stack);
+  };
   for (const row of sections.get('PADSTACKS') ?? []) {
     const t = row.tokens;
     if (t[0] === 'PADSTACK') {
-      args(row, 3); if (stacks.has(t[1])) fail('parse.error.duplicatePadstack', row.line, { name: t[1] });
-      stack = { drill: Math.max(0, distance(row, 2, scale)), pads: [] }; stacks.set(t[1], stack);
+      finishStack(); args(row, 3); stackName = t[1]; stackLine = row.line;
+      stack = { drill: Math.max(0, distance(row, 2, scale)), pads: [] };
     } else if (t[0] === 'PAD') {
       args(row, 3); if (!stack) fail('parse.error.padRecordWithoutStack', row.line);
       stack.pads.push({ name: t[1], layer: padLayer(row, 2, true), rotation: t[3] === undefined ? 0 : number(row, 3), mirror: mirrorFlag(row, 4) });
     }
   }
+  finishStack();
   for (const row of sections.get('SHAPES')!) {
     const t = row.tokens;
     if (t[0] === 'SHAPE') {
@@ -392,12 +437,23 @@ export function parseGenCad(text: string, fileName: string): Board {
     } else if (t[0] === 'INSERT') { args(row, 2); if (shape) shape.insertion = t[1].toUpperCase(); }
     else if (GEOMETRY.has(t[0])) { if (!shape) fail('parse.error.shapeGeometryWithoutShape', row.line); shape.paths.push(geometry(row, scale)); }
   }
-  const refs = new Set<string>();
+  const refs = new Map<string, Placement>();
+  let repeatedPlacements = 0;
+  const placementGeometry = (item: Placement) => JSON.stringify([item.shape, item.device, item.value, item.position, item.rotation, item.mirror, item.flip, item.hasPlace]);
+  const finishPlacement = () => {
+    if (!placement) return;
+    const previous = refs.get(placement.ref);
+    if (previous) {
+      if (placementGeometry(previous) !== placementGeometry(placement)) fail('parse.error.missingOrDuplicateComponent', placement.line, { ref: placement.ref });
+      if (previous.side !== placement.side) previous.side = 'both';
+      repeatedPlacements++;
+    } else { refs.set(placement.ref, placement); placements.push(placement); }
+  };
   for (const row of sections.get('COMPONENTS')!) {
     const t = row.tokens;
     if (t[0] === 'COMPONENT') {
-      args(row, 2); if (!t[1] || refs.has(t[1])) fail('parse.error.missingOrDuplicateComponent', row.line, { ref: t[1] ?? '' });
-      refs.add(t[1]); placement = { ref: t[1], shape: '', device: '', value: '', position: { x: 0, y: 0 }, side: 'top', rotation: 0, mirror: '0', flip: false, line: row.line, hasPlace: false }; placements.push(placement);
+      finishPlacement(); args(row, 2); if (!t[1]) fail('parse.error.missingOrDuplicateComponent', row.line, { ref: t[1] ?? '' });
+      placement = { ref: t[1], shape: '', device: '', value: '', position: { x: 0, y: 0 }, side: 'top', rotation: 0, mirror: '0', flip: false, line: row.line, hasPlace: false };
     } else {
       if (!placement && ['PLACE', 'SHAPE', 'LAYER', 'DEVICE', 'ROTATION', 'VALUE'].includes(t[0])) fail('parse.error.componentDataWithoutComponent', row.line);
       if (!placement) continue;
@@ -415,15 +471,25 @@ export function parseGenCad(text: string, fileName: string): Board {
       else if (t[0] === 'VALUE') placement.value = t.slice(1).join(' ');
     }
   }
+  finishPlacement();
+  if (repeatedPlacements) warnings.push({ key: 'parse.warning.formatNote', params: { message: `${repeatedPlacements} repeated component ${repeatedPlacements === 1 ? 'definition has' : 'definitions have'} identical placement and geometry; differing mounting sides are shown on both sides.` } });
+  let deviceName = '', deviceLine = 0;
+  const finishDevice = () => {
+    if (!device) return;
+    const previous = devices.get(deviceName);
+    if (previous && JSON.stringify(previous) !== JSON.stringify(device)) fail('parse.error.duplicateDevice', deviceLine, { name: deviceName });
+    if (!previous) devices.set(deviceName, device);
+  };
   for (const row of sections.get('DEVICES') ?? []) {
     const t = row.tokens;
-    if (t[0] === 'DEVICE') { args(row, 2); if (devices.has(t[1])) fail('parse.error.duplicateDevice', row.line, { name: t[1] }); device = { value: '', part: '', package: '' }; devices.set(t[1], device); }
+    if (t[0] === 'DEVICE') { finishDevice(); args(row, 2); deviceName = t[1]; deviceLine = row.line; device = { value: '', part: '', package: '' }; }
     else if (device) {
       if (t[0] === 'VALUE') device.value = t.slice(1).join(' ');
       else if (t[0] === 'PART') device.part = t.slice(1).join(' ');
       else if (t[0] === 'PACKAGE') device.package = t.slice(1).join(' ');
     }
   }
+  finishDevice();
   if (!placements.length) fail('parse.error.noComponents');
   // Preflight the instanced output before expanding any shape: every placement materializes its outline and its body
   // points (the shape paths, twice) plus the four pad-extent corners of each pin. Pad definitions are resolved once per
@@ -537,25 +603,30 @@ export function parseGenCad(text: string, fileName: string): Board {
   }
   if (!pins.length) fail('parse.error.noPins');
   const netMap = new Map<string, BoardNet>(); const netPinSets = new Map<string, Set<string>>();
-  let activeNet: BoardNet | undefined; let danglingNodes = 0; const danglingExamples: string[] = [];
+  let activeNet: BoardNet | undefined; let disconnected = false, disconnectedNodes = 0; let danglingNodes = 0; const danglingExamples: string[] = [];
   for (const row of sections.get('SIGNALS') ?? []) {
     const t = row.tokens;
     if (t[0] === 'SIGNAL') {
-      args(row, 2); if (!t[1]) fail('parse.error.emptyNetName', row.line);
+      // Some exporters group disconnected nodes after a bare SIGNAL record.
+      // Keep their empty net instead of creating a named electrical connection.
+      disconnected = t.length === 1 || t[1] === '';
+      if (disconnected) { activeNet = undefined; continue; }
       activeNet = netMap.get(t[1]);
       if (!activeNet) { activeNet = { id: t[1], name: t[1], pinIds: [] }; netMap.set(t[1], activeNet); netPinSets.set(t[1], new Set()); }
     } else if (t[0] === 'NODE') {
-      args(row, 3); if (!activeNet) fail('parse.error.nodeWithoutSignal', row.line);
+      args(row, 3); if (!activeNet && !disconnected) fail('parse.error.nodeWithoutSignal', row.line);
       const related = nodePins.get(JSON.stringify([t[1], t[2]]));
       if (!related) { danglingNodes++; if (danglingExamples.length < 3) danglingExamples.push(boundText(`${t[1]}.${t[2]}`, MAX_QUOTED_CHARS)); continue; }
       for (const pin of related) {
-        if (pin.net && pin.net !== activeNet.name) fail('parse.error.pinMultipleNets', row.line, { ref: t[1], pin: t[2] });
-        pin.net = activeNet.name;
-        const ids = netPinSets.get(activeNet.name)!;
-        if (!ids.has(pin.id)) { ids.add(pin.id); activeNet.pinIds.push(pin.id); }
+        if (pin.net && pin.net !== activeNet?.name) fail('parse.error.pinMultipleNets', row.line, { ref: t[1], pin: t[2] });
+        if (disconnected) { disconnectedNodes++; continue; }
+        pin.net = activeNet!.name;
+        const ids = netPinSets.get(activeNet!.name)!;
+        if (!ids.has(pin.id)) { ids.add(pin.id); activeNet!.pinIds.push(pin.id); }
       }
     }
   }
+  if (disconnectedNodes) warnings.push({ key: 'parse.warning.formatNote', params: { message: `${disconnectedNodes} ${disconnectedNodes === 1 ? 'node in an unnamed SIGNAL group is' : 'nodes in an unnamed SIGNAL group are'} shown without a net.` } });
   if (fallbackPads) warnings.push({ key: 'parse.warning.fallbackPads', params: { count: fallbackPads } });
   if (fallbackComponents) warnings.push({ key: 'parse.warning.fallbackComponents', params: { count: fallbackComponents } });
   if (approximatedPads) warnings.push({ key: 'parse.warning.approximatedPads', params: { count: approximatedPads } });

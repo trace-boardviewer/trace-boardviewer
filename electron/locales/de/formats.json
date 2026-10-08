@@ -84,5 +84,6 @@
   "parse.error.archiveNoBoard": "Das ZIP-Archiv enthält keine Platinendatei, die TRACE öffnen kann.",
   "parse.warning.archiveEntry": "{entry} wurde aus dem Archiv {archive} geöffnet.",
   "parse.warning.tvwSummary": "TVW: Pins mit Verknüpfung zu den angegebenen Pads: {mapped}; ungeklärte Padverweise: {unresolved}; ausgelassene Pins: {omitted}.",
-  "parse.warning.tvwLimits": "TVW-Import: Platinenumriss und Kupferleiterbahnen werden nicht importiert. Padabmessungen und Seitenzuordnung stammen aus den angegebenen Lagendaten; benutzerdefinierte Formen werden durch umschließende Rechtecke dargestellt. Pads ohne Netzzuordnung behalten einen leeren Netznamen. Nicht unterstützte oder beschädigte Datensätze und Padverweise führen zur Ablehnung des Imports."
+  "parse.warning.tvwLimits": "TVW-Import: Platinenumriss und Kupferleiterbahnen werden nicht importiert. Padabmessungen und Seitenzuordnung stammen aus den angegebenen Lagendaten; benutzerdefinierte Formen werden durch umschließende Rechtecke dargestellt. Pads ohne Netzzuordnung behalten einen leeren Netznamen. Nicht unterstützte oder beschädigte Datensätze und Padverweise führen zur Ablehnung des Imports.",
+  "parse.error.appleDoubleMetadata": "Diese Datei enthält macOS-Begleitdaten. Öffne die danebenliegende originale Platinen-Datei."
 }

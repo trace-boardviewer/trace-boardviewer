@@ -84,5 +84,6 @@
   "parse.error.archiveNoBoard": "L’archivio ZIP non contiene alcun file di scheda che TRACE possa aprire.",
   "parse.warning.archiveEntry": "{entry} è stato aperto dall’archivio {archive}.",
   "parse.warning.tvwSummary": "TVW: pin collegati ai pad dichiarati: {mapped}; riferimenti ai pad non risolti: {unresolved}; pin omessi: {omitted}.",
-  "parse.warning.tvwLimits": "Importazione TVW: il contorno della scheda e le piste in rame non vengono importati. Le dimensioni e il lato dei pad derivano dai dati degli strati dichiarati; le forme personalizzate sono rappresentate da rettangoli di delimitazione. I pad senza assegnazione a un net mantengono un nome del net vuoto. Record e riferimenti ai pad non supportati o danneggiati causano il rifiuto dell’importazione."
+  "parse.warning.tvwLimits": "Importazione TVW: il contorno della scheda e le piste in rame non vengono importati. Le dimensioni e il lato dei pad derivano dai dati degli strati dichiarati; le forme personalizzate sono rappresentate da rettangoli di delimitazione. I pad senza assegnazione a un net mantengono un nome del net vuoto. Record e riferimenti ai pad non supportati o danneggiati causano il rifiuto dell’importazione.",
+  "parse.error.appleDoubleMetadata": "Questo file contiene metadati macOS. Apri il file originale della scheda accanto."
 }

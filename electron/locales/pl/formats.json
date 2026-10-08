@@ -94,5 +94,6 @@
   "parse.error.archiveNoBoard": "Archiwum ZIP nie zawiera żadnego pliku płytki, który TRACE może otworzyć.",
   "parse.warning.archiveEntry": "Otwarto {entry} z archiwum {archive}.",
   "parse.warning.tvwSummary": "TVW: wyprowadzenia powiązane z zadeklarowanymi polami lutowniczymi: {mapped}; nierozpoznane odwołania do pól: {unresolved}; pominięte wyprowadzenia: {omitted}.",
-  "parse.warning.tvwLimits": "Import TVW: obrys płytki i ścieżki miedziane nie są importowane. Wymiary i strony pól lutowniczych pochodzą z zadeklarowanych danych warstw; niestandardowe kształty są przedstawiane jako prostokąty ograniczające. Pola bez przypisanej sieci zachowują pustą nazwę sieci. Nieobsługiwane lub uszkodzone rekordy i odwołania do pól powodują odrzucenie importu."
+  "parse.warning.tvwLimits": "Import TVW: obrys płytki i ścieżki miedziane nie są importowane. Wymiary i strony pól lutowniczych pochodzą z zadeklarowanych danych warstw; niestandardowe kształty są przedstawiane jako prostokąty ograniczające. Pola bez przypisanej sieci zachowują pustą nazwę sieci. Nieobsługiwane lub uszkodzone rekordy i odwołania do pól powodują odrzucenie importu.",
+  "parse.error.appleDoubleMetadata": "Ten plik zawiera metadane macOS. Otwórz oryginalny plik płytki obok niego."
 }

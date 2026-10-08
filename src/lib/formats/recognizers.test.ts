@@ -133,7 +133,7 @@ describe('recognizeUnsupported', () => {
   });
 
   it('allegro: recognizes every documented magic with the lower byte masked and requires the "all" marker', () => {
-    const versions: Array<[number, string]> = [[0x00130000, '16.0'], [0x00130400, '16.2'], [0x00130c00, '16.4'], [0x00131000, '16.5'], [0x00131500, '16.6'], [0x00140400, '17.2'], [0x00140900, '17.4'], [0x00141500, '17.5'], [0x00150000, '18.0 or newer']];
+    const versions: Array<[number, string]> = [[0x00130000, '16.0'], [0x00130400, '16.2'], [0x00130500, '16.2'], [0x00130c00, '16.4'], [0x00131000, '16.5'], [0x00131500, '16.6'], [0x00140400, '17.2'], [0x00140900, '17.4'], [0x00141500, '17.5'], [0x00150000, '18.0 or newer']];
     for (const [magic, version] of versions) {
       expect(detectUnsupported(allegro(magic))).toMatchObject({ id: 'allegro-brd', detail: version });
       expect(detectUnsupported(allegro(magic | 0xff))?.detail).toBe(version);
@@ -141,7 +141,18 @@ describe('recognizeUnsupported', () => {
     }
     expect(detectUnsupported(allegro(0x00130400, 'all', 0x100))?.id).toBe('allegro-brd');
     expect(detectUnsupported(allegro(0x00130400, 'all', 0xff))).toBeNull();
-    expect(detectUnsupported(allegro(0x00130500))).toBeNull(); // a mask on the lower byte only: 0x0500 is not a documented value
+    expect(detectUnsupported(allegro(0x00130600))).toBeNull(); // a mask on the lower byte only: an unknown middle byte is refused
+  });
+
+  it('allegro: identifies observed legacy layouts only with the complete native header guard', () => {
+    const versions: Array<[number, string]> = [[0x00110600, '14-2'], [0x00120100, '15-5'], [0x00120200, '15-5'], [0x00120500, '15-7'], [0x00120a00, '15-7'], [0x00120b00, '15-5'], [0x00120f00, '15-5']];
+    for (const [magic, writer] of versions) {
+      const data = allegro(magic | 0xff, `allv${writer}`), view = new DataView(data.buffer);
+      [3, 1, 3, 9].forEach((value, n) => view.setUint32(4 + n * 4, value, true)); view.setUint32(24, 0x000a0d0a, true);
+      expect(detectUnsupported(data)?.detail).toContain(`unsupported layout 0x${magic.toString(16).padStart(8, '0')}`);
+      view.setUint32(12, 0, true); expect(detectUnsupported(data)).toBeNull();
+    }
+    expect(detectUnsupported(allegro(0x00120a00, 'allv15-7'))).toBeNull();
   });
 
   it('scans a bounded prefix: a marker after 64 KiB is ignored and huge unrelated text is cheap', () => {

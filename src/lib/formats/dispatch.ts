@@ -17,7 +17,7 @@ import { utf16ToUtf8, utf8Input } from '../encoding';
 import { GenCadParseError } from '../gencad';
 import { CERTAIN, LIKELY, META_LIMIT, META_TEXT, SNIFF_BYTES, type BoardAdapter, type ContainerAdapter, type ContainerEntry, type FormatAdapter, type KeyKind, type KeyMaterial, type ParseContext, type ProgressPhase, type SniffInput, type SniffResult, type SupportStatus } from './adapter';
 import { BoardFormatError, localizedFormatError, MAX_IMPORT_BYTES, TextDecodeError, type ParseInput } from './common';
-import { BOARD_ADAPTERS, CONTAINER_ADAPTERS } from './registry';
+import { BOARD_ADAPTERS, CONTAINER_ADAPTERS, selectCompanionSet } from './registry';
 import { baseName, extensionOf, hasUtf16Mark } from './sniff';
 
 export interface Candidate<A extends FormatAdapter = FormatAdapter> {
@@ -223,15 +223,22 @@ function* openContainer(container: ContainerAdapter, input: ParseInput, boards: 
   }
   const archive = fileLabel(input.name), stem = archive.replace(/\.[^.]*$/, '') || 'archive';
   const boardExtensions = new Set(boards.flatMap(adapter => adapter.extensions));
-  const candidates = entries.filter(entry => boardExtensions.has(extensionOf(entry.path)));
+  const companionMembers = new Set(boards.flatMap(adapter => (adapter.companions?.sets ?? []).flatMap(set => [...set])));
+  const candidates = entries.filter(entry => boardExtensions.has(extensionOf(entry.path)) || companionMembers.has(baseName(entry.path)));
   if (candidates.length > container.limits.maxCandidates) throw several(candidates.map(entry => entry.path));
+  const namesByFolder = new Map<string, string[]>();
+  for (const entry of entries) {
+    const folder = folderOf(entry.path);
+    const names = namesByFolder.get(folder) ?? [];
+    names.push(baseName(entry.path)); namesByFolder.set(folder, names);
+  }
   const members: Member[] = [];
   for (const entry of candidates) {
     throwIfAborted(options.signal);
     const memberHead = memberSniffInput(entry, `${stem}/${entry.path}`);
     if (rankAdapters(memberHead, CONTAINER_ADAPTERS).length) continue; // Never open a nested archive.
     const best = rankAdapters(memberHead, boards)[0];
-    if (best) members.push({ entry, best, set: best.adapter.companions?.sets.find(set => set.includes(baseName(entry.path))) });
+    if (best) members.push({ entry, best, set: selectCompanionSet(best.adapter.companions?.sets ?? [], entry.path, namesByFolder.get(folderOf(entry.path)) ?? []) });
   }
   if (!members.length) throw localizedFormatError('ZIP archive: no entry is a board file TRACE can open.', 'UNRECOGNIZED', { key: 'parse.error.archiveNoBoard' }, ARCHIVE);
   const strong = members.filter(member => member.best.confidence >= LIKELY);

@@ -11,21 +11,28 @@ No customer or manufacturer board is included in the repository or the applicati
 | Format | Extensions | Status | Validated with | Nets | Geometry | Needs |
 | --- | --- | --- | --- | --- | --- | --- |
 | GenCAD 1.4 | `.cad` `.gcd` | supported | real files | yes | mixed | — |
-| Landrex / TestLink BRD | `.brd` | validated with selected real files | checked by the maintainer on real encoded exports; part, pin and outline counts checked against the decoded records | yes | estimated | — |
-| TOPTEST BRD2 | `.brd` | draft (synthetic fixtures only) | synthetic fixtures | yes | estimated | — |
-| Honhan BDV | `.bdv` | validated with selected real files | checked by the maintainer on real encoded exports; component, pin and nail counts cross-checked against the decoded records | yes | estimated | — |
-| BVR raw boardview (BVRAW_FORMAT_3) | `.bvr` | validated with open tool-written files | open tool-written files: kicad-boardview exports of the five open Raspberry Pi Pico designs | yes | mixed | — |
-| BVR raw boardview (BVRAW_FORMAT_1) | `.bvr` | draft (synthetic fixtures only) | synthetic fixtures | yes | estimated | — |
-| ASC companion trio | `.asc` | draft (synthetic fixtures only) | synthetic fixtures | yes | estimated | companion files |
+| Landrex / TestLink BRD | `.brd` | validated with selected real files | selected BRD contents; canonical invariants, encoded/plain record counts and the extended Pins1 first-pin indices checked against explicit owners | yes | estimated | — |
+| TOPTEST BRD2 | `.brd` `.gr` | validated with selected real files | selected BRDOUT exports; canonical geometry, sides, component links and net membership checked | yes | estimated | — |
+| BRD_V1.0 encoded boardview | `.brd` | recognized, not readable | none | no | estimated | — |
+| Honhan BDV | `.bdv` | validated with selected real files | selected plain, encoded and nails-first exports; finite canonical geometry, explicit sides, component links and reverse net membership checked | yes | estimated | — |
+| BVR raw boardview (BVRAW_FORMAT_3) | `.bvr` | validated with selected real files and open designs | selected BVRAW_FORMAT_3 exports; canonical geometry, sides, component links and net membership checked, in addition to the Pico cross-checks | yes | mixed | — |
+| BVR raw boardview (BVRAW_FORMAT_1) | `.bvr` | validated with selected real files | selected BVRAW_FORMAT_1 exports; canonical geometry, sides, component links and net membership checked | yes | estimated | — |
+| ASC companion trio | `.asc` | validated with selected real files | selected ASC entry files with their same-directory companions; canonical geometry, sides, component links and net membership checked | yes | estimated | companion files |
+| Jet BV boardview | `.bv` | validated with real Jet4 boardview files | 42 paths / 30 distinct contents; every Layout, Pin and Nail table cell compared with an independent MIT reader | yes | estimated | — |
+| BV2 text boardview | `.bv2` | validated with real text exports | two complete CSV exports checked at every Layout, Pin and Nail row | yes | estimated | — |
+| Tebo ICT companion pair | `.ict` | validated with a selected real pair | all four entry paths, two duplicate pairs containing one distinct geometry and one distinct electrical program; every physical point joined to its explicit connection | yes | estimated | companion files |
 | FZ / CAE boardview | `.fz` `.cae` | supported | real files | yes | mixed | — |
 | XZZ PCB | `.pcb` | draft (synthetic fixtures only) | synthetic fixtures | yes | mixed | — |
-| CAST CST | `.cst` | draft (synthetic fixtures only) | synthetic fixtures | yes | estimated | — |
+| CAST CST | `.cst` | validated for the documented component layers | selected real CDev/CPad exports using layer 0x0C/0x01; finite canonical geometry, component links and net membership checked | yes | estimated | — |
 | KiCad PCB | `.kicad_pcb` | validated with real files | real files: KiCad 9 demo (pic_programmer), Antmicro Jetson Nano baseboard (28 MB), Raspberry Pi Pico (open designs, KiCad 8 files), the other KiCad 5 and KiCad 9 demo boards and the MNT Reform 2 motherboard (KiCad 5, 7 and 8 files); synthetic fixtures: KiCad 4 and 6 styles | yes | real | — |
 | EAGLE board XML | `.brd` | validated with real files | real files: SparkFun RedBoard (EAGLE 7.7 XML board; 35 MB EAGLE 7.5 production panel); synthetic fixtures: 9.x documents, through-hole pads, rotated mirrored elements | yes | real | — |
 | Altium PcbDoc | `.pcbdoc` `.cmpcbdoc` `.cspcbdoc` | supported | real files | yes | real | — |
 | Samsung CAD | `.cad` | validated with a selected real file | checked by the maintainer on a real export; components, component pins and test vias counted independently | yes | estimated | — |
-| Mentor Neutral | `.neu` | recognized, not readable | none | no | estimated | — |
-| Cadence Allegro BRD (native) | `.brd` | recognized, not readable | none | no | estimated | — |
+| Mentor Neutral | `.neu` `.cad` | validated with selected real files | selected neutral CAD contents, including designs first encountered in archives; declared units, explicit sides and absolute component/pin fields checked | yes | estimated | — |
+| VS2 assembly listing | `.lst` | recognized, not readable | none | no | estimated | — |
+| Cadence Allegro BRD (native) | `.brd` | supported | real files | yes | mixed | — |
+| PADS native SDB | `.pcb` | recognized, not readable | none | no | estimated | — |
+| Unisoft F2B (native) | `.f2b` | supported | real files | yes | estimated | — |
 | TVW boardview | `.tvw` | validated with selected real files | checked by the maintainer on real exports: complete component tables and every pin UID link checked against the declared layer pads | yes | mixed | — |
 | EasyEDA Standard PCB | `.json` | draft (synthetic fixtures only) | synthetic fixtures | yes | mixed | — |
 | Gerber RS-274X | `.gbr` | recognized, not readable | none | no | real | — |
@@ -33,6 +40,7 @@ No customer or manufacturer board is included in the repository or the applicati
 | ODB++ archive | `.tgz` `.gz` `.tar` `.zip` `.z` | validated with open tool-written files | open tool-written files: kicad-cli 9.0.9 (pcb export odb) exports of thirty-nine open designs: KiCad 5 and 9 demo boards, Antmicro Jetson Nano baseboard, MNT Reform 2 motherboard, Raspberry Pi Pico boards | yes | mixed | — |
 | HyperLynx (.hyp) | `.hyp` | draft (synthetic fixtures only) | synthetic fixtures | yes | mixed | — |
 | Fabmaster (FATF) | `.fab` `.fatf` | draft (synthetic fixtures only) | synthetic fixtures | yes | mixed | — |
+| Fabmaster FARC / FAZ | `.far` `.farc` `.faz` | validated with selected real job exports | 69 FAZ paths / 49 distinct jobs; source counts, all pin positions, identities, nets, sides and placement positions/angles checked independently | yes | estimated | — |
 | IPC-D-356 | `.ipc` `.356` `.d356` `.ipc356` | validated with open tool-written files | open tool-written files: kicad-cli 9 exports of 39 open designs | yes | estimated | — |
 | Pin list (CSV/TSV) | `.csv` `.tsv` `.txt` | draft (synthetic fixtures only) | synthetic fixtures | yes | estimated | — |
 | IPC-2581 | `.xml` `.cvg` | validated with open tool-written files | open tool-written files: kicad-cli 9 exports of 27 open designs | yes | mixed | — |
@@ -41,6 +49,7 @@ No customer or manufacturer board is included in the repository or the applicati
 
 - **Variants:**
   - GENCAD 1.4 ($HEADER … $SIGNALS)
+  - length-checked 32-byte CAD storage wrapper with zero page padding
 - **Units:** UNITS header: MM, INCH, THOU/MIL, USER (25.4 / divisor)
 - **Sides:** LAYER TOP/BOTTOM; SHAPE MIRRORX/Y/XY and FLIP select padstack layers
 - **Notes and limits:**
@@ -60,7 +69,8 @@ No customer or manufacturer board is included in the repository or the applicati
   - UNCONNECTED<n> vendor placeholders are no net.
   - Components without pins are omitted with a note (the format gives them no position). A header count that disagrees with the rows is rejected as malformed, where OpenBoardView only logs it and continues.
   - Four-count and six-field var_data headers are accepted; the extra signed fields are not guessed coordinate offsets. Nail nets may be omitted.
-  - Pad dimensions remain estimated; other TestLink dialects are not established by these samples. No sample is distributed.
+  - Extended Pins1 first-pin indices are checked against explicit Pins2 owners; its four extra numeric fields do not establish physical bodies. A terminal source-byte DOS EOF marker or separate NUL/whitespace padding is disclosed; arbitrary suffix data is rejected.
+  - Pad dimensions remain estimated; unvalidated numeric component metadata is disclosed. Synthetic regressions cover source-byte EOF framing, suffix rejection, byte budgets and interleaved extended Pins1 pin ownership. No sample is distributed.
 
 ### TOPTEST BRD2
 
@@ -72,32 +82,46 @@ No customer or manufacturer board is included in the repository or the applicati
   - Pads carry no physical size (radius 0); part body rectangles and the outline come from the file.
   - A truncated BRDOUT file is reported as a malformed BRD2, not as unrecognized.
   - A component without pins keeps its declared side and body rectangle (OpenBoardView turns it into a through-hole part on both sides); header counts that disagree with the rows are rejected.
-  - Remaining gap to supported: no real BRD2 file was available.
+  - Signed net ids, empty disconnected net names and net names containing blanks are retained; duplicate net ids are rejected.
+  - Signed and empty net-table variants have synthetic regressions. No sample is distributed.
+
+### BRD_V1.0 encoded boardview
+
+- **Variants:**
+  - BRD_V1.0 plus eight zero bytes and opaque payload
+- **Units:** unknown
+- **Sides:** unknown
+- **Notes and limits:**
+  - The full 16-byte signature identifies this family. The payload encoding and writing program have not been established; no encryption-key type is inferred.
+  - Request a readable GenCAD or supported boardview export from the original writer. FZ and XZZ keys do not apply.
 
 ### Honhan BDV
 
 - **Variants:**
   - plain <<format.asc>>/<<pins.asc>>/<<nails.asc>> sections
   - encoded (keyless per-line cipher; line 1 reads dd:1.3?,r?-=bb)
+  - encoded nails-first export without an outline
 - **Units:** inch (×25.4)
 - **Sides:** the side field of the "Part <ref> <side>" line: exactly (T) is top, everything else bottom; pins inherit it; nails carry their own side field
 - **Notes and limits:**
   - Section column headings and compact metadata headers are accepted. Outline rows may include a radius; nonzero-radius segments are shown straight with a notice.
   - Pads carry no physical size; test points become one-pin TP:<probe> components. Probe IDs can be omitted, comma-separated or continued on the next row; net names can contain spaces; a test point row names its net with one word, or with the whole name when a pin already carries it.
-  - This evidence covers the checked exports only; it does not prove every BDV dialect or physical pad dimensions. No sample is distributed.
+  - The encoded nails-first variant retains complete component/pin/test-point records with their inch coordinates and explicit sides; its absent outline is estimated and disclosed.
+  - Malformed or incomplete consumed records remain rejected. This evidence does not prove every BDV dialect or physical pad dimensions. No sample is distributed.
 
 ### BVR raw boardview (BVRAW_FORMAT_3)
 
 - **Variants:**
-  - BVRAW_FORMAT_3 (PART_/PIN_ records with radii), as written by kicad-boardview
+  - BVRAW_FORMAT_3 (PART_/PIN_ records with radii)
 - **Units:** mil (×0.0254)
 - **Sides:** PART_SIDE/PIN_SIDE T/B/O (absent = both, disclosed); coordinates are the same for both sides (no mirroring)
 - **Notes and limits:**
-  - Validated with open tool-written files: the five Raspberry Pi Pico boardviews (open design) exported by the open-source kicad-boardview plugin. All five open; three were cross-checked against their .kicad_pcb: components, pin counts per component, net names, sides and pin positions agree to the file's 1 mil resolution; the exporter leaves out non-copper and overlapping same-numbered pads.
+  - Also validated with open tool-written files: the five Raspberry Pi Pico boardviews (open design) exported by the open-source kicad-boardview plugin. All five open; three were cross-checked against their .kicad_pcb: components, pin counts per component, net names, sides and pin positions agree to the file's 1 mil resolution; the exporter leaves out non-copper and overlapping same-numbered pads.
   - PIN_NUMBER, PIN_NAME and PIN_NET may be empty (fiducials, unconnected pads); a net name may contain blanks. PIN_RADIUS is half the pad's larger dimension in mil in these exports.
-  - No vendor-written BVR3 file was tested; the .obdata metadata sidecars (package, value and status per reference) are not read.
+  - Positioned components without pins are retained when this export omits PART_END at the next component; incomplete pin blocks are rejected. The .obdata metadata sidecars (package, value and status per reference) are not read.
   - Other BVRAW_FORMAT_<n> versions are recognized and rejected as unsupported variants.
-  - .bv Microsoft Access databases are not readable; export them to BVR first.
+  - .bv Jet databases use the separate bounded BV reader; unsupported database engines or schemas require a readable export.
+  - Positioned pinless component terminators have synthetic regressions. No private sample is distributed.
 
 ### BVR raw boardview (BVRAW_FORMAT_1)
 
@@ -106,20 +130,62 @@ No customer or manufacturer board is included in the repository or the applicati
 - **Units:** inch (×25.4)
 - **Sides:** per-line (T) top, otherwise bottom
 - **Notes and limits:**
-  - The one-line section headers follow the OpenBoardView reference reader; no real BVRAW_FORMAT_1 file was available, so this dialect is proven on synthetic fixtures only.
+  - The one-line section headers follow the OpenBoardView reference reader. Layout records may contain two additional numeric metadata fields; only X/Y determine the outline, with a note.
   - Pads carry no physical size; components without pins are omitted with a note.
+  - Additional numeric layout metadata has synthetic regressions. No sample is distributed.
 
 ### ASC companion trio
 
 - **Variants:**
   - format.asc + pins.asc + nails.asc in one directory
+  - @format.asc outline with ordinary pins.asc/nails.asc companions
 - **Units:** inch (×25.4)
 - **Sides:** the side field of the "Part <ref> <side>" line: exactly (T) is top, everything else bottom; pins inherit it; nails carry their own side field
 - **Notes and limits:**
-  - All three files are required; the result and the notes identity are identical whichever of the three is opened (complete-file-set key).
+  - One outline export and both pins.asc and nails.asc are required. Opening @format.asc explicitly uses its outline; pins/nails entries prefer format.asc and use @format.asc only when the ordinary outline is absent.
   - Companions are matched case-insensitively in the selected file's directory only; missing files are named in the error.
-  - Pads carry no physical size.
-  - Remaining gap to supported: no real ASC export was available. OpenBoardView also loads the trio when parts.asc, nets.asc or a .bom file is chosen; here only format.asc, pins.asc and nails.asc open it.
+  - Pads carry no physical size. Optional radii and probe annotations are disclosed; a pin containing only its id and name has no drawable position and is omitted with a note.
+  - Only format.asc, @format.asc, pins.asc and nails.asc open the trio; parts.asc, nets.asc and other sidecars contain auxiliary data.
+  - Shortened headers, radius/grid columns, probe-list variants and mixed-case Part records have synthetic regressions. No sample is distributed.
+
+### Jet BV boardview
+
+- **Variants:**
+  - Jet4 Layout / Pin / Nail boardview tables
+  - Jet3 scalar table framing (synthetic validation)
+  - optional Layout Group column
+- **Units:** inch (×25.4)
+- **Sides:** explicit (T) / (B) table fields; component sides follow all their pins; test points carry their own side
+- **Notes and limits:**
+  - Original bounded Jet3/Jet4 scalar-table reader without a database dependency or Buffer global. Required Layout, Pin and Nail tables and all their declared live rows are validated.
+  - Pin Name supplies the pin identity; numeric Pin is its source ordinal. Nail NetName supplies test-point connectivity. Layer, grid, net-id and virtual-pin annotations do not invent connections. Exporter UNCONNECTED placeholders remain unconnected. Repeated test-point labels are retained as separate rows and disclosed.
+  - Pads and component bodies have no physical dimensions and use the disclosed viewing estimates. Non-zero outline radii use straight segments. File data-page encryption, overflow rows, multiple Layout groups, other Access engines and unsupported required column types are refused explicitly.
+  - Complete declared row counts, inch coordinates, source pin names, nets and side markers agree. Jet3 is covered by original synthetic fixtures only. No board samples are distributed.
+
+### BV2 text boardview
+
+- **Variants:**
+  - #Layout# / #Nail# / #Pin# comma-separated tables
+  - optional Layout Group column
+- **Units:** inch (×25.4)
+- **Sides:** explicit (T) / (B) fields; component sides follow all their pins; nails carry their own side
+- **Notes and limits:**
+  - Every CSV section, header, field count and scalar field is checked; quoted names retain commas, quotes and line breaks. No database dependency is required.
+  - Shares the BV table mapping: source Pin Name and pin Netname, test-point NetName, inch coordinates and side fields provide identity and connectivity; repeated numeric Pin annotations are allowed while source names remain unique on each component and side. Repeated test-point labels stay separate.
+  - Pads and component bodies have no physical dimensions and use disclosed estimates. MIL and NO_PROBE Type annotations do not model probe sizes or availability; NO_PROBE electrical points are retained with a warning. Non-zero outline radii use straight segments. Multiple Layout groups and unknown sections or headers are refused. The text export has no declared row counts or terminal marker, so completeness beyond its available records cannot be established.
+  - Pin identities, positions, nets, owners, sides and outline point order agree with independently traversed source rows. No samples are distributed.
+
+### Tebo ICT companion pair
+
+- **Variants:**
+  - !Tebo-ict v3.0 BOARD + BOARD_XY, scale 1 and inch units
+- **Units:** explicit inch (×25.4)
+- **Sides:** explicit TOP physical-pin access, otherwise HP3070 bottom access; explicit BOTTOM device declarations, other component sides derived from their pins
+- **Notes and limits:**
+  - The validated source names are extensionless BOARD and BOARD_XY in one directory. BOARD.ict and BOARD_XY.ict are supported named aliases with synthetic coverage. Either role opens the same complete pair.
+  - BOARD_XY supplies outline, physical pin identities, coordinates and access sides; BOARD CONNECTIONS supplies the nets. Both node tables and every physical/electrical Ref.Pin identity must match completely. NODE declarations never imply connectivity by position.
+  - Only the validated OTHER ALTERNATES grammar is imported. Unknown units, scale, quoted identities, node-scoped alternatives, device outlines and probe flags are refused. Pads and component bodies use disclosed viewing estimates; values, packages, traces and probe availability are not imported. NO_PROBE and NO_ACCESS annotations retain electrical points.
+  - Identities, ownership, coordinates, units, sides, probe annotations, outline order and node tables checked independently. All committed fixtures are original synthetic text.
 
 ### FZ / CAE boardview
 
@@ -155,14 +221,15 @@ No customer or manufacturer board is included in the repository or the applicati
 ### CAST CST
 
 - **Variants:**
-  - LE int16 binary, CDev/CPad sections
+  - LE int16 binary, CDev/CPad sections with documented component layers
 - **Units:** mil (×0.0254)
 - **Sides:** layer 0x0C top, 0x01 bottom; every other layer code is rejected; a negative part id creates one ICT part on both sides
 - **Notes and limits:**
   - Pin positions are real; pad size, body and outline are absent (a missing-outline warning is shown).
   - Pin numbers are file-order ordinals, not physical pin names; components with no pins are omitted with a note.
   - An unknown layer code is rejected on purpose (OpenBoardView places such a component on both sides; finding B04).
-  - Remaining gap to supported: no real CAST file was available.
+  - The examined collection also contains component layers 0x04, 0x08, 0x09 and 0x0A. Matched CASTw LST files confirm these are numbered PLN values; the per-design outer-layer mapping is still unverified, so those exports are reported as unsupported variants.
+  - This evidence does not establish the additional layer codes found in other exports. No sample is distributed.
 
 ### KiCad PCB
 
@@ -227,21 +294,58 @@ No customer or manufacturer board is included in the repository or the applicati
 ### Mentor Neutral
 
 - **Variants:**
-  - Mentor Graphics neutral file (# file / # date header)
-- **Units:** unverified
-- **Sides:** unverified
+  - Mentor Boardstation BOARD/B_UNITS/COMP/C_PIN records
+- **Units:** B_UNITS: Inches (×25.4), Mils (×0.0254), Mm (×1)
+- **Sides:** COMP/C_PIN side 1 top, 2 bottom; layer-stack indices are not side codes
 - **Notes and limits:**
-  - Recognized by a header taken from a single vendor help example; no adapter or fixture.
+  - Absolute C_PIN positions and nets, placed component origins and rotations are retained. Pad dimensions, traces, vias, mechanical additions and board outline are not inferred.
+  - Nonzero board offset/orientation is recognized but unsupported. $NONE$ is disconnected; other net names, including a leading slash, retain their identity.
+  - Only the documented COMP/C_PIN subset is imported. Synthetic regressions cover units, literal net identity, malformed records and recovery of a missing NUL side from agreeing explicit pin sides. No sample is distributed.
+
+### VS2 assembly listing
+
+- **Variants:**
+  - $VS2 fixed-column listing with CODE/PLN/LEAD-L1/LEAD-L2/CENTER POS/ORI columns
+- **Units:** the examined positions match CASTw CST mil coordinates after translation; the listing has no unit declaration
+- **Sides:** PLN NBR matches the numbered CST component layer; per-design outer-plane mapping is unverified
+- **Notes and limits:**
+  - The CASTw assembly listing contains component centers, two lead reference points, R/B/L/T orientation annotations and additional $SP pages.
+  - Matched LST/CST exports establish the coordinate scale and shared numbered planes, including 1, 4, 8, 9, 10 and 12. They do not establish each design’s outer-layer mapping or a complete physical pin/net model, so the listing is recognized with an explanation.
 
 ### Cadence Allegro BRD (native)
 
 - **Variants:**
-  - binary database; documented magic 0x00130000–0x00150000 (16.0–18.0+) plus "all" at offset 0xF8
-- **Units:** n/a
-- **Sides:** n/a
+  - Documented 16.0–17.5 keyed binary layouts; legacy and newer layouts recognized but unsupported
+- **Units:** header coordinate divisor × mil to mm
+- **Sides:** placed footprint layer; drilled through pads on both sides
 - **Notes and limits:**
-  - Native Allegro databases are proprietary; export GenCAD or use the vendor viewer.
-  - Databases older than 16.0 are not recognized.
+  - Native 16.2 (including alternate identifier 0x00130500), 16.4, 16.5, 16.6 and 17.2 database layouts were validated with local files; 16.0, 17.4 and 17.5 use synthetic validation.
+  - Explicit keyed records, string references, list cycles and declared object counts are validated before import. Unsupported versions or record types are refused.
+  - Component bodies are estimated from pads. Curved outlines use chords and custom pad shapes use their declared rectangular extents. Tracks, copper fills, general graphics and vias are omitted.
+  - The 64 MiB import limit applies to native databases. Observed 14.x/15.x layouts are identified but refused; export GenCAD. Footprint layer codes other than 0/1 are unsupported.
+
+### PADS native SDB
+
+- **Variants:**
+  - native database 0x2026 / 0x2027
+- **Units:** native BASIC = 1/38100 mil (no geometry imported)
+- **Sides:** native placement mirror bit (no geometry imported)
+- **Notes and limits:**
+  - Exact native signature, bounded controller directory, flat-controller prefix and EOF document footer are diagnosed. Custom-decal terminal geometry has not been independently validated, so no board is imported.
+  - Both tested KiCad builds failed to import all 21 investigated native databases. Request a PADS Layout ASCII export for conversion through KiCad, then inspect geometry and nets before saving .kicad_pcb. This export route has not been tested on these designs. See docs/PADS-BINARY.md.
+  - Diagnostic terminal-pool storage counts are not treated as live pin counts. Other database versions remain unrecognized.
+
+### Unisoft F2B (native)
+
+- **Variants:**
+  - Archive versions 6 and 8; component payloads 7, 8 and 9
+- **Units:** header resolution in points per inch
+- **Sides:** placed-pin flags; through-hole pins on both sides
+- **Notes and limits:**
+  - Versioned trace/pin lists, MFC object references and name dictionaries are validated through the end of the archive.
+  - Pin coordinates, nets and top/bottom SMD flags were compared with the vendor’s paired F2B/FBA export. Local validation also covers archive version 6.
+  - Component bodies and pad sizes are estimated. Tracks, vias, native outlines, BOM values and annotations are omitted.
+  - Other archive/payload versions, Unicode strings and extended MFC references are recognized but refused; export GenCAD or a net-and-XY file from Unisoft.
 
 ### TVW boardview
 
@@ -250,16 +354,19 @@ No customer or manufacturer board is included in the repository or the applicati
   - component metadata with height word
   - two extra Pascal metadata fields
   - physical-pad UID references
-  - pin-list layer reference through the full layer-header list (any number of aux, silk, mask and inner headers)
-  - net table closing word 0x2e23 or 0x2e17, with or without the usual 69-byte prefix
+  - separate top and bottom pin groups in one component
+  - pin-list layer reference through the full layer-header list, including empty logical slots
+  - named probe registries with declared origins, sizes and pack counts, with or without the usual 69-byte prefix
+  - empty net-table entries and explicitly unconnected pads
+  - zero round apertures and unexposed copper pads without exposed-area geometry
 - **Units:** centimil (×0.000254 mm); disk Y/X coordinates are swapped
-- **Sides:** the pin list names its layer by the zero-based index into the full list of layer headers and the header type decides the side (1 TOP, 2 BOTTOM); layers of other kinds are counted but never read; the numbers 2 (TOP), 5 and 7 (BOTTOM) also work when the detected header list does not name them
+- **Sides:** each pin group names its layer by the zero-based index into the full layer-header list and the header type decides the side (1 TOP, 2 BOTTOM); empty logical slots and layers of other kinds count in that index; components with pins on both sides retain both; legacy numbers 2, 5 and 7 only resolve when no header occupies that index
 - **Notes and limits:**
   - Original reader based on the MIT teboviewformat record description and independent byte inspection; no external TVW reader is included.
-  - Every declared component is read sequentially. Each pin UID divided by eight indexes its declared physical-pad table, preserving its label, coordinates, net, side and dimensions; no nearby-pad or master-order guess is used.
-  - One-pin test-point records are imported with generated pin identity. An unsupported record, invalid pad index, malformed table or resource-limit breach is rejected instead of silently dropping pins.
+  - Every declared component and both of its pin groups are read sequentially. Each pin UID divided by eight indexes its declared physical-pad table, preserving its label, coordinates, net, side and dimensions; no nearby-pad or master-order guess is used.
+  - Unnamed one-pin test-point records are imported with generated pin identity, including records with package names or an unknown classification. An unsupported record, invalid pad index, malformed table or resource-limit breach is rejected instead of silently dropping pins.
   - Board edges and copper traces are not imported. Custom pad shapes are represented by their bounding boxes. Real-file evidence covers the tested export variants and does not certify every TVW dialect.
-  - Still refused with a precise message: an export whose layer headers use a prefix other than the known one, an AppleDouble ("._") companion file, and a pin list that names an aux, silk, mask or inner layer or a layer number that no header provides.
+  - Still refused: AppleDouble companion files, exports without a complete net table or a supported physical top/bottom layer, invalid physical coordinates, and pin lists that select a nonphysical or missing layer.
   - All declared pins, including test points, are imported with exact source pad references. Symmetric bottom-footprint label swaps and reordered master pins are covered by regression tests. No sample is distributed.
 
 ### EasyEDA Standard PCB
@@ -328,6 +435,18 @@ No customer or manufacturer board is included in the repository or the applicati
 - **Sides:** SYM_MIRROR selects bottom; through-hole pads both
 - **Notes and limits:**
   - No vendor-written file validated. Padstack offsets are ignored; pad rotations and first-copper sizes are unverified; custom pads use bounding rectangles.
+
+### Fabmaster FARC / FAZ
+
+- **Variants:**
+  - FARC ASCII section revision 1
+  - FAZ ZIP containing one FAR job
+- **Units:** mil (×0.0254)
+- **Sides:** TOP/BOTTOM placements; TPIN top, BPIN bottom, DPIN both; vias carry their own side
+- **Notes and limits:**
+  - Absolute FABXYDATA positions are cross-checked against NETS membership and PACKAGE pin identities; complete counts and archive boundaries are mandatory.
+  - Pad sizes are estimated; vias are generated one-pin components. Straight TRACK outlines are imported; routing and tester settings are omitted. Unknown revisions or record layouts are refused.
+  - 451,164 components and 911,179 pins across the distinct jobs. ZIP extraction was compared with fflate, independently of the shipped ZIP reader. All observed job metadata declares MILS. No private board files are distributed.
 
 ### IPC-D-356
 
@@ -463,7 +582,7 @@ Real-file check of the links, run in both directions on the SparkFun RedBoard (E
 
 ## Not verified
 
-- Real-file validation covers GenCAD 1.4, Landrex / TestLink BRD, Honhan BDV, FZ / CAE boardview, KiCad PCB, EAGLE board XML, Altium PcbDoc, Samsung CAD, TVW boardview and EasyEDA Pro PCB (validated with real files, see the table), BVR raw boardview (BVRAW_FORMAT_3), validated with kicad-boardview exports of the five open Raspberry Pi Pico designs (no vendor-written file was tested), ODB++ archive, validated with kicad-cli 9.0.9 (pcb export odb) exports of thirty-nine open designs: KiCad 5 and 9 demo boards, Antmicro Jetson Nano baseboard, MNT Reform 2 motherboard, Raspberry Pi Pico boards (no vendor-written file was tested), IPC-D-356, validated with kicad-cli 9 exports of 39 open designs (no vendor-written file was tested), IPC-2581, validated with kicad-cli 9 exports of 27 open designs (no vendor-written file was tested) and the Altium schematic, KiCad schematic and EAGLE schematic readers (real files, see above). TVW has record and geometry checks on selected real exports; export variants it does not know are refused with a precise message, and the remaining gaps are disclosed in the import notice. Other rows retain their individual synthetic or open-tool validation level. Selected exports do not establish complete vendor-format coverage; header variants, pad dimensions and transforms remain subject to the limits above.
+- Real-file validation covers GenCAD 1.4, Landrex / TestLink BRD, TOPTEST BRD2, Honhan BDV, BVR raw boardview (BVRAW_FORMAT_3), BVR raw boardview (BVRAW_FORMAT_1), ASC companion trio, Jet BV boardview, BV2 text boardview, Tebo ICT companion pair, FZ / CAE boardview, CAST CST, KiCad PCB, EAGLE board XML, Altium PcbDoc, Samsung CAD, Mentor Neutral, Cadence Allegro BRD (native), Unisoft F2B (native), TVW boardview, EasyEDA Pro PCB and Fabmaster FARC / FAZ (validated with real files, see the table), ODB++ archive, validated with kicad-cli 9.0.9 (pcb export odb) exports of thirty-nine open designs: KiCad 5 and 9 demo boards, Antmicro Jetson Nano baseboard, MNT Reform 2 motherboard, Raspberry Pi Pico boards (no vendor-written file was tested), IPC-D-356, validated with kicad-cli 9 exports of 39 open designs (no vendor-written file was tested), IPC-2581, validated with kicad-cli 9 exports of 27 open designs (no vendor-written file was tested) and the Altium schematic, KiCad schematic and EAGLE schematic readers (real files, see above). TVW has record and geometry checks on selected real exports; export variants it does not know are refused with a precise message, and the remaining gaps are disclosed in the import notice. Other rows retain their individual synthetic or open-tool validation level. Selected exports do not establish complete vendor-format coverage; header variants, pad dimensions and transforms remain subject to the limits above.
 - Transform conventions that the specifications leave open follow published conventions and are verified only against synthetic data, except where real files confirmed them (KiCad pad angles; KiCad schematic mirror-x with 90°/270° rotation; EAGLE mirror without rotation): KiCad schematic mirror-y with 90°/270° rotation, the EAGLE order for an element that is mirrored and rotated, and the legacy KiCad rotate+mirror matrices and arc direction.
 - **Source-level Electron checks:** the main process, preload bridge, local import, persistence and renderer contracts are exercised by native and renderer tests. Production smoke checks use generated boards and an isolated profile. They cover the tested revision and environment; they do not certify every desktop configuration.
 - **Packaged builds:** the release workflow builds the Windows portable EXE, the unsigned Apple-silicon macOS ZIP and the Linux packages from the release tag. Publishing requires platform build and smoke checks plus matching SHA-256 files. macOS and Linux packages remain experimental; download assets and workflow results are available in the GitHub release.

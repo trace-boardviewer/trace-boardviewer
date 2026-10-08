@@ -59,7 +59,7 @@ export interface FilePayload {
   name: string;
   path: string;
   data: Uint8Array;
-  /** Sidecar files from the same directory, keyed by lowercase basename (ASC trio). */
+  /** Fixed companion files from the same directory, keyed by lowercase basename. */
   companions?: Record<string, Uint8Array>;
   /** SHA-256 hex of the ORIGINAL bytes of the primary file: the notes identity. */
   key: string;

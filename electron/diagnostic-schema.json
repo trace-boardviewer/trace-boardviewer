@@ -21,10 +21,10 @@
     "os": ["win32", "darwin", "linux", "other"],
     "extension": [
       "none", "other",
-      ".cad", ".gcd", ".brd", ".bdv", ".bv", ".bvr", ".fz", ".cae", ".asc", ".pcb", ".cst", ".xzz", ".tvw", ".kicad_pcb", ".pcbdoc", ".cmpcbdoc",
+      ".cad", ".gcd", ".gr", ".brd", ".bdv", ".bv", ".bv2", ".bvr", ".fz", ".cae", ".asc", ".pcb", ".cst", ".xzz", ".tvw", ".kicad_pcb", ".pcbdoc", ".cmpcbdoc",
       ".cspcbdoc", ".neu", ".gbr", ".tgz", ".xml", ".cvg", ".obdata", ".bom", ".txt", ".csv", ".json", ".zip", ".gz", ".tar", ".7z", ".rar",
       ".ipc", ".d356", ".net", ".hyp", ".fab", ".dsn", ".ses", ".epro", ".eprj", ".epcb", ".sch", ".schdoc", ".pcblib", ".schlib", ".kicad_sch",
-      ".kicad_pro", ".drl", ".xln", ".gtl", ".gbl", ".pdf", ".mdb", ".accdb", ".db", ".sqlite", ".dat", ".bin", ".boardview", ".asm", ".lst"
+      ".kicad_pro", ".drl", ".xln", ".gtl", ".gbl", ".pdf", ".mdb", ".accdb", ".db", ".sqlite", ".dat", ".bin", ".boardview", ".asm", ".lst", ".f2b", ".ict"
     ],
     "container": ["none", "zip", "gzip", "tar", "cfb", "sqlite", "jet", "zlib"],
     "encoding": ["binary", "ascii", "utf8", "utf8-bom", "utf16le-bom", "utf16be-bom", "windows-1252"],
@@ -35,12 +35,12 @@
       "allegro-17.2", "allegro-17.4", "allegro-17.5", "allegro-18", "xzzpcb", "xzzpcb-xor", "brd-encoded", "bdv-encoded", "cst-cdev"
     ],
     "formatId": [
-      "allegro-brd", "altium", "asc", "bdv", "brd", "brd2", "bvr", "bvr1", "cst", "eagle", "easyeda-pro", "easyeda-std", "fabmaster", "fz", "gencad",
-      "gerber", "hyperlynx", "ipc2581", "ipc356", "kicad", "mentor-neutral", "odbpp", "pinlist", "samsung-cad", "tvw", "xzz", "zip", "other"
+      "allegro-brd", "altium", "asc", "bdv", "brd", "brd2", "brd-v1", "bv", "bv2", "bvr", "bvr1", "cst", "eagle", "easyeda-pro", "easyeda-std", "fabmaster", "farc", "fz", "gencad",
+      "gerber", "hyperlynx", "ipc2581", "ipc356", "kicad", "mentor-neutral", "odbpp", "pads-binary", "pinlist", "samsung-cad", "tebo-ict", "tvw", "unisoft-f2b", "vs2", "xzz", "zip", "other"
     ],
     "sniff": ["none", "possible", "likely", "certain"],
     "hookId": [
-      "gencad", "brd", "bdv", "bvr", "asc", "fz", "xzz", "cst", "kicad", "eagle", "altium", "samsung-cad", "generic-text", "generic-binary"
+      "gencad", "brd", "bdv", "bvr", "asc", "fz", "xzz", "cst", "kicad", "eagle", "altium", "samsung-cad", "allegro-brd", "farc", "bv", "unisoft-f2b", "pads-binary", "brd-v1", "generic-text", "generic-binary"
     ],
     "detectionResult": ["declined", "claimed", "error", "skipped"],
     "errorCode": [
@@ -55,7 +55,7 @@
       "gencad-1.4", "gencad-other", "kicad-footprint", "kicad-module", "eagle-board", "eagle-schematic", "eagle-library", "altium-cfb",
       "altium-cfb-v4", "altium-ascii", "altium-schematic", "xzz-plain", "xzz-xor", "cst-int16", "samsung-cad", "bdv-plain", "bdv-encoded",
       "bvr1", "bvr3", "bvr-other", "brd-landrex", "brd-landrex-encoded", "brd2", "asc-trio", "fz-text", "fz-zlib", "fz-rc6", "cae-text",
-      "cae-zlib", "cae-rc6"
+      "cae-zlib", "cae-rc6", "farc-ascii", "farc-faz", "bv-jet3", "bv-jet4", "pads-sdb-2026", "pads-sdb-2027", "brd-v1-opaque"
     ],
     "unitKind": ["mm", "inch", "mil", "thou", "user", "mil/10000", "per-value", "unknown"],
     "outline": ["present", "estimated", "absent"],
@@ -75,7 +75,7 @@
       "sections", "otherSections", "companionFiles"
     ],
     "keyword": [
-      "(none)",
+      "(none)", ":SECTION", ":EOSECTION", "FABMASTER", "PARTS", "NETS", "FABXYDATA", "FORMAT", "EOARCHIVE",
       "$HEADER", "$ENDHEADER", "$BOARD", "$ENDBOARD", "$PADS", "$ENDPADS", "$PADSTACKS", "$ENDPADSTACKS", "$SHAPES", "$ENDSHAPES",
       "$COMPONENTS", "$ENDCOMPONENTS", "$DEVICES", "$ENDDEVICES", "$SIGNALS", "$ENDSIGNALS", "$TRACKS", "$ENDTRACKS", "$LAYERS", "$ENDLAYERS",
       "$ROUTES", "$ENDROUTES", "$MECH", "$ENDMECH", "$TESTPINS", "$ENDTESTPINS", "$POWERPINS", "$ENDPOWERPINS", "$PSEUDOS", "$ENDPSEUDOS",

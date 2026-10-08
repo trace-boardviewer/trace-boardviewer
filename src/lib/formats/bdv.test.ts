@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Board } from '../types';
-import { BoardFormatError, textInput } from './common';
+import { BoardFormatError, MAX_IMPORT_BYTES, textInput } from './common';
 import { parseBdv } from './bdv';
+import { parseBoardDetailed } from './dispatch';
 import { catching, expectScaling } from '../../test-support/timing';
 
 const inch = (value: number) => value * 25.4;
@@ -56,7 +57,61 @@ function encode(all: string[]): Uint8Array {
   return Uint8Array.from(out);
 }
 
+describe('Honhan BDV encoded nails-first variant', () => {
+  const variant = ['<<nails.asc>>', ...header(7, 'nails'), ...NAILS, '<<pins.asc>>', ...header(8, 'pins'), ...PINS];
+  it('preserves explicit inch coordinates, sides and nets without inventing an outline', () => {
+    const board = must(encode(variant));
+    expect(pinRows(board)).toEqual(pinRows(must(GOLDEN)));
+    expect(board.warnings.some(issue => issue.key === 'parse.warning.missingBoardOutline')).toBe(true);
+    expect(notes(board)).toContain('The encoded nails-first BDV export has no format.asc section; its board outline is estimated from its component and test-point coordinates.');
+    const dispatched = parseBoardDetailed({ name: 'board.bdv', data: encode(variant) });
+    expect(dispatched.adapter).toBe('bdv'); expect(dispatched.board.pins).toEqual(board.pins);
+  });
+  it('still requires complete pin records and the pin section', () => {
+    expect(() => must(encode(variant.slice(0, 10)))).toThrow(/pins.asc/);
+    expect(() => must(encode(variant.map(row => row === PINS[1] ? '1 1 .1 .2 1' : row)))).toThrow(/pin needs/);
+    expect(parse(encode(['PREFIX', ...variant]))).toBeNull();
+  });
+  it('checks the entire source byte budget before decoding or estimating missing geometry', () => {
+    const oversized = new Uint8Array(MAX_IMPORT_BYTES + 1);
+    oversized.set(encode(variant));
+    expect(thrown(oversized).code).toBe('LIMIT_EXCEEDED');
+  });
+});
+
 describe('Honhan BDV (plain)', () => {
+  it('reads spaced references, marked and abbreviated probe lists and preserves all numeric pin rows', () => {
+    const board = must(text(lines(FORMAT, ['Part TP 1 (T)',
+      '1 A 1 .1 .2 1 POWER RAIL 5,@6,7...', '8', '9', '10,11...',
+      '2 2 1 2 1 123 0'], [])));
+    expect(board.components[0].ref).toBe('TP 1');
+    expect(board.pins.map(pin => [pin.number, pin.net, pin.x, pin.y])).toEqual([['A 1', 'POWER RAIL', inch(.1), inch(.2)], ['2', '123', inch(1), inch(2)]]);
+    expect(notes(board)).toContain('2 probe lists end in an ellipsis; their omitted probe annotations do not change pin positions or nets.');
+    expect(notes(board)).toContain('1 probe annotations have a marker before their numeric id; the annotations do not change pin positions or nets.');
+  });
+
+  it('discloses numeric id/name-only pins with no geometry instead of inventing a position or net', () => {
+    const board = must(text(lines(FORMAT, ['Part U0 (T)', '1 1', '2 2', 'Part U1 (T)', '1 1 .1 .2 1 VCC 0', '2 2'], [])));
+    expect(board.components.map(part => part.ref)).toEqual(['U1']);
+    expect(board.pins).toHaveLength(1);
+    expect(board.pins[0]).toMatchObject({ x: inch(.1), y: inch(.2), net: 'VCC' });
+    expect(notes(board)).toContain('3 pin records contain only an id and name, without coordinates or a net; they cannot be drawn and were omitted.');
+    expect(notes(board)).toContain('1 component without pins was omitted because the file gives no position for it.');
+  });
+
+  it('accepts a letter/number grid annotation and a doubled test-point marker without changing geometry', () => {
+    const board = must(text(lines(FORMAT.map(row => `${row} C3`), PINS, ['*@5 .1 .2 1 G1 (T) 11 VCC'])));
+    expect(board.outline).toEqual(must(GOLDEN).outline);
+    expect(board.pins.at(-1)).toMatchObject({ number: '5', x: inch(.1), y: inch(.2), net: 'VCC' });
+    expect(notes(board)).toContain('4 outline records carry a grid annotation; only their X/Y coordinates are used.');
+  });
+
+  it('ignores only final control sentinels and preserves rejection of embedded malformed rows', () => {
+    for (const sentinel of ['\0', '\0\0\0', '\x02', '\x02\n\0\n\0', '\x03\n\x04']) expect(must(GOLDEN + sentinel + '\n')).toEqual(must(GOLDEN));
+    expect(() => must(GOLDEN.replace('0.000 0.000', '0.000\0 0.000'))).toThrow(/outline/);
+    expect(() => must(GOLDEN.replace('0.000 0.000', '\x02\n0.000 0.000'))).toThrow(/outline/);
+  });
+
   it('parses the golden fixture: inch units, part-line sides, free-text pin names, test points', () => {
     const board = must(GOLDEN);
     expect(board.format).toBe('Honhan BDV');
@@ -135,7 +190,7 @@ describe('Honhan BDV (plain)', () => {
       [text(lines(['0.0 inf'], PINS)), /invalid outline Y/],
       [text(lines(['0.0 0.0 0.0 0.0'], PINS)), /two coordinates/],
       [withPins('Part U1'), /a Part line needs a reference and a side marker/],
-      [withPins('Part U 1 (T)'), /a Part line needs a reference and a side marker/],
+      [withPins('Part U 1 invalid'), /a Part line needs a reference and a side marker/],
       [withPins('1 1 0.1 0.1 1 A 0'), /pin record appears before the first Part line/],
       [withPins('Part U1 (T)', '1 1 0.1 0.1 1'), /a pin needs id, name, X, Y, layer, net and an optional probe/],
       [withPins('Part U1 (T)', 'x 1 0.1 0.1 1 A 0'), /invalid pin id "x"/],
@@ -293,7 +348,7 @@ describe('Honhan BDV: record variants of real exports (original synthetic regres
     expect(pinRows(board)).toEqual([['U1', 'A 1', inch(0.1), inch(0.2), 'N1', 'top'], ['U1', '2', inch(0.15), inch(0.2), 'N2', 'top']]);
     expect(thrown(text(lines(FORMAT, ['Part U1 (T)', '5,7'], []))).message).toMatch(/continuation appears before the first pin/);
     expect(thrown(text(lines(FORMAT, ['Part U1 (T)', '1 1 0.1 0.2 1 N1 5,x'], []))).message).toMatch(/invalid probe/);
-    expect(thrown(text(lines(FORMAT, ['Part U1 (T)', '1 1 0.1 0.2 1 N1 5,'], []))).message).toMatch(/invalid probe/);
+    expect(thrown(text(lines(FORMAT, ['Part U1 (T)', '1 1 0.1 0.2 1 N1 5,,'], []))).message).toMatch(/invalid probe/);
   });
 
   it('preserves blanks in a net column and ignores virtual nail annotations after the net', () => {

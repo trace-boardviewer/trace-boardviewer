@@ -22,5 +22,7 @@
   "info.format": "Format",
   "info.size": "Taille de la carte",
   "info.counts": "Composants / broches / réseaux",
-  "info.footer": "Les guides montrent la connectivité des réseaux. Ils ne remplacent pas la géométrie des pistes de cuivre du fichier."
+  "info.footer": "Les guides montrent la connectivité des réseaux. Ils ne remplacent pas la géométrie des pistes de cuivre du fichier.",
+
+  "key.skipHelp": "Vous pouvez ignorer cette étape et continuer à utiliser l’application. Ce fichier chiffré restera fermé tant qu’une clé correspondante ne sera pas fournie."
 }

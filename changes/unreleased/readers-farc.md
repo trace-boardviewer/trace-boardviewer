@@ -1,0 +1,1 @@
+- Adds bounded imports of Fabmaster FARC ASCII jobs and FAZ ZIP packages, preserving absolute pin positions, sides, pin names, networks, vias and straight board outlines. Conflicting section counts and electrical membership are rejected; omitted routing and estimated pad sizes are disclosed.

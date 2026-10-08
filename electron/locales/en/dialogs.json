@@ -22,5 +22,7 @@
   "info.format": "Format",
   "info.size": "Board size",
   "info.counts": "Components / pins / nets",
-  "info.footer": "Guide lines show net connectivity. They do not replace the geometry of the copper traces in the file."
+  "info.footer": "Guide lines show net connectivity. They do not replace the geometry of the copper traces in the file.",
+
+  "key.skipHelp": "You can skip this step and keep using the app. This encrypted file will remain unopened until a matching key is supplied."
 }

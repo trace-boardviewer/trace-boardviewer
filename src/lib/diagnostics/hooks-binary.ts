@@ -8,7 +8,7 @@ import { CFB_MAGIC, readCompound } from '../formats/altium-cfb';
 import { asciiPrefix, decodeText } from '../formats/common';
 import { inflateZlib } from '../formats/compression';
 import { fzKeyParityValid, rc6Feedback } from '../formats/crypto';
-import { CONTENT_SIGNATURE, hasFzZlibHeader, splitFzContainer } from '../formats/fz';
+import { CONTENT_SIGNATURE, hasFzZlibHeader, isAppleDoubleMetadata, splitFzContainer, unwrapFzContainer } from '../formats/fz';
 import { CAE_DEFAULT_KEY, FZ_DEFAULT_KEY } from '../formats/fz-default-keys';
 import { log2Ceil, NO_SECTION } from './report';
 import { textLines, type StructureHook, type StructureSink } from './structure';
@@ -43,8 +43,11 @@ export const fzHook: StructureHook = {
   id: 'fz', kind: 'binary', steps: ['header', 'decrypt', 'container', 'decompress'],
   keywords: ['UNIT:', 'A!', 'S!', ...FZ_BLOCKS.map(name => `A!${name}`), 'A!other'],
   collect(input, sink) {
-    const { data } = input, base = input.extension === '.cae' ? 'cae' : 'fz';
+    const base = input.extension === '.cae' ? 'cae' : 'fz';
     sink.units('thou', 0.0254); sink.padAngle('none');
+    if (isAppleDoubleMetadata(input.data)) return;
+    let data: Uint8Array;
+    try { data = unwrapFzContainer(input.data); } catch { return; }
     const content = (bytes: Uint8Array): string | null => { try { return decodeText(bytes); } catch { return null; } };
     if (CONTENT_SIGNATURE.test(asciiPrefix(data, 64))) {
       sink.variant(base === 'cae' ? 'cae-text' : 'fz-text');
@@ -55,7 +58,7 @@ export const fzHook: StructureHook = {
     }
     if (data.length < 4 + MIN_ZLIB + MIN_ZLIB + 4) return;
     let plain: Uint8Array;
-    if (hasFzZlibHeader(data)) {
+    if (hasFzZlibHeader(data) && splitFzContainer(data)) {
       sink.variant(base === 'cae' ? 'cae-zlib' : 'fz-zlib'); sink.code('encrypted', 0);
       sink.reached('header'); sink.reached('decrypt');
       plain = data;

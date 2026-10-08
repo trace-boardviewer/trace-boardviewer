@@ -9,10 +9,11 @@ const text = (s: string) => [s.length, ...new TextEncoder().encode(s)];
 const definition = (firstDimension = 1200, secondDimension = 4000, shape = 1) => words(1, firstDimension, secondDimension, shape, 0, 0);
 const polygon = () => [...words(1, 1200, 4000, 5, 0), ...text('Original'), ...words(-600, -2000, 600, 2000, 1, 2, 1, 0, 0, 4), ...words(-600, -2000, -600, 2000, 600, 2000, 600, -2000)];
 const composite = () => [...words(1, 1200, 4000, 5, 0), ...text('Lines'), ...words(-600, -2000, 600, 2000, 2, 5, 1, 0, 0, -550, -1950, -550, 1950, 100, 5, 1, 0, 0, 550, -1950, 550, 1950, 100)];
-interface PadInput { net?: number; dcode?: number; x?: number; y?: number; plain?: boolean; extended?: boolean; hole?: boolean; round?: boolean; geometry?: number }
-const pad = ({ net = 0, dcode = 10, x = 250, y = 100, plain = false, extended = false, hole = false, round = false, geometry }: PadInput = {}) => {
+interface PadInput { net?: number; dcode?: number; x?: number; y?: number; plain?: boolean; extended?: boolean; hole?: boolean; round?: boolean; brief?: boolean; geometry?: number }
+const pad = ({ net = 0, dcode = 10, x = 250, y = 100, plain = false, extended = false, hole = false, round = false, brief = false, geometry }: PadInput = {}) => {
   const base = words(net, dcode, y, x);
   if (plain) return [...base, 0, 0, 2];
+  if (brief) return [...base, 0, 1, 0, 0, 0, 8];
   const prefix = [...base, 1, 1, extended ? 1 : 0, ...(extended ? words(0, 0, 0) : [])];
   return round
     ? [...prefix, 0, ...words(1, 0), 0, ...words(600, 2000), 0]
@@ -50,6 +51,17 @@ describe('readTvwLayers', () => {
     expect(result.layers[0].pads[0]).toMatchObject({ width: 4000, height: 1200 });
     const plain = readTvwLayers(layer([pad({ plain: true })], [definition(200, 400)]).data, 1);
     expect(plain.layers[0].pads[0]).toMatchObject({ width: 400, height: 200 });
+  });
+  it('reads an unexposed copper pad without an exposed-area payload at the exact next-pad boundary', () => {
+    const result = readTvwLayers(layer([pad({ brief: true }), pad({ net: 1 })]).data, 2);
+    expect(result.skippedLayers).toBe(0);
+    expect(result.layers[0].pads).toHaveLength(2);
+    expect(result.layers[0].pads.map(p => [p.x, p.y, p.net, p.width, p.height])).toEqual([[250, 100, 0, 4000, 1200], [250, 100, 1, 4000, 1200]]);
+  });
+  it('accepts a declared zero round aperture while requiring positive pad geometry', () => {
+    expect(readTvwLayers(layer([pad({ dcode: 11 })], [definition(0, 0, 0), definition()]).data, 1).layers[0].pads).toHaveLength(1);
+    expect(readTvwLayers(layer([pad()], [definition(0, 0, 0)]).data, 1).layers[0].pads[0]).toMatchObject({ width: 4000, height: 1200 });
+    expect(readTvwLayers(layer([pad({ plain: true })], [definition(0, 0, 0)]).data, 1).skippedLayers).toBe(1);
   });
 
   it('reads count-delimited custom polygons and skips rendering composite line macros with a known cursor', () => {
@@ -115,6 +127,15 @@ describe('readTvwLayers', () => {
       [0, 'Aux A', 3, undefined], [1, 'Silk', 4, undefined], [2, 'TOP', 1, 'top'], [3, 'Mask', 5, undefined], [4, 'BOTTOM', 2, 'bottom']]);
     expect(result.layers.map(item => item.side)).toEqual(['top', 'bottom']);
     expect(result.headers[2].layer).toBe(result.layers[0]);
+  });
+  it('counts complete empty slots and rejects a damaged known slot instead of shifting the namespace', () => {
+    const empty = Uint8Array.from([...words(0, 3, 2, 1), 0, 0, 0, ...words(0, 255, 65280, 0, 0, 0, 7, 0, 0, 4, 0, 0, 0, 0, 0, 0)]);
+    expect(empty).toHaveLength(83);
+    const top = layer();
+    expect(readTvwLayers(Uint8Array.from([...empty, ...top.data]), 1).headers.map(h => [h.index, h.name, h.layer?.side])).toEqual([[0, '', undefined], [1, 'TOP', 'top']]);
+    const broken = empty.slice(); broken[broken.length - 4] = 1;
+    expect(readTvwLayers(Uint8Array.from([...broken, ...top.data]), 1).skippedLayers).toBe(1);
+    expect(readTvwLayers(empty.subarray(0, empty.length - 1), 1).skippedLayers).toBe(1);
   });
 
   it('does not count a header whose type word is implausible, and bounds the number of headers it lists', () => {

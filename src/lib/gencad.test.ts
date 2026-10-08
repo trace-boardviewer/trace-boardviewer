@@ -43,6 +43,93 @@ $ENDSIGNALS
 const parse = (options?: FixtureOptions) => parseGenCad(fixture(options), 'test.cad');
 
 describe('parseGenCad', () => {
+  it('accepts completed empty CHANGES repetitions and rejects any repeated section data', () => {
+    const empty = '$CHANGES\n$ENDCHANGES\n';
+    const board = parseGenCad(fixture() + empty + '$CHANGES\n# no edits\n$ENDCHANGES\n' + empty, 'test.cad');
+    expect(board.pins).toEqual(parse().pins);
+    expect(board.components).toEqual(parse().components);
+    expect(board.warnings).toContainEqual({ key: 'parse.warning.formatNote', params: { message: '2 repeated empty CHANGES sections were omitted.' } });
+    expect(() => parseGenCad(fixture() + empty + '$CHANGES\nCHANGE 1\n$ENDCHANGES\n', 'test.cad')).toThrow(/Duplicate \$CHANGES/);
+    expect(() => parseGenCad(fixture() + '$CHANGES\nCHANGE 1\n$ENDCHANGES\n' + empty, 'test.cad')).toThrow(/Duplicate \$CHANGES/);
+    expect(() => parseGenCad(fixture() + empty + '$CHANGES\nATTRIBUTE X Y\n$ENDCHANGES\n', 'test.cad')).toThrow(/Duplicate \$CHANGES/);
+    expect(() => parseGenCad(fixture() + '$CHANGES\nATTRIBUTE X Y\n$ENDCHANGES\n' + empty, 'test.cad')).toThrow(/Duplicate \$CHANGES/);
+    expect(() => parseGenCad(fixture() + empty + '$CHANGES\n', 'test.cad')).toThrow(/ENDCHANGES/);
+    expect(() => parseGenCad(fixture() + '$ROUTES\n$ENDROUTES\n$ROUTES\n$ENDROUTES\n', 'test.cad')).toThrow(/Duplicate \$ROUTES/);
+  });
+
+  it('ignores a C-string terminator only after completed text sections', () => {
+    const board = parseGenCad(fixture() + '\0\n', 'test.cad');
+    expect(board.pins).toEqual(parse().pins);
+    expect(board.warnings).toContainEqual({ key: 'parse.warning.formatNote', params: { message: 'A trailing NUL terminator after the completed GENCAD text was ignored.' } });
+    expect(() => parseGenCad(fixture().replace('PLACE 10 20', 'PLACE 10\0 20'), 'test.cad')).toThrow(/binary/);
+    expect(() => parseGenCad(fixture() + '\0DATA', 'test.cad')).toThrow(/binary/);
+    expect(() => parseGenCad(fixture().replace('$ENDSIGNALS', '\0'), 'test.cad')).toThrow(/binary/);
+  });
+
+  it('coalesces equivalent placement records and shows dual-layer exports on both sides', () => {
+    const top = 'COMPONENT R1\nPLACE 10 20\nLAYER TOP\nROTATION 0\nSHAPE S 0 0\nDEVICE D';
+    const board = parse({ component: `${top}\n${top.replace('LAYER TOP', 'LAYER BOTTOM')}` });
+    expect(board.components).toHaveLength(1); expect(board.pins).toHaveLength(2);
+    expect(board.components[0]).toMatchObject({ id: 'R1', ref: 'R1', side: 'both', position: { x: 10, y: 20 } });
+    expect(board.pins.map(pin => pin.side)).toEqual(['both', 'both']);
+    expect(board.pins.map(pin => pin.net)).toEqual(['GND', 'POWER 3V3']);
+    expect(board.warnings).toContainEqual({ key: 'parse.warning.formatNote', params: { message: '1 repeated component definition has identical placement and geometry; differing mounting sides are shown on both sides.' } });
+    for (const changed of [top.replace('PLACE 10 20', 'PLACE 11 20'), top.replace('SHAPE S 0 0', 'SHAPE S MIRRORX 0'), top.replace('DEVICE D', 'DEVICE OTHER')]) {
+      expect(() => parse({ component: `${top}\n${changed}` })).toThrow(/duplicate component/);
+    }
+  });
+
+  it('accepts only the legacy 1.4 HEADER-to-BOARD boundary and validates the header fields', () => {
+    const legacy = fixture().replace('$ENDHEADER\n', '');
+    const board = parseGenCad(legacy, 'test.cad');
+    expect(board.pins).toEqual(parse().pins);
+    expect(board.warnings).toContainEqual({ key: 'parse.warning.formatNote', params: { message: 'The GENCAD header ends at $BOARD without $ENDHEADER; its unit and origin records were validated.' } });
+    expect(() => parseGenCad(legacy.replace('UNITS MM', 'UNITS INVALID'), 'test.cad')).toThrow(/unit/);
+    expect(() => parseGenCad(legacy.replace('GENCAD 1.4', 'GENCAD 9.0'), 'test.cad')).toThrow(/ENDHEADER/);
+    expect(() => parseGenCad(fixture().replace('$ENDPADS\n', ''), 'test.cad')).toThrow(/ENDPADS/);
+  });
+
+  it('accepts repeated pad definitions only when their kind, aperture and geometry agree', () => {
+    const original = parse();
+    const repeat = parse({ pads: 'PAD P ROUND -1\nCIRCLE 0 0 0.2\nPAD P ROUND -1.0\nCIRCLE 0.0 0.0 .2' });
+    expect(repeat).toEqual(original);
+    for (const alternate of ['PAD P ROUND -1\nCIRCLE 0 0 0.3', 'PAD P RECTANGULAR -1\nCIRCLE 0 0 0.2', 'PAD P ROUND 0\nCIRCLE 0 0 0.2', 'PAD P ROUND -1']) {
+      expect(() => parse({ pads: `PAD P ROUND -1\nCIRCLE 0 0 0.2\n${alternate}` })).toThrow(/Duplicate pad/);
+    }
+  });
+
+  it('accepts consistent stack and device repetitions while rejecting conflicting definitions', () => {
+    expect(parse({ stacks: 'PADSTACK PS 0\nPAD P TOP 0 0\nPADSTACK PS 0.0\nPAD P TOP 0.0 0' })).toEqual(parse());
+    expect(() => parse({ stacks: 'PADSTACK PS 0\nPAD P TOP 0 0\nPADSTACK PS 0\nPAD P BOTTOM 0 0' })).toThrow(/Duplicate padstack/);
+    const device = 'DEVICE D\nVALUE "10 kOhm"\nPACKAGE "0402"';
+    expect(parse({ devices: `${device}\n${device}` })).toEqual(parse());
+    expect(() => parse({ devices: `${device}\nDEVICE D\nVALUE "20 kOhm"\nPACKAGE "0402"` })).toThrow(/Duplicate device/);
+  });
+
+  it('ignores opaque ATTRIBUTE strings containing literal path delimiters and quotes', () => {
+    const original = fixture();
+    const metadata = String.raw`ATTRIBUTE HEADER_1 "" "directory\"`;
+    expect(parseGenCad(original.replace('GENCAD 1.4', `GENCAD 1.4\n${metadata}`), 'test.cad')).toEqual(parse());
+    expect(() => parse({ devices: 'DEVICE D\nVALUE "unterminated' })).toThrow(/Unterminated quotation/);
+  });
+
+  it('accepts auxiliary stack layers without using mask, paste or inner geometry as a copper pad', () => {
+    const stacks = 'PADSTACK PS 0\nPAD P INNER 0 0\nPAD P SOLDERMASK_TOP 0 0\nPAD P SOLDERMASK_BOTTOM 0 0\nPAD P SOLDERPASTE_TOP 0 0\nPAD P SOLDERPASTE_BOTTOM 0 0\nPAD P TOP 0 0';
+    expect(parse({ stacks }).pins).toEqual(parse().pins);
+    expect(() => parse({ stacks: 'PADSTACK PS 0\nPAD P SOLDERMASK_TOP 0 0' })).toThrow(/inner layers only/);
+    expect(() => parse({ shape: 'PIN 1 PS 0 0 INNER 0 0' })).toThrow(/inner layer/);
+  });
+
+  it('keeps unnamed SIGNAL groups disconnected and still rejects contradictory connections', () => {
+    const board = parse({ signals: 'SIGNAL GND\nNODE R1 1\nSIGNAL\nNODE R1 2' });
+    expect(board.pins.map(pin => pin.net)).toEqual(['GND', '']);
+    expect(board.nets.map(net => [net.name, net.pinIds])).toEqual([['GND', [board.pins[0].id]]]);
+    expect(board.warnings).toContainEqual({ key: 'parse.warning.formatNote', params: { message: '1 node in an unnamed SIGNAL group is shown without a net.' } });
+    expect(parse({ signals: 'SIGNAL ""\nNODE R1 1\nNODE R1 2' }).nets).toEqual([]);
+    expect(() => parse({ signals: 'NODE R1 1' })).toThrow(/without a SIGNAL/);
+    expect(() => parse({ signals: 'SIGNAL GND\nNODE R1 1\nSIGNAL\nNODE R1 1' })).toThrow(/more than one net/);
+  });
+
   it('imports placements, dimensions, device metadata and bidirectional net membership', () => {
     const board = parse();
     expect(board.name).toBe('test'); expect(board.format).toBe('GENCAD 1.4'); expect(board.units).toBe('mm');
@@ -324,7 +411,7 @@ describe('parseGenCad', () => {
     ['negative radius', fixture().replace('CIRCLE 0 0 0.2', 'CIRCLE 0 0 -0.2'), 'parse.error.negativeRadius'],
     ['malformed arc', fixture({ board: 'ARC 1 0 0 2 0 0' }), 'parse.error.invalidArc'],
     ['unterminated string', fixture().replace('VALUE "10 kOhm"', 'VALUE "10 kOhm'), 'parse.error.unterminatedQuote'],
-    ['duplicate reference', fixture({ component: 'COMPONENT R1\nPLACE 0 0\nSHAPE S 0 0\nCOMPONENT R1\nPLACE 0 0\nSHAPE S 0 0' }), 'parse.error.missingOrDuplicateComponent'],
+    ['conflicting duplicate reference', fixture({ component: 'COMPONENT R1\nPLACE 0 0\nSHAPE S 0 0\nCOMPONENT R1\nPLACE 1 0\nSHAPE S 0 0' }), 'parse.error.missingOrDuplicateComponent'],
     ['conflicting net assignment', fixture({ signals: 'SIGNAL GND\nNODE R1 1\nSIGNAL POWER\nNODE R1 1' }), 'parse.error.pinMultipleNets'],
     ['orphan NODE', fixture({ signals: 'NODE R1 1' }), 'parse.error.nodeWithoutSignal'],
     ['no pins', fixture({ shape: 'RECTANGLE 0 0 1 1' }), 'parse.error.noPins'],

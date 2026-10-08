@@ -17,18 +17,18 @@ export const ERROR_CODES = ['INVALID_FORMAT', 'UNRECOGNIZED', 'LIMIT_EXCEEDED', 
 export type ErrorCode = (typeof ERROR_CODES)[number];
 /** The ids of the registered adapters (src/lib/formats/adapters/<id>) plus 'other' for an adapter whose id is not whitelisted yet. */
 export const FORMAT_IDS = [
-  'allegro-brd', 'altium', 'asc', 'bdv', 'brd', 'brd2', 'bvr', 'bvr1', 'cst', 'eagle', 'easyeda-pro', 'easyeda-std', 'fabmaster', 'fz', 'gencad', 'gerber', 'hyperlynx', 'ipc2581', 'ipc356',
-  'kicad', 'mentor-neutral', 'odbpp', 'pinlist', 'samsung-cad', 'tvw', 'xzz', 'zip', 'other',
+  'allegro-brd', 'altium', 'asc', 'bdv', 'brd', 'brd2', 'brd-v1', 'bv', 'bv2', 'bvr', 'bvr1', 'cst', 'eagle', 'easyeda-pro', 'easyeda-std', 'fabmaster', 'farc', 'fz', 'gencad', 'gerber', 'hyperlynx', 'ipc2581', 'ipc356',
+  'kicad', 'mentor-neutral', 'odbpp', 'pads-binary', 'pinlist', 'samsung-cad', 'tebo-ict', 'tvw', 'unisoft-f2b', 'vs2', 'xzz', 'zip', 'other',
 ] as const;
 export type FormatId = (typeof FORMAT_IDS)[number];
 export const SNIFF_TIERS = ['none', 'possible', 'likely', 'certain'] as const;
 export type SniffTier = (typeof SNIFF_TIERS)[number];
-export const HOOK_IDS = ['gencad', 'brd', 'bdv', 'bvr', 'asc', 'fz', 'xzz', 'cst', 'kicad', 'eagle', 'altium', 'samsung-cad', 'generic-text', 'generic-binary'] as const;
+export const HOOK_IDS = ['gencad', 'brd', 'bdv', 'bvr', 'asc', 'fz', 'xzz', 'cst', 'kicad', 'eagle', 'altium', 'samsung-cad', 'allegro-brd', 'farc', 'bv', 'unisoft-f2b', 'pads-binary', 'brd-v1', 'generic-text', 'generic-binary'] as const;
 export type HookId = (typeof HOOK_IDS)[number];
 export const VARIANTS = [
   'gencad-1.4', 'gencad-other', 'kicad-footprint', 'kicad-module', 'eagle-board', 'eagle-schematic', 'eagle-library', 'altium-cfb', 'altium-cfb-v4', 'altium-ascii',
   'altium-schematic', 'xzz-plain', 'xzz-xor', 'cst-int16', 'samsung-cad', 'bdv-plain', 'bdv-encoded', 'bvr1', 'bvr3', 'bvr-other', 'brd-landrex', 'brd-landrex-encoded',
-  'brd2', 'asc-trio', 'fz-text', 'fz-zlib', 'fz-rc6', 'cae-text', 'cae-zlib', 'cae-rc6',
+  'brd2', 'asc-trio', 'fz-text', 'fz-zlib', 'fz-rc6', 'cae-text', 'cae-zlib', 'cae-rc6', 'farc-ascii', 'farc-faz', 'bv-jet3', 'bv-jet4', 'pads-sdb-2026', 'pads-sdb-2027', 'brd-v1-opaque',
 ] as const;
 export type Variant = (typeof VARIANTS)[number];
 export const UNIT_KINDS = ['mm', 'inch', 'mil', 'thou', 'user', 'mil/10000', 'per-value', 'unknown'] as const;

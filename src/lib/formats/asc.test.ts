@@ -3,6 +3,7 @@ import type { Board } from '../types';
 import { BoardFormatError } from './common';
 import { parseAsc } from './asc';
 import { parseBdv } from './bdv';
+import { parseBoardDetailed } from './dispatch';
 
 const inch = (value: number) => value * 25.4;
 const header = (count: number, tag: string) => Array.from({ length: count }, (_, index) => `; ${tag} header ${index + 1}`);
@@ -47,6 +48,65 @@ const pinRows = (board: Board) => board.pins.map(pin => {
 });
 
 describe('ASC companion trio', () => {
+  it('opens only the exact @format.asc alias, preferring ordinary format for pins/nails entries', () => {
+    const normal = files(), alternate = files(['0 0', '3 0', '3 2', '0 2']);
+    const companions = { ...normal, '@FORMAT.ASC': alternate['format.asc'] };
+    const fromAt = parseBoardDetailed({ name: '@FoRmAt.AsC', data: alternate['format.asc'], companions }).board;
+    expect(fromAt.outline).toEqual(must(open(alternate, 'format.asc')).outline);
+    expect(fromAt.pins).toEqual(must(open(normal, 'format.asc')).pins);
+    for (const entry of ENTRIES) expect(must({ name: entry, data: normal[entry], companions }).outline).toEqual(must(open(normal, 'format.asc')).outline);
+    const noNormal = { 'folder/@FORMAT.ASC': alternate['format.asc'], 'pins.asc': normal['pins.asc'], 'nails.asc': normal['nails.asc'] };
+    for (const entry of ['pins.asc', 'nails.asc'] as const) expect(must({ name: entry, data: normal[entry], companions: noNormal }).outline).toEqual(fromAt.outline);
+    expect(parseAsc({ name: '@@format.asc', data: alternate['format.asc'], companions })).toBeNull();
+    expect(parseAsc({ name: '@pins.asc', data: normal['pins.asc'], companions })).toBeNull();
+    expect(() => must({ name: 'pins.asc', data: normal['pins.asc'], companions: { ...noNormal, 'format.asc': bytes('BROKEN\n') } })).toThrow();
+  });
+
+  it('accepts the exporter\'s mixed-case Part keyword and FPT nail type from every entry', () => {
+    const trio = files(FORMAT, ['PART U1 (T)', '1 1 .1 .2 1 VCC 0', 'ParT U2 (B)', '1 1 .3 .2 2 GND 0'], ['*5 .1 .2 FPT A1 (T) 11 VCC']);
+    const boards = ENTRIES.map(entry => must(open(trio, entry)));
+    expect(boards[1]).toEqual(boards[0]); expect(boards[2]).toEqual(boards[0]);
+    expect(boards[0].components.map(part => [part.ref, part.side])).toEqual([['U1', 'top'], ['U2', 'bottom'], ['TP:5', 'top']]);
+    expect(boards[0].pins.at(-1)).toMatchObject({ net: 'VCC', x: inch(.1), y: inch(.2), side: 'top' });
+    expect(notes(boards[0])).toContain('The FPT test point type is retained as a test point; type annotations do not change its coordinates or net.');
+    expect(() => must(open(files(FORMAT, PINS, ['*5 .1 .2 UNKNOWN A1 (T) 11 VCC']), 'format.asc'))).toThrow(/invalid test point type/);
+  });
+
+  it('opens each entry when the format companion has a final NUL terminator', () => {
+    const trio = files();
+    trio['format.asc'] = bytes(new TextDecoder().decode(trio['format.asc']) + '\0\0\0\n');
+    for (const entry of ENTRIES) expect(must(open(trio, entry)).pins).toEqual(must(open(files(), entry)).pins);
+  });
+
+  it('dispatches a complete short ASC entry with terminal NUL padding to the trio reader', () => {
+    const trio = files();
+    trio['format.asc'] = bytes(new TextDecoder().decode(trio['format.asc']) + '\0\0\n');
+    const parsed = parseBoardDetailed(open(trio, 'format.asc'));
+    expect(parsed.adapter).toBe('asc');
+    expect(parsed.board.pins).toEqual(must(open(files(), 'format.asc')).pins);
+  });
+
+  it('retains the first outline point when the banner is shortened', () => {
+    const trio = files();
+    trio['format.asc'] = bytes(join([...header(7, 'format'), ...FORMAT]));
+    const board = must(open(trio, 'format.asc'));
+    expect(board.outline).toEqual(must(open(files(), 'format.asc')).outline);
+    expect(notes(board)).toContain('ASC format.asc: read a shortened header (7 of the usual 8 lines).');
+  });
+
+  it('reads the optional outline radius and comma-separated or wrapped probe lists from every entry', () => {
+    const trio = files(FORMAT.map((row, index) => `${row} ${index === 1 ? '.1' : '0'}`), [
+      'Part U1 (T)', '1 A 1 .1 .2 1 POWER RAIL 5,6', ',7,8', '2 2 .15 .2 1 GND',
+    ]);
+    const boards = ENTRIES.map(entry => must(open(trio, entry)));
+    expect(boards[1]).toEqual(boards[0]); expect(boards[2]).toEqual(boards[0]);
+    expect(boards[0].pins.slice(0, 2).map(pin => [pin.number, pin.net, pin.x, pin.y])).toEqual([
+      ['A 1', 'POWER RAIL', inch(.1), inch(.2)], ['2', 'GND', inch(.15), inch(.2)],
+    ]);
+    expect(boards[0].outline).toHaveLength(4);
+    expect(notes(boards[0])).toContain('1 outline point carries a non-zero radius; the outline is shown with straight segments, as OpenBoardView does.');
+  });
+
   it('parses the golden trio with inch units, part-line sides and test points', () => {
     const board = must(open(files(), 'format.asc'));
     expect(board.format).toBe('ASC companion trio');

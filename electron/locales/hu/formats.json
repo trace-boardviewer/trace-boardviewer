@@ -69,5 +69,6 @@
   "parse.error.archiveNoBoard": "A ZIP-archívumban nincs olyan nyákfájl, amelyet a TRACE meg tud nyitni.",
   "parse.warning.archiveEntry": "Megnyitva a(z) {archive} archívumból: {entry}.",
   "parse.warning.tvwSummary": "TVW: a fájlban megadott padokhoz kapcsolt pinek: {mapped}; feloldatlan pad-hivatkozások: {unresolved}; kihagyott pinek: {omitted}.",
-  "parse.warning.tvwLimits": "TVW-import: a nyák körvonala és a rézvezetősávok nincsenek beolvasva. A padok mérete és az oldal-hozzárendelés a fájl rétegadataiból származik; az egyedi alakzatokat befoglaló téglalapok jelzik. A hálózathoz nem rendelt padok hálózatneve üres marad. A nem támogatott vagy sérült rekordok és pad-hivatkozások miatt a beolvasás megszakad."
+  "parse.warning.tvwLimits": "TVW-import: a nyák körvonala és a rézvezetősávok nincsenek beolvasva. A padok mérete és az oldal-hozzárendelés a fájl rétegadataiból származik; az egyedi alakzatokat befoglaló téglalapok jelzik. A hálózathoz nem rendelt padok hálózatneve üres marad. A nem támogatott vagy sérült rekordok és pad-hivatkozások miatt a beolvasás megszakad.",
+  "parse.error.appleDoubleMetadata": "Ez a fájl macOS kísérőadat. Nyisd meg a mellette lévő eredeti nyákfájlt."
 }

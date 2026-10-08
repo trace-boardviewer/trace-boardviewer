@@ -9,4 +9,5 @@ const TRIO: Readonly<Record<string, Uint8Array>> = {
 const others = (entry: string) => Object.fromEntries(Object.entries(TRIO).filter(([name]) => name !== entry));
 
 const fixtures: AdapterFixture[] = Object.keys(TRIO).map(entry => ({ label: `the trio opened through ${entry}`, name: entry, data: TRIO[entry], companions: others(entry) }));
+fixtures.push({ label: 'exact @format.asc outline alias', name: '@format.asc', data: TRIO['format.asc'], companions: others('format.asc') });
 export default fixtures;

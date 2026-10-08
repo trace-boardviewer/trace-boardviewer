@@ -25,6 +25,12 @@ function integer(value: string | undefined, label: string, maximum = MAX_ROWS): 
   if (!Number.isSafeInteger(result) || result < 0 || result > maximum) throw new BoardFormatError(`Invalid ${label}.`);
   return result;
 }
+/** Net table ids are signed integers in the text export; negative ids are not record counts. */
+function netId(value: string | undefined): number {
+  const result = number(value, 'net id');
+  if (!Number.isSafeInteger(result)) throw new BoardFormatError('Invalid net id.', 'INVALID_FORMAT', BRD2);
+  return result;
+}
 /** BRDFile.cpp:132 and BRD2File.cpp:159: a test point is on top only for side code 1; every other code is bottom. */
 const nailSide = (value: string | undefined): BoardSide => integer(value, 'test point side') === 1 ? 'top' : 'bottom';
 /** BRD2File.cpp:106-111,124-129: 1 top, 2 bottom, 0 both; the upstream reader knows no other code. */
@@ -52,10 +58,20 @@ function addNails(parts: RawPart[], pins: RawPin[], nails: Nail[]) {
  */
 export function parseBrd(input: ParseInput): Board | null {
   const encoded = input.data.length >= ENCODED_HEADER.length && ENCODED_HEADER.every((byte, index) => input.data[index] === byte);
-  if (encoded && input.data.length > MAX_IMPORT_BYTES) throw new BoardFormatError('Board data exceeds the 64 MiB import limit.', 'LIMIT_EXCEEDED', LANDREX);
+  if (input.data.length > MAX_IMPORT_BYTES) throw new BoardFormatError('Board data exceeds the 64 MiB import limit.', 'LIMIT_EXCEEDED', LANDREX);
+  const suffixWarnings: ParseIssue[] = [];
+  // Some DOS text exports append a raw Ctrl-Z after the final newline. Strip that source marker before the byte rotation,
+  // which would otherwise turn it into 0x97. Only whitespace/NUL may follow; the reader still verifies every record count.
+  // Microsoft documents the convention: https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/fopen-wfopen
+  let source = input.data, end = source.length - 1;
+  while (end >= 0 && [0, 9, 10, 13, 32].includes(source[end])) end--;
+  if (source[end] === 0x1a && (source[end - 1] === 10 || source[end - 1] === 13)) {
+    source = source.subarray(0, end);
+    suffixWarnings.push(note('BRD: a terminal DOS end-of-file marker and its whitespace padding were omitted.'));
+  }
   // BRDFile.cpp:43-50: every byte except CR, LF and NUL is rotated left by two bits and inverted.
   let text: string;
-  try { text = decodeText(encoded ? input.data.map(byte => byte === 0 || byte === 10 || byte === 13 ? byte : ~((byte >>> 6) | (byte << 2)) & 0xff) : input.data); }
+  try { text = decodeText(encoded ? source.map(byte => byte === 0 || byte === 10 || byte === 13 ? byte : ~((byte >>> 6) | (byte << 2)) & 0xff) : source); }
   catch (error) {
     if (error instanceof BoardFormatError && error.code === 'LIMIT_EXCEEDED') throw error;
     // Invalid UTF-16 behind a byte-order mark (decodeText throws a TypeError or a format error): binary content this text format does not recognize.
@@ -63,15 +79,24 @@ export function parseBrd(input: ParseInput): Board | null {
     return null;
   }
   // Horizontal whitespace only: `^\s*` would cross newlines and make a blank-line flood quadratic (minutes for a few hundred thousand lines).
-  if (!encoded && /^[ \t]*BRDOUT:/m.test(text)) return parseBrd2(input, text);
+  const nul = text.indexOf('\0');
+  if (nul > 0 && /[\r\n]/.test(text[nul - 1]) && /^[\0\t\r\n ]*$/.test(text.slice(nul))) {
+    text = text.slice(0, nul);
+    suffixWarnings.push(note('BRD: terminal NUL/whitespace padding was omitted.'));
+  }
+  if (!encoded && /^[ \t]*BRDOUT:/m.test(text)) {
+    if (text.includes('\0')) throw new BoardFormatError('BRD2: embedded NUL in a record or non-padding suffix.', 'INVALID_FORMAT', BRD2);
+    return parseBrd2(input, text, suffixWarnings);
+  }
   if (!encoded && !(/^[ \t]*str_length:[ \t]*$/m.test(text) && /^[ \t]*var_data:[ \t]*$/m.test(text))) return null;
-  return parseLandrex(input, text);
+  if (text.includes('\0')) throw new BoardFormatError('BRD: embedded NUL in a record or non-padding suffix.', 'INVALID_FORMAT', LANDREX);
+  return parseLandrex(input, text, suffixWarnings);
 }
 
-function parseLandrex(input: ParseInput, text: string): Board {
+function parseLandrex(input: ParseInput, text: string, suffixWarnings: ParseIssue[]): Board {
   const fail = (message: string): never => { throw new BoardFormatError(`BRD: ${message}`, 'INVALID_FORMAT', LANDREX); };
   const sections = new Map<string, string[]>();
-  let section = '';
+  let section = '', pins1 = false;
   for (const rawLine of text.split(/\r\n|\r|\n/)) {
     const line = rawLine.trim();
     if (!line) continue;
@@ -80,7 +105,7 @@ function parseLandrex(input: ParseInput, text: string): Board {
     if (heading) {
       section = heading[1];
       if (section === 'format') section = 'Format';
-      if (section === 'Pins1') section = 'Parts';
+      if (section === 'Pins1') { pins1 = true; section = 'Parts'; }
       if (section === 'Pins2') section = 'Pins';
       if (sections.has(section)) fail(`duplicate ${section} section.`);
       sections.set(section, []); continue;
@@ -101,58 +126,80 @@ function parseLandrex(input: ParseInput, text: string): Board {
     if (fields.length !== 2) fail('outline point needs two coordinates.');
     return { x: number(fields[0]), y: number(fields[1]) };
   });
+  const partRows = sections.get('Parts') ?? [];
+  // The validated extended Pins1 dialect has ref/type/first-pin-index plus four numeric metadata fields.
+  // Its first-pin index is independently checked against Pins2's explicit owner, including interleaved pin groups.
+  const extended = pins1 && partRows.length > 0 && partRows.every(line => {
+    const f = tokens(line);
+    return f.length === 7 && /^\d+$/.test(f[1]) && /^\d+$/.test(f[2]);
+  });
+  if (extended) {
+    let previous = 0;
+    const legacyAlsoPossible = partRows.every(line => {
+      const f = tokens(line), code = Number(f.at(-2)), boundary = Number(f.at(-1));
+      const valid = Number.isSafeInteger(code) && code >= 0 && code <= 255 && Number.isSafeInteger(boundary) && boundary >= previous && boundary <= pinCount;
+      previous = boundary; return valid;
+    }) && previous === pinCount;
+    if (legacyAlsoPossible) throw new BoardFormatError('BRD: Pins1 component columns are ambiguous between a spaced reference and extended numeric metadata.', 'UNSUPPORTED_VARIANT', LANDREX);
+  }
   const ends: number[] = [];
-  const parts: RawPart[] = (sections.get('Parts') ?? []).map((line, index) => {
+  const parts: RawPart[] = partRows.map((line, index) => {
     const fields = tokens(line);
-    if (fields.length !== 3) fail('component needs name, type and pin boundary.');
-    const code = integer(fields[1], 'component type', 255);
-    const end = integer(fields[2], 'pin boundary', pinCount);
+    if (fields.length < 3) fail('component needs name, type and pin boundary.');
+    const code = integer(extended ? fields[1] : fields.at(-2), 'component type', 255);
+    const end = integer(extended ? fields[2] : fields.at(-1), 'pin boundary', pinCount);
+    if (extended) for (const field of fields.slice(3)) number(field, 'Pins1 numeric metadata');
     if (end < (ends.at(-1) ?? 0)) fail('decreasing component pin boundary.');
     ends.push(end);
     // BRDFile.cpp:109-110: type 1 and 4-7 are top, 2 and 8+ are bottom; 0 and 3 keep the default "both".
     const side: BoardSide = code === 1 || code >= 4 && code < 8 ? 'top' : code === 2 || code >= 8 ? 'bottom' : 'both';
-    return { key: `part:${index}`, ref: fields[0], side };
+    return { key: `part:${index}`, ref: extended ? fields[0] : fields.slice(0, -2).join(' '), side };
   });
   const filter = netFilter();
   const nails: Nail[] = (sections.get('Nails') ?? []).map(line => {
     const fields = tokens(line);
     // BRDFile.cpp READ_STR yields an empty string when the last (net) field is absent, just as it does for Lenovo pins.
-    if (fields.length < 4 || fields.length > 5) fail('test point needs probe, coordinates, side and an optional net.');
-    return { probe: String(integer(fields[0], 'probe')), x: number(fields[1]), y: number(fields[2]), side: nailSide(fields[3]), net: filter.net(fields[4]) };
+    if (fields.length < 4) fail('test point needs probe, coordinates, side and an optional net.');
+    return { probe: String(integer(fields[0], 'probe')), x: number(fields[1]), y: number(fields[2]), side: nailSide(fields[3]), net: filter.net(fields.slice(4).join(' ')) };
   });
   const nailNets = new Map(nails.map(nail => [nail.probe, nail.net]));
   const partPinCounts = new Map<string, number>();
-  const pins: RawPin[] = (sections.get('Pins') ?? []).map(line => {
+  const firstPins = new Map<string, number>();
+  const pins: RawPin[] = (sections.get('Pins') ?? []).map((line, index) => {
     const fields = tokens(line);
-    if (fields.length < 4 || fields.length > 5) fail('pin needs coordinates, probe and component.');
+    if (fields.length < 4) fail('pin needs coordinates, probe and component.');
     const parent = integer(fields[3], 'pin component', parts.length);
     if (!parent) fail('pin component is one-based.');
     const part = parts[parent - 1];
+    if (!firstPins.has(part.key)) firstPins.set(part.key, index);
     // The format carries no pin numbers: like upstream (BRDBoard.cpp:139-147) pins are numbered 1..n in file order per component.
     const ordinal = (partPinCounts.get(part.key) ?? 0) + 1;
     partPinCounts.set(part.key, ordinal);
     const probe = number(fields[2], 'probe'); // BRDFile.cpp:120: may be negative.
     if (!Number.isInteger(probe)) fail('probe must be an integer.');
     // BRDFile.cpp:145-152 ("Lenovo variant"): a pin without a net takes the net of the test point with the same probe number.
-    const net = fields[4] ? filter.net(fields[4]) : nailNets.get(String(probe)) ?? '';
+    const net = fields[4] ? filter.net(fields.slice(4).join(' ')) : nailNets.get(String(probe)) ?? '';
     // BRDFile.cpp:153-157: pin side is the component side.
     return { part: part.key, number: String(ordinal), net, side: part.side, x: number(fields[0]), y: number(fields[1]) };
   });
   requireCount(outline.length, outlineCount, 'outline', LANDREX); requireCount(parts.length, partCount, 'component', LANDREX);
   requireCount(pins.length, pinCount, 'pin', LANDREX); requireCount(nails.length, nailCount, 'test point', LANDREX);
-  if (parts.length && ends.at(-1) !== pins.length) fail('final component pin boundary is incomplete.');
+  if (extended) {
+    parts.forEach((part, index) => { const first = firstPins.get(part.key); if (first !== undefined && first !== ends[index]) fail('Pins1 first-pin index conflicts with the explicit Pins2 owner.'); });
+  } else if (parts.length && ends.at(-1) !== pins.length) fail('final component pin boundary is incomplete.');
   // BRDFile.cpp keeps components without pins and BRDBoard.cpp lists them; this format gives them neither a position nor a body
   // (only pins carry coordinates), so such a component cannot be drawn. It is omitted, disclosed, and the file still opens.
   const owners = new Set(pins.map(pin => pin.part));
   const drawable = parts.filter(part => owners.has(part.key)), omitted = parts.length - drawable.length;
   addNails(drawable, pins, nails);
   // i18n: pending (same English wording as the BDV/ASC/BVR1 note for pinless components)
-  const warnings = filter.warnings();
+  const warnings = [...suffixWarnings, ...filter.warnings()];
+  if (extended) warnings.push(note('BRD: extended Pins1 first-pin indices were checked against explicit pin owners. Four additional numeric component fields were validated but were not used to infer physical bodies.'));
   if (omitted) warnings.push(note(`${omitted} ${omitted === 1 ? 'component' : 'components'} without pins ${omitted === 1 ? 'was' : 'were'} omitted because the file gives no position for ${omitted === 1 ? 'it' : 'them'}.`));
   return buildBoard(input, { format: LANDREX, unitsToMm: MIL, parts: drawable, pins, outline, warnings });
 }
 
-function parseBrd2(input: ParseInput, text: string): Board {
+function parseBrd2(input: ParseInput, text: string, suffixWarnings: ParseIssue[]): Board {
   const fail = (message: string): never => { throw new BoardFormatError(`BRD2: ${message}`, 'INVALID_FORMAT', BRD2); };
   const rows = new Map<string, string[]>();
   const counts = new Map<string, number>();
@@ -184,15 +231,16 @@ function parseBrd2(input: ParseInput, text: string): Board {
   });
   const nets = new Map<number, string>();
   for (const line of rows.get('NETS')!) {
-    const f = tokens(line); if (f.length !== 2) fail('invalid net record.');
-    const id = integer(f[0], 'net id', Number.MAX_SAFE_INTEGER);
+    const f = tokens(line); if (!f.length) fail('invalid net record.');
+    const id = netId(f[0]);
     if (nets.has(id)) fail('duplicate net id.');
-    nets.set(id, f[1]);
+    // An empty name denotes a disconnected net; the remaining text is one name even when it contains blanks.
+    nets.set(id, f.slice(1).join(' '));
   }
   const filter = netFilter();
   let dangling = 0;
   const netOf = (value: string | undefined) => {
-    const name = nets.get(integer(value, 'net id', Number.MAX_SAFE_INTEGER));
+    const name = nets.get(netId(value));
     if (name === undefined) dangling++; // BRD2File.cpp:131-135,151-157: unknown ids are tolerated as "no net".
     return filter.net(name);
   };
@@ -232,7 +280,7 @@ function parseBrd2(input: ParseInput, text: string): Board {
     return { probe: String(integer(f[0], 'probe')), x: number(f[1]), y: side === 'top' ? y : height - y, side, net: netOf(f[3]) }; // BRD2File.cpp:159-165
   });
   addNails(parts, pins, nails);
-  const warnings = filter.warnings();
+  const warnings = [...suffixWarnings, ...filter.warnings()];
   if (dangling) warnings.push(note(`${dangling} ${dangling === 1 ? 'record references' : 'records reference'} an undefined net id and ${dangling === 1 ? 'is' : 'are'} shown without a net.`));
   return buildBoard(input, { format: BRD2, unitsToMm: MIL, parts, pins, outline, warnings });
 }

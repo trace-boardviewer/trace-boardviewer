@@ -5,6 +5,7 @@ const COORD_LIMIT = 2_000_000, MAX_PARTS = 250_000, MAX_PINS = 1_000_000;
 const MAX_PIN_INSPECTIONS = 4_000_000, HEADER_WINDOW = 256 * 1024;
 const decoder = new TextDecoder('windows-1252');
 export interface TvwComponentPin { number: string; ordinal: number; uid: number }
+export interface TvwComponentPinGroup { kind: number; pins: TvwComponentPin[] }
 export interface TvwComponentPart {
   raw: RawPart;
   pins: TvwComponentPin[];
@@ -12,7 +13,9 @@ export interface TvwComponentPart {
   masterIndex: number;
   classification: number;
   pinKind: number;
-  /** One unnamed class-18 pin whose source position is the component centre. */
+  /** A component can contain separate top and bottom pin groups. */
+  pinGroups: TvwComponentPinGroup[];
+  /** A one-pin test point, including an unnamed record with an unknown classification. */
   testPoint: boolean;
 }
 export interface TvwComponentTable { start: number; end: number; count: number; parts: TvwComponentPart[] }
@@ -46,9 +49,9 @@ class Bytes {
 
 function componentPrefix(bytes: Bytes, offset: number): { ref: TextField; a: number; coords: number[]; rotation: number; classification: number } | undefined {
   const length = bytes.data[offset], first = bytes.data[offset + 1];
-  if (!length || length > 64 || !(first >= 48 && first <= 57 || first >= 65 && first <= 90 || first >= 97 && first <= 122)) return undefined;
+  if (!length || length > 64 || !(first === 43 || first === 64 || first >= 48 && first <= 57 || first >= 65 && first <= 90 || first >= 97 && first <= 122)) return undefined;
   const ref = bytes.text(offset);
-  if (!ref || !/^[A-Za-z0-9][A-Za-z0-9_.()+#:/-]*$/.test(ref.value)) return undefined;
+  if (!ref || !/^[A-Za-z0-9@+][A-Za-z0-9_.()+#:@ /-]*$/.test(ref.value)) return undefined;
   const a = ref.end;
   if (a + 50 > bytes.data.length) return undefined;
   const coords = [0, 4, 8, 12, 16, 20].map(delta => bytes.i32(a + delta));
@@ -71,8 +74,9 @@ function componentAt(bytes: Bytes, offset: number, budget: InspectionBudget): Tv
     if (flag !== 0 && flag !== 1) continue;
     const tails: { value: string; package: string; tail: number }[] = [];
     if (flag === 0) {
-      // Flag zero omits the entire BOM/package/serial block, not only the BOM value.
-      if (classification === 18) tails.push({ value: '', package: '', tail: a + fixed + 1 });
+      // A metadata-free test point has four empty Pascal fields (one zero word),
+      // no serial field and no additional metadata word.
+      if (classification === 18 || classification === 0xffffffff) tails.push({ value: '', package: '', tail: a + fixed + 1 });
     } else {
       const value = bytes.text(a + fixed + 1, true);
       if (!value) continue;
@@ -92,27 +96,51 @@ function componentAt(bytes: Bytes, offset: number, budget: InspectionBudget): Tv
       if (count > 16_384 || reserved && bytes.u32(tail.tail + 12) !== 0) continue;
       if (!budget.accept(kind)) { budget.refused.add(kind); continue; }
       // An unnamed package is meaningful only for a one-pin test-point record.
-      if (!tail.package && (classification !== 18 || count !== 1)) continue;
-      const testPoint = classification === 18 && !tail.package && count === 1;
+      if (!tail.package && (!(classification === 18 || classification === 0xffffffff) || count !== 1)) continue;
+      const testPoint = count === 1 && (classification === 18 || !tail.package);
       const pins: TvwComponentPin[] = [], ordinals = new Set<number>();
-      let p = tail.tail + 12 + reserved;
-      for (let i = 0; i < count; i++) {
-        if (++budget.pins > MAX_PIN_INSPECTIONS) fail('component validation exceeds the inspection limit.', true);
-        if (p + 13 > bytes.data.length || bytes.u32(p + 4) !== 0) break;
-        const ordinal = bytes.u32(p + 8), name = bytes.text(p + 12, testPoint);
-        if (!name || ordinal < 1 || ordinal > 65_536 || ordinals.has(ordinal) || name.value.length > 32
-          || name.end + 4 > bytes.data.length || bytes.u32(name.end) !== 0) break;
-        ordinals.add(ordinal); pins.push({ number: name.value, ordinal, uid: bytes.u32(p) }); p = name.end + 4;
+      const pinGroups: TvwComponentPinGroup[] = [];
+      let p = tail.tail + 12 + reserved, groupCount = count, groupKind = kind, complete = true;
+      for (let group = 0; group < 2; group++) {
+        if (groupCount > 16_384) { complete = false; break; }
+        if (!budget.accept(groupKind)) { budget.refused.add(groupKind); complete = false; break; }
+        const groupPins: TvwComponentPin[] = [];
+        for (let i = 0; i < groupCount; i++) {
+          if (++budget.pins > MAX_PIN_INSPECTIONS) fail('component validation exceeds the inspection limit.', true);
+          if (p + 13 > bytes.data.length || bytes.u32(p + 4) !== 0) break;
+          const ordinal = bytes.u32(p + 8), name = bytes.text(p + 12, testPoint);
+          const needsWord = i + 1 < groupCount || !reserved || group === 0;
+          if (!name || ordinal < 1 || ordinal > 65_536 || ordinals.has(ordinal) || name.value.length > 32
+            || name.end + (needsWord ? 4 : 0) > bytes.data.length) break;
+          const pin = { number: name.value, ordinal, uid: bytes.u32(p) };
+          ordinals.add(ordinal); pins.push(pin); groupPins.push(pin);
+          // Compact records put the zero word before the next pin. After the
+          // last name comes the second group's count. After that group the
+          // next component starts directly, without an additional terminator.
+          if (i + 1 < groupCount || !reserved) {
+            if (bytes.u32(name.end) !== 0) { complete = false; break; }
+            p = name.end + 4;
+          } else p = name.end;
+        }
+        if (!complete || groupPins.length !== groupCount) { complete = false; break; }
+        pinGroups.push({ kind: groupKind, pins: groupPins });
+        if (!reserved || !groupCount || group === 1) break;
+        groupCount = bytes.u32(p); p += 4;
+        if (!groupCount) break;
+        if (p + 8 > bytes.data.length || bytes.u32(p + 4) !== 0) { complete = false; break; }
+        groupKind = bytes.u32(p); p += 8;
       }
-      if (pins.length !== count) continue;
+      if (!complete) continue;
       const candidate: TvwComponentPart = {
         raw: { key: `part-${offset}`, ref: ref.value, value: tail.value, package: tail.package, side: 'both',
           position: { x, y }, rotation: -rotation, bounds: { minX, minY, maxX, maxY } },
-        pins, end: p, masterIndex: bytes.u32(a + 28), classification, pinKind: kind, testPoint,
+        pins, pinGroups, end: p, masterIndex: bytes.u32(a + 28), classification, pinKind: kind, testPoint,
       };
       const identical = candidates.some(prior => prior.end === candidate.end && prior.raw.value === candidate.raw.value
         && prior.raw.package === candidate.raw.package && prior.pins.length === candidate.pins.length
-        && prior.pins.every((pin, i) => pin.ordinal === candidate.pins[i].ordinal && pin.number === candidate.pins[i].number));
+        && prior.pinGroups.length === candidate.pinGroups.length && prior.pinGroups.every((group, i) =>
+          group.kind === candidate.pinGroups[i].kind && group.pins.length === candidate.pinGroups[i].pins.length)
+        && prior.pins.every((pin, i) => pin.uid === candidate.pins[i].uid && pin.ordinal === candidate.pins[i].ordinal && pin.number === candidate.pins[i].number));
       if (!identical) candidates.push(candidate);
       if (candidates.length > 1) fail(`ambiguous component metadata for ${ref.value}.`);
     }

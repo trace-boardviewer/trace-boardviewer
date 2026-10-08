@@ -22,5 +22,7 @@
   "info.format": "Formátum",
   "info.size": "Panelméret",
   "info.counts": "Alkatrészek / pinek / netek",
-  "info.footer": "A segédvonalak hálózati kapcsolatokat mutatnak. A fájlban szereplő rézvezetősávok geometriáját nem helyettesítik."
+  "info.footer": "A segédvonalak hálózati kapcsolatokat mutatnak. A fájlban szereplő rézvezetősávok geometriáját nem helyettesítik.",
+
+  "key.skipHelp": "Ezt a lépést kihagyhatod, az appot tovább használhatod. Ez a titkosított fájl a megfelelő kulcs megadásáig nem nyílik meg."
 }

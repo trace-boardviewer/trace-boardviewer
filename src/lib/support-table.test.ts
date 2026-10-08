@@ -18,11 +18,10 @@ describe('docs/SUPPORT.md', () => {
     expect(text).toContain('draft (synthetic fixtures only)');
     for (const name of ['GenCAD 1.4', 'KiCad PCB', 'EAGLE board XML', 'Altium PcbDoc', 'KiCad schematic', 'KiCad legacy schematic', 'EAGLE schematic', 'TVW boardview']) expect(text, name).toContain(name);
     // GenCAD is "supported"; KiCad PCB and EAGLE board XML are "validated with real files" (KiCad 9 demo, Antmicro Jetson Nano baseboard, Pico, SparkFun RedBoard).
-    // BVRAW_FORMAT_3 moved to "validated with open tool-written files" (R1 3.3): its only files were written by an open tool from open designs.
-    expect(text.match(/\| supported \|/g)?.length).toBe(4);
+    expect(text.match(/\| supported \|/g)?.length).toBe(6);
     const bvr3 = text.split('\n').find(line => line.startsWith('| BVR raw boardview (BVRAW_FORMAT_3) |'))!;
-    expect(bvr3).toContain('| validated with open tool-written files | open tool-written files: kicad-boardview exports of the five open Raspberry Pi Pico designs |');
-    expect(text).toContain('BVR raw boardview (BVRAW_FORMAT_3), validated with kicad-boardview exports of the five open Raspberry Pi Pico designs (no vendor-written file was tested)');
+    expect(bvr3).toContain('| validated with selected real files and open designs |');
+    expect(bvr3).toContain('in addition to the Pico cross-checks');
   });
 });
 

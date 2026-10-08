@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Board } from '../types';
 import { BoardFormatError, textInput, type FormatErrorCode } from './common';
 import { EASYEDA_STD_INFO, parseEasyedaStd, sniffEasyedaStd } from './easyeda-std';
-import { catching, expectBoundedWork, expectScaling } from '../../test-support/timing';
+import { catching, expectScaling } from '../../test-support/timing';
 
 // Every document here is an original synthetic one modelled on the vendor examples (docs.easyeda.com "EasyEDA File Format"); units are 10 mil.
 const fixture = (name: string): Uint8Array => new Uint8Array(readFileSync(fileURLToPath(new URL(`../../../tests/fixtures/easyeda/${name}`, import.meta.url))));
@@ -354,9 +354,25 @@ describe('EasyEDA Standard: linear-time parsing', () => {
     expect(parse(document([resistor(), ...ringOf(100_000)])).outline.length).toBe(100_000);
   }, 300_000);
   it('sniffs a very large file without reading past the head', () => {
-    // The time does not depend on the size of the file: only the head is read.
     const large = (size: number) => encode(`${document([track(10, '1 1 2 2')]).slice(0, -1)},"pad":"${'x'.repeat(size)}"}`);
-    expectBoundedWork('large file', [1_000_000, 10_000_000, 40_000_000], size => { const data = large(size); return () => sniffEasyedaStd(data); });
-    expect(sniffEasyedaStd(large(40_000_000))?.confidence).toBe(0.95);
+    // Count decoded bytes: sub-millisecond timing ratios are noisy on shared runners.
+    const decode = TextDecoder.prototype.decode;
+    let decodedBytes = 0;
+    const spy = vi.spyOn(TextDecoder.prototype, 'decode').mockImplementation(function (input, options) {
+      decodedBytes += input?.byteLength ?? 0;
+      return decode.call(this, input, options);
+    });
+    try {
+      for (const size of [1_000_000, 10_000_000, 40_000_000]) {
+        decodedBytes = 0;
+        expect(sniffEasyedaStd(large(size))?.confidence).toBe(0.95);
+        expect(decodedBytes).toBeGreaterThan(0);
+        expect(decodedBytes).toBeLessThanOrEqual(64 * 1024);
+      }
+      decodedBytes = 0;
+      const lateHeader = encode(' '.repeat(64 * 1024) + document([track(10, '1 1 2 2')]));
+      expect(sniffEasyedaStd(lateHeader)).toBeNull();
+      expect(decodedBytes).toBeLessThanOrEqual(64 * 1024);
+    } finally { spy.mockRestore(); }
   });
 });

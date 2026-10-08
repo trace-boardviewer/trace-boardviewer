@@ -25,16 +25,23 @@ export const UNVERIFIED_FAMILIES = [] as const;
 
 const TEXT_SCAN_BYTES = 64 * 1024, TAIL_BYTES = 512, XML_SCAN_BYTES = 8 * 1024;
 
-export interface Detection { id: RecognizerId; detail?: string }
+export interface Detection { id: RecognizerId; detail?: string; versionCode?: number }
 
 const ALLEGRO_VERSIONS = new Map<number, string>([
-  [0x00130000, '16.0'], [0x00130400, '16.2'], [0x00130c00, '16.4'], [0x00131000, '16.5'], [0x00131500, '16.6'],
+  [0x00130000, '16.0'], [0x00130400, '16.2'], [0x00130500, '16.2'], [0x00130c00, '16.4'], [0x00131000, '16.5'], [0x00131500, '16.6'],
   [0x00140400, '17.2'], [0x00140900, '17.4'], [0x00141500, '17.5'], [0x00150000, '18.0 or newer'],
 ]);
+// Observed legacy layout identifiers. Their writer prefix does not establish
+// compatible record widths, so these signatures only identify refused inputs.
+const ALLEGRO_UNSUPPORTED_LAYOUTS = new Set([0x00110600, 0x00120100, 0x00120200, 0x00120500, 0x00120a00, 0x00120b00, 0x00120f00]);
 export function allegro(data: Uint8Array): Detection | null {
   if (data.length < 0x100 || data[0xf8] !== 0x61 || data[0xf9] !== 0x6c || data[0xfa] !== 0x6c) return null;
-  const magic = (new DataView(data.buffer, data.byteOffset, 4).getUint32(0, true) & 0xffffff00) >>> 0, version = ALLEGRO_VERSIONS.get(magic);
-  return version ? { id: 'allegro-brd', detail: version } : null;
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength), magic = (view.getUint32(0, true) & 0xffffff00) >>> 0, version = ALLEGRO_VERSIONS.get(magic);
+  if (version) return { id: 'allegro-brd', detail: version };
+  if (!ALLEGRO_UNSUPPORTED_LAYOUTS.has(magic) || [4, 8, 12, 16, 24].some((at, n) => view.getUint32(at, true) !== [3, 1, 3, 9, 0x000a0d0a][n])) return null;
+  const prefix = new TextDecoder('ascii').decode(data.subarray(0xf8, 0x100)), writer = /^allv(1[4-6])-(\d)$/.exec(prefix);
+  if (!writer) return null;
+  return { id: 'allegro-brd', detail: `${writer[1]}.${writer[2]} (unsupported layout 0x${magic.toString(16).padStart(8, '0')})`, versionCode: Number(writer[1]) * 10 + Number(writer[2]) };
 }
 
 // Linear time, and every step has one way to match. A comment is "<!--", text in which no run of two or more dashes is followed by

@@ -1,11 +1,17 @@
 # Changelog
 
-## 1.3.1-rc.1 — 2026-10-08
+## 1.3.1-rc.2 — 2026-10-08
 
 This is a prerelease for testing. The app's update check continues to offer stable releases only. Windows x64, macOS Apple silicon and Linux x86-64 packages carry the same application features; macOS and Linux remain experimental.
 
 ### New
 
+- Native Allegro BRD databases now import components, values, packages, pin labels, nets, pad positions and dimensions, and board outlines. Selected 16.2, 16.4, 16.5, 16.6 and 17.2 layouts have real-file checks; other 16.0–17.5 layouts use synthetic fixtures. Unsupported keyed records and layer semantics fail explicitly. Bodies remain estimated; curves use chords, custom pads use extents, and tracks, copper fills and vias are omitted.
+- Jet3/Jet4 BV database and BV2 text boardviews import Layout, Pin and Nail tables with explicit units, pin identities, nets, sides, test points and outlines. Selected Jet4 and BV2 exports were independently checked. Jet3 uses synthetic validation. Physical bodies and pads are estimated; encrypted database pages, overflow rows, multiple outline groups and unknown schemas remain unsupported.
+- Native Unisoft F2B version 6/8 archives import component references, pin labels, positions, nets and placed-pin sides, with counted object references and dictionaries checked through EOF. Bodies and pads are estimated; tracks, vias, native outlines, BOM values and annotations are omitted. Other archive or payload layouts fail with an export suggestion.
+- Placed Mentor Boardstation Neutral exports import declared units, absolute pin positions, literal net names, component origins and explicit sides. Missing pad/outline geometry is disclosed; unvalidated board transforms are refused.
+- Tebo-ict v3.0 BOARD / BOARD_XY pairs open from either entry file. Explicit Ref.Pin connections and matching node sets preserve electrical identity, inch positions, access sides and the outline. Bodies, pad sizes and tester availability are not established by this format.
+- Fabmaster FARC ASCII jobs and FAZ ZIP packages import pin positions, identities, nets, sides, placements, test vias and straight board outlines. Section counts and electrical membership are cross-checked. Routing and tester settings are omitted; pad sizes are estimated.
 - Readers for IPC-2581 revisions B/C, HyperLynx, Fabmaster FATF, EasyEDA Standard/Pro PCB, IPC-D-356 and CSV/TSV pin lists, plus Altium SchDoc schematics. EasyEDA Pro and SchDoc have selected real-file checks; IPC-2581 and IPC-D-356 were validated with open tool-written exports. HyperLynx, Fabmaster, EasyEDA Standard and pin lists remain draft with synthetic fixtures only. [The support table](docs/SUPPORT.md) gives the status and limits of each reader.
 - ODB++ product models from tgz, tar.gz, tar, tar.Z and ZIP archives, including a nested model archive. Components, pins, nets, pads, package bodies and the board profile are read. Validation used open tool-written exports; vendor-written models remain unverified.
 - Open a single board and its companions directly from a ZIP, by Open, drag and drop or the command line. Extraction stays in memory. Multiple boards, encrypted or split archives, unsafe paths and damaged entries are refused. The generic ZIP container is draft, validated with synthetic fixtures.
@@ -18,6 +24,13 @@ This is a prerelease for testing. The app's update check continues to offer stab
 
 ### Improved and fixed
 
+- FZ/CAE also accepts zero-delimited and PC6-tagged containers and a bounded compressed outer envelope. Complete framing selects plaintext before RC6, so coincidental zlib bytes in ciphertext do not misclassify a file. Exact stream boundaries, checksums and size limits remain mandatory. Renamed AppleDouble files receive a macOS metadata explanation instead of an encryption-key request.
+- TVW compact pin groups now resolve each group's physical layer, including components spanning both sides. Empty layer slots retain source indices; additional probe registries, net/reference/test-point layouts and zero-sized aperture definitions preserve their explicit physical records. Unknown or inconsistent layers remain explicit rejections.
+- GenCAD accepts the fixed length-checked storage-page wrapper, equivalent repeated definitions, equivalent components on both sides and completed empty CHANGES repetitions, while rejecting geometry conflicts and foreign suffixes.
+- ASC opens either exact outline name, format.asc or @format.asc, with its same-directory pin/nail companions. Pin/nail entry files prefer the ordinary outline and use the alternate when absent. Unselected companions neither consume the import budget nor block the chosen set; saved-note identity follows that set.
+- Honhan BDV adds encoded nails-first exports with a disclosed estimated outline. Landrex adds extended Pins1 records with first-pin indices checked against explicit owners and strict terminal DOS EOF/NUL padding. TOPTEST BRD2 retains signed and empty nets; BRDOUT .gr is included in the chooser. BVR variants retain optional outline metadata and positioned pinless components without inventing electrical connections. Fabmaster TEXT outline annotations use their own field types.
+- Fixed extensionless companion entries, including BOARD and BOARD_XY, can be opened directly or from a ZIP. The native chooser has an all-files choice in all eight languages; only declared same-directory roles are read, with combined byte limits.
+- Native PADS SDB, exact BRD_V1.0 encoded headers and VS2 assembly lists receive precise recognition and bounded content-free diagnostics. They remain unreadable. Native PADS conversion failed in the tested KiCad builds; obtain a matching PADS Layout ASCII export instead. CAST CST reads only documented component-layer mappings and refuses unverified planes.
 - FZ/CAE open automatically with published default format keys. Session-only overrides remain available for other variants. Container framing, declared sizes and both checksums are validated, and diagnostics use the same rules as import. Outlines are unavailable and physical pad dimensions remain unverified.
 - Selected Honhan BDV exports now accept shortened headers, UTF-16 text, radius columns, wrapped/blank/comma-separated probe lists and spaced net names. Nonzero outline radii are disclosed as straight segments.
 - Selected Landrex/TestLink BRD exports accept extra signed header fields and test points without nets. Samsung CAD includes N_VIA test points under their net and correct side. These checks establish the selected export families, not every dialect.
@@ -26,7 +39,7 @@ This is a prerelease for testing. The app's update check continues to offer stab
 - Shared part classification makes the canvas, inspector, search and icons agree. IC/PMIC, connectors, test points, resistor arrays, oscillators, ferrite beads, LEDs, switches, jumpers and mechanical parts receive consistent labels.
 - One shared board index reduces repeated lookup work. Search and schematic comparison run in a background worker with a fallback if that worker stops; stale results never replace a newer query.
 - Readers detect content by certainty rather than registration order. Equally certain matches fail with both format names in all eight languages. Open-dialog filters include all registered extensions.
-- The support table distinguishes files written by open tools from vendor-written files; BVRAW_FORMAT_3, IPC-2581, IPC-D-356 and ODB++ disclose that validation scope.
+- The support table distinguishes selected real exports, files written by open tools and synthetic validation. BVRAW_FORMAT_3 includes selected real exports and open-tool cross-checks; IPC-2581, IPC-D-356 and ODB++ disclose their open-tool validation scope.
 - KiCad copper layers are read by number and type, so renamed KiCad 5 layers open. Selected KiCad 9 teardrop records with a missing opening parenthesis are recovered with a counted note.
 - Altium PcbDoc ignores and reports unsupported non-copper/inner-layer objects instead of rejecting an otherwise readable board. Hole-only pads retain their drill size; multiline ASCII text and selected record layouts open.
 - Fit sheet uses the schematic paper frame and handles outlying notes without shrinking the page unnecessarily.

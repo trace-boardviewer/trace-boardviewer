@@ -5,6 +5,7 @@
  */
 import { decodeBdv, indexOfAscii } from '../formats/bdv';
 import { tokens } from '../formats/common';
+import { genCadStorageText } from '../formats/gencad-framing';
 import { log2Ceil, NO_SECTION } from './report';
 import { safeText, textLines, type StructureHook, type StructureInput, type StructureSink } from './structure';
 
@@ -24,7 +25,9 @@ export const gencadHook: StructureHook = {
   id: 'gencad', kind: 'text', steps: ['header'],
   keywords: [...GENCAD_SECTIONS.flatMap(name => [`$${name}`, `$END${name}`]), ...GENCAD_RECORDS],
   collect(input, sink) {
-    const text = safeText(input.data);
+    let data: Uint8Array;
+    try { data = genCadStorageText(input.data) ?? input.data; } catch { return; }
+    const text = safeText(data);
     if (text === null) return;
     sink.padAngle('relative'); // stack, shape pin and placement angles are composed
     sink.section(NO_SECTION);
@@ -138,12 +141,12 @@ export const bdvHook: StructureHook = {
   id: 'bdv', kind: 'text', steps: ['header'],
   keywords: [...ASC_MARKERS, '<<other>>', 'Part'],
   collect(input, sink) {
-    const encoded = indexOfAscii(input.data, 'dd:1.3?,r?-=bb') >= 0;
+    const encoded = indexOfAscii(input.data, 'dd:1.3?,r?-=bb') >= 0 || indexOfAscii(input.data, 'dd2?74-r?-=bb') >= 0;
     const text = safeText(encoded ? decodeBdv(input.data) : input.data);
     if (text === null) return;
     sink.variant(encoded ? 'bdv-encoded' : 'bdv-plain'); sink.units('inch', 25.4); sink.padAngle('none');
     const seen = markerSections(text, sink, ASC_MARKERS);
-    if (seen.has('<<format.asc>>') && seen.has('<<pins.asc>>')) sink.reached('header');
+    if ((seen.has('<<format.asc>>') || seen.has('<<nails.asc>>')) && seen.has('<<pins.asc>>')) sink.reached('header');
   },
 };
 
@@ -156,6 +159,8 @@ export const ascHook: StructureHook = {
     const files = new Map<string, Uint8Array>();
     if (input.companionRole && ASC_ROLES.includes(input.companionRole)) files.set(input.companionRole, input.data);
     for (const [name, bytes] of Object.entries(input.companions)) if (ASC_ROLES.includes(name) && !files.has(name)) files.set(name, bytes);
+    if (input.companionRole === '@format.asc') files.set('format.asc', input.data);
+    else if (!files.has('format.asc') && input.companions['@format.asc']) files.set('format.asc', input.companions['@format.asc']);
     sink.count('companionFiles', Object.keys(input.companions).length);
     let complete = true;
     for (const role of ASC_ROLES) {

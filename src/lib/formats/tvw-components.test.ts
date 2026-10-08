@@ -35,6 +35,20 @@ describe('TVW declared component table', () => {
     expect(result.start).toBe(13); expect(result.count).toBe(1); expect(result.end).toBe(21 + first.length);
     expect(result.parts.map(part => part.raw.ref)).toEqual(['U1']);
   });
+  it('reads both pin groups and resumes at the exact next component without a second terminator', () => {
+    const first = component({ names: ['A1'], ordinals: [1], uids: [24] });
+    const secondGroup = join(words(1, 5, 0, 8, 0, 2), text('B2'));
+    const dual = join(first.subarray(0, first.length - 4), secondGroup);
+    const result = readTvwComponents(table([dual, component({ ref: 'NEXT' })]), 0);
+    expect(result.parts.map(part => part.raw.ref)).toEqual(['U1', 'NEXT']);
+    expect(result.parts[0].pinGroups).toEqual([
+      { kind: 2, pins: [{ number: 'A1', ordinal: 1, uid: 24 }] },
+      { kind: 5, pins: [{ number: 'B2', ordinal: 2, uid: 8 }] },
+    ]);
+    expect(result.parts[0].end).toBe(21 + dual.length);
+    expect(readTvwComponents(table([dual]), 0).end).toBe(21 + dual.length);
+    expect(() => readTvwComponents(table([dual.subarray(0, dual.length - 1), component({ ref: 'NEXT' })]), 0)).toThrow(/component 1 of 2/);
+  });
   it('keeps the true BOM value when two extra Pascal fields are present', () => {
     const result = readTvwComponents(table([component({ value: '130', extras: true })]), 0);
     expect(result.parts[0].raw.value).toBe('130'); expect(result.parts[0].raw.package).toBe('SYNTHETIC');

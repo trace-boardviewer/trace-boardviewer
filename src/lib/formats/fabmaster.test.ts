@@ -287,6 +287,18 @@ describe('Fabmaster: padstacks', () => {
 
 describe('Fabmaster: board outline', () => {
   const outline = (rows: string[]) => parse(doc({ graphics: rows }));
+  it('keeps TEXT mirror, alignment, font and label fields out of numeric edge geometry', () => {
+    const label = S('TEXT', 1, '1', 50, 50, 0, 'NO', 'LEFT', '8 0 100 75 0 25 125 6', 'SYNTHETIC NOTE', '', '', 'OUTLINE', '', '');
+    const original = outline(rect(0, 0, 2000, 1000));
+    const board = outline([label, ...rect(0, 0, 2000, 1000)]);
+    expect(board.outline).toEqual(original.outline);
+    expect(board.pins).toEqual(original.pins);
+    expect(notes(board)).toContain('1 outline record is not a line, arc, rectangle or circle and was ignored.');
+    const design = rect(100, 200, 300, 400).map(row => row.replace('OUTLINE', 'DESIGN_OUTLINE'));
+    expect(outline([label, ...design]).outline).toEqual(outline(design).outline);
+    expect(() => outline([S('LINE', 1, '1', 0, 0, 'NO', 100, 0, '', '', '', '', 'OUTLINE', '', '')])).toThrow(/invalid GRAPHIC_DATA_3/);
+  });
+
   it('stitches records in any order and direction, and prefers OUTLINE over DESIGN_OUTLINE', () => {
     const shuffled = [...rect(0, 0, 2000, 1000)].reverse();
     const design = rect(100, 100, 300, 300).map(row => row.replace('OUTLINE', 'DESIGN_OUTLINE'));

@@ -22,5 +22,7 @@
   "info.format": "Format",
   "info.size": "Platinengröße",
   "info.counts": "Bauteile / Pins / Netze",
-  "info.footer": "Hilfslinien zeigen die Netzverbindungen an. Sie ersetzen nicht die Geometrie der Leiterbahnen in der Datei."
+  "info.footer": "Hilfslinien zeigen die Netzverbindungen an. Sie ersetzen nicht die Geometrie der Leiterbahnen in der Datei.",
+
+  "key.skipHelp": "Du kannst diesen Schritt überspringen und die App weiter verwenden. Diese verschlüsselte Datei bleibt geschlossen, bis ein passender Schlüssel angegeben wird."
 }
