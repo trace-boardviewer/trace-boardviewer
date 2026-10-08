@@ -41,7 +41,18 @@ Open a boardview or PCB file (KiCad, EAGLE, BVR, GenCAD and more) next to its sc
 
 An offline boardviewer and repair workspace for Windows, with experimental builds for macOS and Linux. Open a board (GenCAD plus several boardview, EDA and encrypted formats — see the [exact support table](docs/SUPPORT.md)), attach its schematics, PDF datasheets and reference images, search across all of them, cross-probe between board, schematic and documents, and keep local repair notes that survive a restart. The interface is available in eight languages; see [Languages](#languages). The support notice shown at start opens the Stripe or Ko-fi page in your browser only when you click one of its buttons, and Not now skips it.
 
-At start TRACE can ask GitHub once whether a newer release exists (one request that carries nothing about you or your files) and, if there is one, shows a dismissible notice whose Download button opens the release page in your browser; TRACE itself never downloads or installs anything. This is the only network request TRACE makes, and Settings can turn it off. Settings > Network lists the network features and every request TRACE has made since it started (time, feature, host, result).
+At start TRACE can ask GitHub once whether a newer stable release exists and show a dismissible link; it never downloads or installs an update. Settings can turn this check off. Optional payment verification contacts the receipt service only when you choose Verify payment, sending the app's random support reference. Settings > Network lists permitted features and hosts and a clearable request log with time, feature, host and result. Board files, notes, payment details and credentials are never uploaded by the app.
+
+## New since 1.3.0
+
+- **More board formats:** native Allegro BRD, Jet BV, BV2, Unisoft F2B, Mentor Neutral, Tebo ICT pairs and Fabmaster FARC/FAZ; ODB++ models, IPC-2581, IPC-D-356, EasyEDA Standard/Pro, HyperLynx, Fabmaster FATF and CSV/TSV pin lists. Validation and geometry limits differ by reader; the [generated table](docs/SUPPORT.md) gives the exact scope.
+- **Schematics and scanned documents:** Altium SchDoc joins KiCad and EAGLE schematics. Bundled English OCR makes scanned PDF pages searchable offline, with confidence marks, progress and Cancel.
+- **Faster, cancellable work:** background search, a shared board index, GenCAD/KiCad import progress, a parser watchdog and memory-only ZIP board/companion opening. Fixed extensionless companion files have an all-files chooser option.
+- **Reliable notes and viewing:** stable component/pin identities, backups during migration, visible unresolved notes, consistent part classification, schematic counterpart selection and corrected sheet fitting.
+- **Optional support and networking:** hourly reminders and the heart remain skippable; provider-confirmed support hides both for a calendar year, including offline use. FZ/CAE tries published default format keys; other key entry has Skip and never activates or unlocks the application.
+- **Safer imports and clearer failures:** expanded classic boardview variants, bounded malformed-input handling, strict counts/checksums, local content-free format diagnostics and specific explanations for unsupported PADS, BRD_V1.0, VS2 and layer variants.
+
+The [complete changelog](CHANGELOG.md) includes every improvement and fix since 1.3.0, with Windows, macOS and Linux limits and the developer foundations that have no dedicated interface yet.
 
 **Found a bug?** Thank you for testing and for telling us. Use the Report a bug button in the top bar of the app (or in the support notice at start), or open the [bug report form](https://github.com/trace-boardviewer/trace-boardviewer/issues/new?template=bug_report.yml) directly. Please do not attach proprietary or customer boardview files.
 
@@ -256,7 +267,7 @@ pnpm qa:localization --packaged
 Real-board UI and performance checks are optional local tools. Supply your own board outside the repository with `TRACE_TEST_BOARD` or `--board=<absolute-path>`. The UI scenario expects `AC1`, `AC15`, `U1`, `VU13` and `AGND_AUD`; adapt the script if your board differs.
 
 ```powershell
-$env:TRACE_TEST_BOARD = 'C:\boards\reference-board.cad'
+$env:TRACE_TEST_BOARD = 'path/to/reference-board.cad'
 pnpm qa:browser
 pnpm qa:electron
 pnpm package:dir

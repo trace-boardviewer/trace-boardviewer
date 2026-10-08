@@ -1,6 +1,6 @@
 # Readings format, version 1
 
-This document describes contributor-facing storage and import foundations. The dedicated readings interface is not exposed in 1.3.1-rc.1.
+This document describes contributor-facing storage and import foundations. The dedicated readings interface is not exposed in the 1.3.1 prereleases.
 
 TRACE readings files contain component references, pin numbers, net names and measurement values. They contain no board geometry or source file contents. Paths and identities are never inferred; free text contains only supplied text. Customer/job records are outside this format.
 
