@@ -4,6 +4,8 @@
 
 <h1 align="center">TRACE Boardviewer</h1>
 
+<h2 align="center"><a href="https://github.com/trace-boardviewer/trace-boardviewer/releases/tag/v1.3.1-rc.2">Download 1.3.1-rc.2 · current test release</a></h2>
+
 <p align="center"><strong>Free, open-source boardviewer for electronics repair.</strong><br>
 Open a boardview or PCB file (KiCad, EAGLE, BVR, GenCAD and more) next to its schematic and PDF datasheets, offline and without an account.</p>
 
@@ -38,7 +40,7 @@ Windows x64, macOS Apple silicon and Linux x86-64 share these features; macOS/Li
 <a href="https://github.com/trace-boardviewer/trace-boardviewer/issues/new?template=bug_report.yml">Report a bug</a> · 
 <a href="docs/SUPPORT.md">Supported formats</a></p>
 
-<p align="center"><strong>Test version 1.3.1-rc.2.</strong> The downloads above point to the prerelease. The app's update check still offers stable releases only. See the <a href="CHANGELOG.md">full changes</a> and <a href="https://github.com/trace-boardviewer/trace-boardviewer/releases/tag/v1.3.0">previous stable release</a>.</p>
+<p align="center"><strong>Test version 1.3.1-rc.2.</strong> The downloads above point to the prerelease. The app's update check still offers stable releases only. See the <a href="CHANGELOG.md">full changes and release history</a>.</p>
 
 <p align="center">Open a board next to its schematic and datasheets, find a net or a part across all of them, keep your repair notes with the board, and work without an account or a connection.</p>
 
