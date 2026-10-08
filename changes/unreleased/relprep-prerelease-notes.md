@@ -1,0 +1,1 @@
+- Release workflow: the notes of a draft release for a version with a prerelease suffix (for example `1.3.1-rc.1`) start with a notice that it is a prerelease for testing; the notes of a stable version are unchanged. `tests/release-version-checks.cjs` runs the version steps of the workflow for both kinds of version.

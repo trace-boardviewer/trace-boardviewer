@@ -1,0 +1,23 @@
+{
+  "notes.unresolvedTitle": "Nicht zugeordnete Notizen",
+  "notes.unresolvedIntro": "Diese gespeicherten Notizen gehören zu keinem Bauteil dieser Platine. Es wurde nichts gelöscht. Den Text bei Bedarf kopieren und den Eintrag danach löschen.",
+  "notes.unresolvedEmpty": "Es gibt keine nicht zugeordneten Notizen.",
+  "notes.wasAttachedTo": "War zugeordnet zu",
+  "notes.targetPart": "Bauteil",
+  "notes.copyText": "Notiztext kopieren",
+  "notes.measureVoltage": "Spannung",
+  "notes.measureResistance": "Widerstand",
+  "notes.measureOther": "Sonstiges",
+  "notes.reasonComponentMissing": "Kein Bauteil dieser Platine hat diesen Bezeichner oder diese Position.",
+  "notes.reasonComponentAmbiguous": "Mehrere Bauteile dieser Platine passen, daher wurde keines gewählt.",
+  "notes.reasonPinMissing": "Das Bauteil hat keinen Pin mit dieser Nummer oder Position.",
+  "notes.reasonPinAmbiguous": "Mehrere Pins des Bauteils passen, daher wurde keiner gewählt.",
+  "notes.reasonLegacyIdMissing": "Die Notiz wurde mit einer internen ID gespeichert, die diese Platine nicht hat.",
+  "notes.reasonLegacyIndistinguishable": "Das Bauteil oder der Pin lässt sich weder durch Namen noch durch Position von einem anderen unterscheiden.",
+  "notes.reasonDuplicateTarget": "Zu demselben Bauteil oder Pin gehört bereits eine andere Notiz.",
+  "notes.fallbackDuplicateRef": "Mehrere Bauteile tragen diesen Bezeichner, daher ist die Notiz an die Position dieses Bauteils auf der Platine gebunden.",
+  "notes.fallbackUnnamedPart": "Die Datei gibt diesem Bauteil keinen Bezeichner, daher ist die Notiz an seine Position auf der Platine gebunden.",
+  "notes.fallbackUnnamedPin": "Die Datei gibt diesem Pin keine Nummer, daher ist die Notiz an seine Position auf der Platine gebunden.",
+  "notes.refusePart": "Für dieses Bauteil kann keine Notiz gespeichert werden: Ein anderes Bauteil mit demselben Bezeichner liegt genau an derselben Position, beide lassen sich nicht unterscheiden.",
+  "notes.refusePin": "Für diesen Pin kann keine Notiz gespeichert werden: Ein anderer Pin ohne Nummer liegt genau an derselben Position, beide lassen sich nicht unterscheiden."
+}

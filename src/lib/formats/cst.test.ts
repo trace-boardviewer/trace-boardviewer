@@ -3,7 +3,7 @@ import { BoardFormatError } from './common';
 import { parseCst } from './cst';
 
 interface CstOptions { layer?: number; pins?: Array<[part: number, net: number, x: number, y: number]>; partCount?: number; netCount?: number; pinCount?: number; cpad?: string; nets?: string[]; parts?: string[]; partLayers?: number[] }
-/** Ported from test-results/coordination/import-native-readonly-audit.cjs makeCst(), extended with explicit counts. */
+/** Builds a synthetic CST file with explicit part, net and pin counts. */
 function makeCst({ layer = 12, parts = ['U1'], partLayers, pins = [[0, 0, 100, 200]], partCount = parts.length, nets = ['GND'], netCount = nets.length, pinCount = pins.length, cpad = 'CPad' }: CstOptions = {}): Uint8Array {
   const data: number[] = [];
   const u16 = (value: number) => data.push(value & 255, value >>> 8 & 255);

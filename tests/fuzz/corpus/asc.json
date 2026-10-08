@@ -1,0 +1,179 @@
+[
+ {
+  "id": "0dcf04fd",
+  "kind": "valid",
+  "name": "format.asc",
+  "text": "; format header 1\n; format header 2\n; format header 3\n; format header 4\n; format header 5\n; format header 6\n; format header 7\n; format header 8\n0.000 0.000\n2.000 0.000\n2.000 1.000\n0.000 1.000\n",
+  "companions": {
+   "nails.asc": {
+    "text": "; nails header 1\n; nails header 2\n; nails header 3\n; nails header 4\n; nails header 5\n; nails header 6\n; nails header 7\n"
+   },
+   "pins.asc": {
+    "text": "; pins header 1\n; pins header 2\n; pins header 3\n; pins header 4\n; pins header 5\n; pins header 6\n; pins header 7\n; pins header 8\nPart U1 (T)\n1  1  0.100 0.200  1  VCC  5\n"
+   }
+  }
+ },
+ {
+  "id": "76716480",
+  "kind": "valid",
+  "name": "pins.asc",
+  "text": "; pins header 1\r\n; pins header 2\r\n; pins header 3\r\n; pins header 4\r\n; pins header 5\r\n; pins header 6\r\n; pins header 7\r\n; pins header 8\r\nPart U1 (T)\r\n1  1  0.100 0.200  1  VCC  5\r\n2  2  0.150 0.200  1  UNCONNECTED12  0\r\nPart R1 (B)\r\n1  A 1  1.500 0.500  2  GND  7\r\n2  2  1.600 0.500  2  UNCONNECTED  0\r\n",
+  "companions": {
+   "format.asc": {
+    "text": ""
+   },
+   "nails.asc": {
+    "text": "; nails header 1\r\n; nails header 2\r\n; nails header 3\r\n; nails header 4\r\n; nails header 5\r\n; nails header 6\r\n; nails header 7\r\n*5  0.100 0.200  1  G1 (T) 11  VCC\r\n#6  1.500 0.500  2  G2 (B) 12  GND\r\n"
+   }
+  }
+ },
+ {
+  "id": "107722d7",
+  "kind": "valid",
+  "name": "pins.asc",
+  "text": "; pins header 1\r\n; pins header 2\r\n; pins header 3\r\n; pins header 4\r\n; pins header 5\r\n; pins header 6\r\n; pins header 7\r\n; pins header 8\r\nPart U1 (T)\r\n1  1  0.100 0.200  1  VCC  5\r\n2  2  0.150 0.200  1  UNCONNECTED12  0\r\nPart R1 (B)\r\n1  A 1  1.500 0.500  2  GND  7\r\n2  2  1.600 0.500  2  UNCONNECTED  0\r\n",
+  "companions": {
+   "format.asc": {
+    "text": "; format header 1\r\n; format header 2\r\n; format header 3\r\n; format header 4\r\n; format header 5\r\n; format header 6\r\n; format header 7\r\n; format header 8\r\n0.000 0.000\r\n2.000 0.000\r\n2.000 1.000\r\n0.000 1.000\r\n"
+   },
+   "nails.asc": {
+    "text": ""
+   }
+  }
+ },
+ {
+  "id": "221a6cf9",
+  "kind": "valid",
+  "name": "format.asc",
+  "text": "; format header 1\r\n; format header 2\r\n; format header 3\r\n; format header 4\r\n; format header 5\r\n; format header 6\r\n; format header 7\r\n; format header 8\r\n0.000 0.000\r\n2.000 0.000\r\n2.000 1.000\r\n0.000 1.000\r\n",
+  "companions": {
+   "nails.asc": {
+    "text": "; nails header 1\r\n; nails header 2\r\n; nails header 3\r\n; nails header 4\r\n; nails header 5\r\n; nails header 6\r\n; nails header 7\r\n"
+   },
+   "pins.asc": {
+    "text": "; pins header 1\r\n; pins header 2\r\n; pins header 3\r\n; pins header 4\r\n; pins header 5\r\n; pins header 6\r\n; pins header 7\r\n; pins header 8\r\nPart E1 (T)\r\nPart U1 (T)\r\n1 1 0.1 0.1 1 A 0\r\nPart U1 (B)\r\n1 1 0.2 0.1 1 A 0\r\n"
+   }
+  }
+ },
+ {
+  "id": "aec80aac",
+  "kind": "valid",
+  "name": "nails.asc",
+  "text": "; nails header 1\r\n; nails header 2\r\n; nails header 3\r\n; nails header 4\r\n; nails header 5\r\n; nails header 6\r\n; nails header 7\r\n*5  0.100 0.200  1  G1 (T) 11  VCC\r\n#6  1.500 0.500  2  G2 (B) 12  GND\r\n",
+  "companions": {
+   "format.asc": {
+    "text": "; format header 1\r\n; format header 2\r\n; format header 3\r\n; format header 4\r\n; format header 5\r\n; format header 6\r\n; format header 7\r\n; format header 8\r\n0.000 0.000\r\n2.000 0.000\r\n2.000 1.000\r\n0.000 1.000\r\n"
+   },
+   "pins.asc": {
+    "text": "; pins header 1\r\n; pins header 2\r\n; pins header 3\r\n; pins header 4\r\n; pins header 5\r\n; pins header 6\r\n; pins header 7\r\n; pins header 8\r\nPart U1 (T)\r\n1  1  0.100 0.200  1  VCC  5"
+   }
+  }
+ },
+ {
+  "id": "21f521e3",
+  "kind": "valid",
+  "name": "pins.asc",
+  "text": "; pins header 1\r\n; pins header 2\r\n; pins header 3\r\n; pins header 4\r\n; pins header 5\r\n; pins header 6\r\n; pins header 7\r\n; pins header 8\r\nPart U1 (T)\r\n1  1  0.100 0.200  1  VCC  5\r\n2  2  0.150 0.200  1  UNCONNECTED12  0\r\nPart R1 (B)\r\n1  A 1  1.500 0.500  2  GND  7",
+  "companions": {
+   "format.asc": {
+    "text": "; format header 1\r\n; format header 2\r\n; format header 3\r\n; format header 4\r\n; format header 5\r\n; format header 6\r\n; format header 7\r\n; format header 8\r\n0.000 0.000\r\n2.000 0.000\r\n2.000 1.000\r\n0.000 1.000\r\n"
+   },
+   "nails.asc": {
+    "text": "; nails header 1\r\n; nails header 2\r\n; nails header 3\r\n; nails header 4\r\n; nails header 5\r\n; nails header 6\r\n; nails header 7\r\n*5  0.100 0.200  1  G1 (T) 11  VCC\r\n#6  1.500 0.500  2  G2 (B) 12  GND\r\n"
+   }
+  }
+ },
+ {
+  "id": "34be9742",
+  "kind": "valid",
+  "name": "nails.asc",
+  "text": "; nails header 1\r\n; nails header 2\r\n; nails header 3\r\n; nails header 4\r\n; nails header 5\r\n; nails header 6\r\n; nails header 7\r\n*5  0.100 0.200  1  G1 (T) 11  VCC\r\n#6  1.500 0.500  2  G2 (B) 12  GND\r\n",
+  "companions": {
+   "format.asc": {
+    "text": "; format header 1\r\n; format header 2\r\n; format header 3\r\n; format header 4\r\n; format header 5\r\n; format header 6\r\n; format header 7\r\n; format header 8\r\n0.000 0.000\r\n2.000 0.000\r\n2.000 1"
+   },
+   "pins.asc": {
+    "text": "; pins header 1\r\n; pins header 2\r\n; pins header 3\r\n; pins header 4\r\n; pins header 5\r\n; pins header 6\r\n; pins header 7\r\n; pins header 8\r\nPart U1 (T)\r\n1  1  0.100 0.200  1  VCC  5\r\n2  2  0.150 0.200  1  UNCONNECTED12  0\r\nPart R1 (B)\r\n1  A 1  1.500 0.500  2  GND  7\r\n2  2  1.600 0.500  2  UNCONNECTED  0\r\n"
+   }
+  }
+ },
+ {
+  "id": "25c8b1e5",
+  "kind": "error",
+  "name": "format.asc",
+  "text": "; format header 1\r\n; format header 2\r\n; format header 3\r\n; format header 4\r\n; format header 5\r\n; format header 6\r\n; format header 7\r\n; format header 8\r\n0.000 0.000\r\n2.000 0.000\r\n2.000 1.000\r\n0.000 1.000\r\n"
+ },
+ {
+  "id": "f5f15b04",
+  "kind": "error",
+  "name": "nails.asc",
+  "text": "; nails header 1\r\n; nails header 2\r\n; nails header 3\r\n; nails header 4\r\n; nails header 5\r\n; nails header 6\r\n; nails header 7\r\n*5  0.100 0.200  1  G1 (T) 11  VCC\r\n#6  1.500 0.500  2  G2 (B) 12  GND\r\n",
+  "companions": {
+   "format.asc": {
+    "text": "; format header 1\r\n; format header 2\r\n; format header 3\r\n; format header 4\r\n; format header 5\r\n; format header 6\r\n; format header 7\r\n; format header 8\r\n0.000 0.000\r\n2.000 0.000\r\n2.000 1.000\r\n0.000 1.000\r\n"
+   }
+  }
+ },
+ {
+  "id": "c4b0bc96",
+  "kind": "error",
+  "name": "nails.asc",
+  "text": "; nails header 1\r\n; nails header 2\r\n; nails header 3\r\n; nails header 4\r\n; nails header 5\r\n; nails header 6\r\n; nails header 7\r\n*5  0.100 0.200  1  G1 (T) 11  VCC\r\n#6  1.500 0.500  2  G2 (B) 12  GND\r\n",
+  "companions": {
+   "format.asc": {
+    "text": "; format header 1\r\n; format header 2\r\n; format header 3\r\n; format header 4\r\n; format header 5\r\n; format header 6\r\n; format header 7\r\n; format header 8\r\n0.000 0.000\r\n2.000 0.000\r\n2.000 1.000\r\n0.000 1.000\r\n"
+   },
+   "pins.asc": {
+    "text": ""
+   }
+  }
+ },
+ {
+  "id": "89dffc48",
+  "kind": "error",
+  "name": "nails.asc",
+  "text": "; nails header 1\r\n; nails header 2\r\n; nails header 3\r\n; nails header 4\r\n; nails header 5\r\n; nails header 6\r\n; nails header 7\r\n*5  0.100 0.200  1  G1 (T) 11  VCC\r\n#6  1.500 0.500  2  G2 (B) 12  GND\r\n",
+  "companions": {
+   "format.asc": {
+    "text": "; format header 1\r\n; format header 2\r\n; format header 3\r\n; format header 4\r\n; format header 5\r\n; format header 6\r\n; format header 7\r\n; format header 8\r\n0.000 0.000\r\n2.000 0.000\r\n2.000 1.000\r\n0.000 1.000\r\n"
+   },
+   "pins.asc": {
+    "text": ";"
+   }
+  }
+ },
+ {
+  "id": "5b959bb9",
+  "kind": "error",
+  "name": "pins.asc",
+  "text": "; pins header 1\r\n; pins header 2\r\n; pins header 3\r\n; pins header 4\r\n; pins header 5\r\n; pins header 6\r\n; pins header 7\r\n; pins header 8\r\nPart U1 (T)\r\n1  1  0.100 0.200  1  VCC  5\r\n2  2  0.150 0.200  1  UNCONNECTED12  0\r\nPart R1 (B)\r\n1  A 1  1.500 0.500  2  GND  7\r\n2  2  1.600 0.500  2  UNCONNECTED  0\r\n",
+  "companions": {
+   "format.asc": {
+    "text": ";"
+   },
+   "nails.asc": {
+    "text": "; nails header 1\r\n; nails header 2\r\n; nails header 3\r\n; nails header 4\r\n; nails header 5\r\n; nails header 6\r\n; nails header 7\r\n*5  0.100 0.200  1  G1 (T) 11  VCC\r\n#6  1.500 0.500  2  G2 (B) 12  GND\r\n"
+   }
+  }
+ },
+ {
+  "id": "8b8cc4e4",
+  "kind": "error",
+  "name": "format.asc",
+  "text": "; format header 1\r\n; format header 2\r\n; format header 3\r\n; format header 4\r\n; format header 5\r\n; format header 6\r\n; format header 7\r\n; format header 8\r\n0.000 0.000\r\n2.000 0.000\r\n2.000 1.000\r\n0.000 1.000\r\n",
+  "companions": {
+   "nails.asc": {
+    "text": ";"
+   },
+   "pins.asc": {
+    "text": "; pins header 1\r\n; pins header 2\r\n; pins header 3\r\n; pins header 4\r\n; pins header 5\r\n; pins header 6\r\n; pins header 7\r\n; pins header 8\r\nPart U1 (T)\r\n1  1  0.100 0.200  1  VCC  5\r\n2  2  0.150 0.200  1  UNCONNECTED12  0\r\nPart R1 (B)\r\n1  A 1  1.500 0.500  2  GND  7\r\n2  2  1.600 0.500  2  UNCONNECTED  0\r\n"
+   }
+  }
+ },
+ {
+  "id": "4ff07512",
+  "kind": "null",
+  "name": "board.brd",
+  "b64": "//4A2EEAANw="
+ }
+]

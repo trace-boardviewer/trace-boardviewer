@@ -1,0 +1,17 @@
+{
+  "settings.title": "Your workspace",
+  "settings.appearance": "Appearance",
+  "settings.themeDark": "Dark",
+  "settings.themeLight": "Light",
+  "settings.themeSystem": "System",
+  "settings.layout": "Layout",
+  "settings.language": "Language",
+  "settings.languageHint": "The interface switches instantly; your board data, net names and personal notes stay unchanged.",
+  "settings.motion": "Subtle animations",
+  "settings.motionHint": "Feedback for selections and panels",
+  "settings.labels": "Component labels",
+  "settings.labelsHint": "Reference designators that scale with zoom",
+  "settings.connections": "Connection guide lines",
+  "settings.connectionsHint": "Straight lines between the selected pin and the pads of its net",
+  "settings.autosave": "Settings are saved automatically."
+}

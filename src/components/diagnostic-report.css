@@ -1,0 +1,17 @@
+/* Help > Format diagnostic report (src/components/DiagnosticDialog.tsx). */
+.diag{display:grid;gap:14px;font-size:11px}
+.diag .settings-hint{margin:0;font-size:11px;line-height:1.6;color:var(--muted)}
+.diag-section h3,.diag-json-title{display:flex;align-items:center;gap:7px;margin:0 0 8px;font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:var(--muted);font-weight:600}
+.diag-list{margin:0;padding:0 0 0 18px;display:grid;gap:7px;line-height:1.6;color:var(--text)}
+.diag-status{margin:0;min-height:15px;font-size:11px;line-height:1.5;color:var(--muted)}
+.diag-progress{width:100%;height:8px;accent-color:var(--accent)}
+.diag-failure{padding-top:0;color:var(--danger)}
+.diag-failure svg{color:var(--danger)}
+.diag-risk{padding-top:0}
+.diag-toggles{margin:0}
+.diag-json{margin:0;max-height:260px;overflow:auto;padding:12px;background:var(--bg);border:1px solid var(--line);border-radius:9px;font-size:10px;line-height:1.55;white-space:pre;tab-size:2}
+.diag-json-title{margin-bottom:0}
+.diag-actions{flex-wrap:wrap}
+.diag-actions .outline-button,.diag-actions .primary-button{white-space:nowrap}
+.help-diagnostic{display:grid;gap:6px;justify-items:start;margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
+.help-diagnostic small{color:var(--muted);font-size:10px;line-height:1.6}

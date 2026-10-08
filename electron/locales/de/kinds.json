@@ -1,0 +1,19 @@
+{
+  "kind.ic": "Integrierte Schaltung",
+  "kind.capacitor": "Kondensator",
+  "kind.resistor": "Widerstand",
+  "kind.inductor": "Spule",
+  "kind.connector": "Steckverbinder",
+  "kind.diode": "Diode",
+  "kind.transistor": "Transistor",
+  "kind.crystal": "Quarz",
+  "kind.fuse": "Sicherung",
+  "kind.resistorArray": "Widerstandsnetzwerk",
+  "kind.ferrite": "Ferritperle",
+  "kind.led": "Leuchtdiode",
+  "kind.testpoint": "Testpunkt",
+  "kind.switch": "Schalter",
+  "kind.jumper": "Steckbrücke",
+  "kind.mechanical": "Mechanisches Teil",
+  "kind.part": "Bauteil"
+}

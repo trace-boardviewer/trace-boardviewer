@@ -7,6 +7,7 @@ import {
 } from './images';
 import type { Rotation } from './images';
 import prologCases from '../../tests/fixtures/xml-prolog-cases.json';
+import { expectScaling } from '../test-support/timing';
 
 const ascii = (text: string) => Uint8Array.from(text, c => c.charCodeAt(0));
 const bytes = (...values: number[]) => Uint8Array.from(values);
@@ -306,14 +307,16 @@ describe('SVG policy', () => {
     expect(hasExternalUrl('u\\72l(x)')).toBe(true);
   });
   it('reads a 40,000-character length attribute in linear time and keeps its results', () => {
-    const started = performance.now();
-    expect(parseSvgLength('0'.repeat(40_000) + '5px')).toBe(5);
-    expect(parseSvgLength('7' + ' '.repeat(40_000))).toBe(7);
-    expect(parseSvgLength('7' + ' '.repeat(40_000) + 'mm')).toBeCloseTo(7 * 96 / 25.4);
-    expect(parseSvgLength('1'.repeat(40_000) + 'x')).toBeNull();
-    expect(parseSvgLength('1'.repeat(40_000) + '.x')).toBeNull();
-    expect(parseSvgLength('1' + ' '.repeat(40_000) + 'x')).toBeNull();
-    expect(performance.now() - started).toBeLessThan(250);
+    const lengths = (size: number) => ['0'.repeat(size) + '5px', '7' + ' '.repeat(size), '7' + ' '.repeat(size) + 'mm', '1'.repeat(size) + 'x', '1'.repeat(size) + '.x', '1' + ' '.repeat(size) + 'x'];
+    // A pattern that retries every position of a run needs about 1 s for 40,000 characters, so a regression fails at the first pair.
+    expectScaling('SVG length', [2500, 10_000, 40_000], size => { const texts = lengths(size); return () => { for (const text of texts) parseSvgLength(text); }; });
+    const [leadingZeros, trailingBlanks, blanksBeforeUnit, digitsThenLetter, digitsThenPointLetter, blanksThenLetter] = lengths(40_000);
+    expect(parseSvgLength(leadingZeros)).toBe(5);
+    expect(parseSvgLength(trailingBlanks)).toBe(7);
+    expect(parseSvgLength(blanksBeforeUnit)).toBeCloseTo(7 * 96 / 25.4);
+    expect(parseSvgLength(digitsThenLetter)).toBeNull();
+    expect(parseSvgLength(digitsThenPointLetter)).toBeNull();
+    expect(parseSvgLength(blanksThenLetter)).toBeNull();
   });
   it('resolves intrinsic sizes and bounds them', () => {
     expect(parseSvgLength('120')).toBe(120);
@@ -604,25 +607,21 @@ describe('typed calibration distance', () => {
     }
   });
   it('reads a 40,000-digit distance and rejects a malformed one in linear time', () => {
-    const started = performance.now();
-    expect(parseKnownDistanceMm('0'.repeat(40_000) + '5')).toEqual({ ok: true, value: 5 });
-    for (const text of ['1'.repeat(40_000) + 'x', '1'.repeat(40_000) + '.x', '1'.repeat(40_000)]) expect(parseKnownDistanceMm(text), text.slice(-1)).toMatchObject({ ok: false });
-    expect(performance.now() - started).toBeLessThan(250);
+    const distances = (size: number) => ['0'.repeat(size) + '5', '1'.repeat(size) + 'x', '1'.repeat(size) + '.x', '1'.repeat(size)];
+    expectScaling('typed distance', [2500, 10_000, 40_000], size => { const texts = distances(size); return () => { for (const text of texts) parseKnownDistanceMm(text); }; });
+    const [padded, ...malformed] = distances(40_000);
+    expect(parseKnownDistanceMm(padded)).toEqual({ ok: true, value: 5 });
+    for (const text of malformed) expect(parseKnownDistanceMm(text), text.slice(-1)).toMatchObject({ ok: false });
   });
   it('cuts the "mm" unit in linear time when the text holds a long run of blanks', () => {
-    const timed = <T>(work: () => T): { value: T; ms: number } => { const started = performance.now(); const value = work(); return { value, ms: performance.now() - started }; };
-    // Ascending sizes: `\s*mm$` retries every position of the run and needs about 1 s for 40,000 blanks, so a regression fails at the second size.
-    for (const count of [1000, 40_000, 200_000]) {
-      const blanks = ' '.repeat(count), tabs = '\t'.repeat(count);
-      for (const [label, text, expected] of [
-        ['blanks and a letter', `1${blanks}x`, false], ['blanks, a letter and the unit', `1${blanks}x mm`, false], ['the unit after the blanks', `1${blanks}mm`, true],
-        ['tabs and the unit after the blanks', `5${tabs}mm`, true], ['blanks between digits', `1${blanks}2 mm`, false], ['blanks only', `${blanks}mm${blanks}`, false],
-      ] as const) {
-        const result = timed(() => parseKnownDistanceMm(text));
-        expect(result.value.ok, `${count}: ${label}`).toBe(expected);
-        expect(result.ms, `${count}: ${label}`).toBeLessThan(250);
-      }
-    }
+    const sizes = [1000, 40_000, 200_000];
+    const shapes: Array<[string, (count: number) => string, boolean]> = [
+      ['blanks and a letter', count => `1${' '.repeat(count)}x`, false], ['blanks, a letter and the unit', count => `1${' '.repeat(count)}x mm`, false], ['the unit after the blanks', count => `1${' '.repeat(count)}mm`, true],
+      ['tabs and the unit after the blanks', count => `5${'\t'.repeat(count)}mm`, true], ['blanks between digits', count => `1${' '.repeat(count)}2 mm`, false], ['blanks only', count => `${' '.repeat(count)}mm${' '.repeat(count)}`, false],
+    ];
+    // Ascending sizes: `\s*mm$` retries every position of the run and needs about 1 s for 40,000 blanks, so a regression fails at the first pair.
+    for (const [label, text] of shapes) expectScaling(label, sizes, count => { const input = text(count); return () => parseKnownDistanceMm(input); });
+    for (const count of sizes) for (const [label, text, expected] of shapes) expect(parseKnownDistanceMm(text(count)).ok, `${count}: ${label}`).toBe(expected);
     expect(parseKnownDistanceMm('1   mm')).toEqual({ ok: true, value: 1 });
     expect(parseKnownDistanceMm('1 mm mm')).toMatchObject({ ok: false });
     expect(parseKnownDistanceMm('mm')).toMatchObject({ ok: false });

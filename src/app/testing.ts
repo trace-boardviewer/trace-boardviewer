@@ -4,6 +4,9 @@
  */
 import type { Board, BoardNote, FilePayload, RecentFile, TraceDesktop, UpdateCheckResult } from '../lib/types';
 import { isSupportLinkId } from '../lib/support-notice';
+import { createModelHost } from '../lib/model-host';
+import type { ModelHost } from '../lib/model-host';
+import { MODEL_PROTOCOL } from '../lib/model-protocol';
 import type { BoardSide } from '../lib/types';
 import type { DocumentKind, DocumentLocateRequest, DocumentLocateResult, DocumentPayload, WorkspaceExportRequest, WorkspaceExportResult, WorkspaceManifest } from '../lib/documents';
 import type { Hit, RefCandidate } from '../lib/pdf/search';
@@ -15,7 +18,7 @@ import { buildSchematic, SheetBuilder } from '../lib/schematic/testing';
 import type { SchematicWorkerRequest, SchematicWorkerResponse } from '../lib/schematic/schematic-worker';
 import { addDocument, createManifest } from '../lib/workspace';
 import { createWorkspaceController } from './controller';
-import type { ControllerDeps, WorkerFactory, WorkspaceController } from './controller';
+import type { ControllerDeps, ControllerTimers, ParseWatchdog, WorkerFactory, WorkspaceController } from './controller';
 
 export const enc = (value: string) => new TextEncoder().encode(value);
 export const hexKey = (n: number) => n.toString(16).padStart(64, '0');
@@ -249,22 +252,50 @@ export interface FakeBoardWorkers {
   gates: Record<string, Promise<unknown>>;
   /** Options each import was posted with (session keys). */
   options: unknown[];
+  /**
+   * Answer like the real board worker (src/lib/board-worker.ts): `{ board, model: MODEL_PROTOCOL }`, after which the same worker serves
+   * model requests from an in-process model host (src/lib/model-host.ts). Every message crosses the fake boundary structured-cloned.
+   */
+  model: boolean;
+  /** Messages (`{ progress: { fraction } }` and the like) posted in order before the reply of a file name; a promise in the list holds the rest until it settles. */
+  progress: Record<string, unknown[]>;
+  /** Every model request the UI posted to a model worker, in order. */
+  modelRequests: Array<{ type: string; id: number }>;
+  /** While set, model responses wait for this promise. */
+  modelGate: Promise<unknown> | null;
+  /** The crash callback of every worker, in creation order (calls the controller's onError while the worker lives; the controller then terminates it). */
+  crash: Array<() => void>;
 }
 export function createBoardWorkers(): FakeBoardWorkers {
   const fake: FakeBoardWorkers = {
-    created: 0, terminated: 0, replies: {}, gates: {}, options: [],
-    factory: onMessage => {
+    created: 0, terminated: 0, replies: {}, gates: {}, options: [], model: false, progress: {}, modelRequests: [], modelGate: null, crash: [],
+    factory: (onMessage, onError) => {
       fake.created++;
       let dead = false;
+      let host: ModelHost | null = null;
+      fake.crash.push(() => { if (!dead) onError(); });
       return {
         post: message => {
+          if (host) { fake.modelRequests.push(message as { type: string; id: number }); host.receive(structuredClone(message)); return; }
           const { name, options } = message as { name: string; options: unknown };
           fake.options.push(options);
           void (async () => {
             await fake.gates[name];
+            for (const item of fake.progress[name] ?? []) {
+              if (item instanceof Promise) { await item; continue; }
+              if (dead) return;
+              onMessage(item);
+              await Promise.resolve();
+            }
             if (dead) return;
             const reply = fake.replies[name];
-            onMessage(reply !== undefined && !('components' in (reply as object)) ? reply : { board: reply });
+            const board = reply !== undefined && 'components' in (reply as object) ? reply as Board : null;
+            if (!board) { onMessage(reply); return; }
+            if (!fake.model) { onMessage({ board }); return; }
+            host = createModelHost(structuredClone(board), response => {
+              void (async () => { await fake.modelGate; if (!dead) onMessage(structuredClone(response)); })();
+            }, { schedule: run => { void Promise.resolve().then(run); } });
+            onMessage({ board, model: MODEL_PROTOCOL });
           })();
         },
         terminate: () => { if (!dead) { dead = true; fake.terminated++; } },
@@ -338,7 +369,8 @@ export function createPdfSessions(): FakePdfSessions {
     sessions: [], scanGates: {}, defaults: { candidates: [], truncated: false, searchable: true },
     create(options) {
       const listeners = new Set<() => void>();
-      let snapshot: PdfSessionSnapshot = { status: 'ready', error: null, pageCount: 3, searchable: registry.defaults.searchable, index: { state: 'idle', indexedPages: 0, pageCount: 3, items: 0 }, outline: [] };
+      let snapshot: PdfSessionSnapshot = { status: 'ready', error: null, pageCount: 3, searchable: registry.defaults.searchable, index: { state: 'idle', indexedPages: 0, pageCount: 3, items: 0 }, outline: [],
+        ocr: { state: 'idle', totalPages: 0, processedPages: 0, currentPage: 0, recognizedPages: 0, words: 0, failedPages: 0, revision: 0, error: null } };
       const session: FakePdfSession = {
         id: options.id, options, disposed: false, scans: [], searches: [], candidates: registry.defaults.candidates, truncated: registry.defaults.truncated, hits: {}, findGate: null, scanGate: registry.scanGates[options.id] ?? null,
         getSnapshot: () => snapshot,
@@ -358,6 +390,10 @@ export function createPdfSessions(): FakePdfSessions {
           if (session.scanGate) await session.scanGate;
           return { candidates: session.candidates, truncated: session.truncated, totalHits: session.candidates.reduce((sum, candidate) => sum + candidate.hits.length, 0) };
         },
+        inspectPage: async () => 'text',
+        recognizeText: async () => {},
+        cancelRecognition: () => {},
+        getRecognizedText: () => null,
         async dispose() { session.disposed = true; snapshot = { ...snapshot, status: 'closed' }; },
       };
       registry.sessions.push(session);
@@ -388,7 +424,7 @@ export interface Harness {
   state: () => ReturnType<WorkspaceController['getSnapshot']>;
   messages: () => string[];
 }
-export function createHarness(options: { browser?: boolean; saveDelayMs?: number } = {}): Harness {
+export function createHarness(options: { browser?: boolean; saveDelayMs?: number; timers?: ControllerTimers; parseWatchdog?: Partial<ParseWatchdog> } = {}): Harness {
   const desktop = createFakeDesktop();
   const boardWorkers = createBoardWorkers();
   const schematicWorkers = createSchematicWorkers();
@@ -408,6 +444,8 @@ export function createHarness(options: { browser?: boolean; saveDelayMs?: number
     storage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => { storage.set(key, value); } },
     pickFiles: async () => { const held = pickHolds.shift(); return held ? held : pickQueue.shift() ?? []; },
     saveDelayMs: options.saveDelayMs ?? 5,
+    ...(options.timers ? { timers: options.timers } : {}),
+    ...(options.parseWatchdog ? { parseWatchdog: options.parseWatchdog } : {}),
   };
   const controller = createWorkspaceController(deps);
   const messages = () => controller.getSnapshot().notices.map(notice => ('text' in notice.message ? notice.message.text : 'key' in notice.message ? notice.message.key : 'issue'));

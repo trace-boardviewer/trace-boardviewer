@@ -1,0 +1,7 @@
+{
+ "target": "schematic:altium-sch",
+ "finding": "invariant",
+ "note": "sheet top.schdoc: bounds are not finite",
+ "name": "Top.SchDoc",
+ "text": "|HEADER=Schematic Capture\n|RECORD=15|XSize=1e308"
+}

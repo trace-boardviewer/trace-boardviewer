@@ -1,4 +1,4 @@
-import { AlertCircle, Check, CircuitBoard, FolderOpen, X } from 'lucide-react';
+import { AlertCircle, Check, FolderOpen, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Notice, WorkspaceApi } from '../../app/api';
 import type { DocumentHitRow, PdfLinkHit, SchematicTarget, SearchRow } from '../../lib/crossprobe';
@@ -6,27 +6,32 @@ import { SUPPORTED_EXTENSIONS } from '../../lib/formats';
 import type { WorkspaceAliases } from '../../lib/documents';
 import type { Message } from '../../lib/i18n';
 import type { Board, ViewCommand, ViewSide } from '../../lib/types';
-import type { NoteTarget } from '../../lib/workspace';
+import { unresolvedNotes } from '../../lib/note-keys';
+import type { NoteSubject } from '../../lib/note-keys';
 import SupportNotice from '../SupportNotice';
 import UpdateNotice from '../UpdateNotice';
-import { BUG_REPORT_FAILED_KEY, resolveSupportLinkOpener } from '../../lib/support-notice';
+import { BUG_REPORT_FAILED_KEY, openFixedLink, resolveSupportLinkOpener } from '../../lib/support-notice';
+import { useSupportStatus } from '../../lib/support-status';
 import { UPDATE_OPEN_FAILED_KEY } from '../../lib/update-check';
 import type { BoardCamera } from '../board-camera';
 import { parseBoardCamera } from '../board-camera';
 import type { ViewerCamera, ViewerRotation } from '../viewer-contracts';
 import { BoardPane } from './BoardPane';
+import DiagnosticDialog from '../DiagnosticDialog';
 import { HelpDialog, InfoDialog, KeyDialog, RecentsDialog, SettingsDialog } from './Dialogs';
 import { ExportDialog } from './ExportDialog';
 import { Inspector } from './Inspector';
 import { LinkDialog } from './LinkDialog';
+import { LoadingOverlay } from './LoadingOverlay';
 import { NoteDialog } from './NoteDialog';
+import { UnresolvedNotesDialog } from './UnresolvedNotes';
 import { SearchPanel } from './SearchPanel';
 import { SplitLayout } from './SplitLayout';
 import { StatusBar } from './StatusBar';
 import { DocumentsTab, SchematicTab, SplitDocumentPane } from './Tabs';
 import { TopBar } from './TopBar';
 import { Welcome, DROP_HINT } from './Welcome';
-import { PANEL_AUTO_COLLAPSE_BELOW, autoCollapsePanels, deriveSide, noteOf, resolvePanels } from './model';
+import { PANEL_AUTO_COLLAPSE_BELOW, autoCollapsePanels, deriveSide, indexOfState, noteOf, resolvePanels } from './model';
 import type { PanelPreference } from './model';
 import { useSettings } from './settings';
 import { resolveShortcut } from './shortcuts';
@@ -39,7 +44,7 @@ import './workspace.css';
 const T = { dropDocuments: 'Drop to attach', dropDocumentsHint: 'Documents are attached to this board. Board files open as a new board.', tabpanel: 'Workspace', notAFile: 'Nothing readable was dropped.' };
 const isBoardName = (name: string) => { const dot = name.lastIndexOf('.'); return dot >= 0 && SUPPORTED_EXTENSIONS.includes(name.slice(dot).toLowerCase()); };
 const NARROW_PANE = 760, AUTO_COLLAPSE_WIDTH = 1280;
-type ModalName = 'settings' | 'help' | 'recents' | 'info' | 'export' | 'link' | null;
+type ModalName = 'settings' | 'help' | 'diagnostic' | 'recents' | 'info' | 'export' | 'link' | 'notes' | null;
 const NO_ALIASES: WorkspaceAliases = { refs: {}, nets: {} };
 interface LocalToast { id: number; kind: 'info' | 'success' | 'error'; message: Message }
 
@@ -58,9 +63,14 @@ export default function Shell({ api }: { api: WorkspaceApi }) {
   // The update strip appears only once the support notice is closed (or was never shown), so the two never compete for attention.
   const [supportSettled, setSupportSettled] = useState(false);
   const onSupportSettled = useCallback(() => setSupportSettled(true), []);
+  const onSupportShown = useCallback(() => setSupportSettled(false), []);
+  const support = useSupportStatus(desktop);
+  const [supportRequested, setSupportRequested] = useState(0);
   const onUpdateOpenFailed = useCallback(() => notify({ key: UPDATE_OPEN_FAILED_KEY }, true), [notify]);
   // Top bar "Report a bug" button: the main process opens the GitHub bug report form (id only, never a URL); a failure shows a toast.
-  const reportBug = useCallback(() => { void Promise.resolve().then(() => resolveSupportLinkOpener(window.traceDesktop)('bug')).catch(() => notify({ key: BUG_REPORT_FAILED_KEY }, true)); }, [notify]);
+  const reportBug = useCallback(() => { void openFixedLink('bug', () => resolveSupportLinkOpener(window.traceDesktop), () => notify({ key: BUG_REPORT_FAILED_KEY }, true)); }, [notify]);
+  // The heart opens the optional reminder so a returning supporter can verify a payment.
+  const openSupportPage = useCallback(() => setSupportRequested(value => value + 1), []);
   const copy = useCallback((value: string) => { navigator.clipboard.writeText(value).then(() => notify({ key: 'toast.copied' }), () => notify({ key: 'toast.clipboardUnavailable' }, true)); }, [notify]);
   const ui = useMemo<UiContextValue>(() => ({ t, fmt, language, text, copy }), [t, fmt, language, text, copy]);
 
@@ -70,7 +80,7 @@ export default function Shell({ api }: { api: WorkspaceApi }) {
   const [measure, setMeasure] = useState(false);
   const [viewCommand, setViewCommand] = useState<(ViewCommand & { automatic?: boolean }) | null>(null);
   const [modal, setModal] = useState<ModalName>(null);
-  const [noteTarget, setNoteTarget] = useState<NoteTarget | null>(null);
+  const [noteTarget, setNoteTarget] = useState<NoteSubject | null>(null);
   const [dragging, setDragging] = useState(false);
   const [recentSelections, setRecentSelections] = useState<string[]>([]);
   // The side panels: `null` follows the automatic rule below, a boolean is the user's explicit choice (W-win-viewers-02).
@@ -218,7 +228,7 @@ export default function Shell({ api }: { api: WorkspaceApi }) {
     if (first) actionsRef.current.setSchematicInstance(id, first.path);
   }, [reveal]);
   const apiRef = useRef(api); apiRef.current = api;
-  const editNote = useCallback((target?: NoteTarget) => {
+  const editNote = useCallback((target?: NoteSubject) => {
     const current = stateRef.current.selection;
     if (target) { setNoteTarget(target); return; }
     if (current.componentId) setNoteTarget({ componentId: current.componentId, ...(current.pinId ? { pinId: current.pinId } : {}) });
@@ -279,13 +289,15 @@ export default function Shell({ api }: { api: WorkspaceApi }) {
   const pickedFiles = (input: HTMLInputElement, handler: (files: File[]) => Promise<void>) => { const files = Array.from(input.files ?? []); input.value = ''; if (files.length) void handler(files); };
 
   const layoutName = t(settings.layout === 'focus' ? 'layout.focus' : 'layout.workshop');
-  const hasNote = !!board && !!selection.componentId && !!noteOf(state.notes, selection.componentId, selection.pinId ?? undefined);
+  const hasNote = !!board && !!selection.componentId && !!noteOf(board, state.notes, selection.componentId, selection.pinId ?? undefined);
+  const boardIndex = indexOfState(state);
   const breadcrumb = useMemo(() => {
-    const component = board?.components.find(c => c.id === selection.componentId);
-    const pin = selection.pinId ? board?.pins.find(p => p.id === selection.pinId) : undefined;
+    const component = selection.componentId ? boardIndex?.componentById.get(selection.componentId) : undefined;
+    const pin = selection.pinId ? boardIndex?.pinById.get(selection.pinId) : undefined;
     return `${component?.ref || t(side === 'top' ? 'side.top' : 'side.bottom')}${pin ? ` → ${pin.number}` : ''}${selection.net ? ` → ${selection.net}` : ''}`;
-  }, [board, selection, side, t]);
+  }, [boardIndex, selection, side, t]);
   const counts = useMemo(() => ({ components: board?.components.length ?? 0, pins: board?.pins.length ?? 0, nets: board?.nets.length ?? 0 }), [board]);
+  const unresolvedCount = useMemo(() => unresolvedNotes(board, state.notes).length, [board, state.notes]);
 
   const boardArea = board && <div className="wsp-board-area" data-floating={focusLayout && panels.right}>
     <BoardPane api={api} side={side} onSide={setSide} netVisible={netVisible} onNetVisible={setNetVisible} measure={measure} onMeasure={setMeasure} viewCommand={viewCommand} command={command} initialCamera={boardCamera} onCameraRestore={onCameraRestore} onCameraChange={onCameraChange}
@@ -308,7 +320,7 @@ export default function Shell({ api }: { api: WorkspaceApi }) {
       <input ref={docInput} className="hidden-input" type="file" multiple aria-label="Attach documents" data-testid="document-file-input" onChange={e => pickedFiles(e.target, files => actions.attachFiles(files))} />
       <Probe id="shell"><TopBar t={t} hasBoard={!!board} boardName={board?.name || t('board.unnamed')} format={board?.format ?? ''} fileName={state.import.file?.name ?? ''} filePath={state.import.file?.path ?? ''} componentCount={counts.components} layoutName={layoutName}
         activeTab={activeTab} splitEnabled={split.enabled} documentCount={documents.length} schematicCount={documents.filter(d => d.record.kind === 'schematic').length} focusLayout={focusLayout} leftOpen={panels.left} rightOpen={panels.right} maximized={maximized} desktop={desktop}
-        onTab={onTab} onSplit={toggleSplit} onOpen={open} onHome={onHome} onToggleFocus={onToggleFocus} onSettings={openSettings} onPanels={onPanels} onReportBug={reportBug} /></Probe>
+        onTab={onTab} onSplit={toggleSplit} onOpen={open} onHome={onHome} onToggleFocus={onToggleFocus} onSettings={openSettings} onPanels={onPanels} onReportBug={reportBug} onSupport={openSupportPage} supportHidden={!support.ready || support.active} /></Probe>
       <UpdateNotice enabled={settings.updateCheck} ready={ready} after={supportSettled} t={t} onOpenFailed={onUpdateOpenFailed} />
       {board ? <>
         <div className="workspace" data-left={!focusLayout && panels.left ? 'open' : 'closed'} data-right={!focusLayout && panels.right ? 'open' : 'closed'} data-split={split.enabled} data-tab={activeTab}>
@@ -316,23 +328,25 @@ export default function Shell({ api }: { api: WorkspaceApi }) {
           <div ref={mainRef} className="wsp-main" role="tabpanel" id="wsp-tabpanel" aria-labelledby={`wsp-tab-${activeTab}`} aria-label={T.tabpanel} data-testid="main-panel">{content}</div>
           {!focusLayout && panels.right && <Probe id="inspector"><Inspector api={api} floating={false} activeDocumentId={bookmarkDocument} onLocate={() => command('center-selection')} onEditNote={editNote} onShowSchematic={showSchematic} onShowNet={showNet} onLink={openLink} onOpenHit={openHit} onOpenPage={openPage} /></Probe>}
         </div>
-        <Probe id="status"><StatusBar store={statusStore} fmt={fmt} t={t} counts={counts} warnings={board.warnings.length} save={state.save} persistence={state.persistence} breadcrumb={breadcrumb} onInfo={() => setModal('info')} onHelp={() => setModal('help')} /></Probe>
+        <Probe id="status"><StatusBar store={statusStore} fmt={fmt} t={t} counts={counts} warnings={board.warnings.length} save={state.save} persistence={state.persistence} breadcrumb={breadcrumb} unresolvedNotes={unresolvedCount} onInfo={() => setModal('info')} onHelp={() => setModal('help')} onUnresolvedNotes={() => setModal('notes')} /></Probe>
       </> : <Welcome recents={state.import.recents} onOpen={open} onRecent={path => void actions.openRecent(path)} onHelp={() => setModal('help')} />}
 
       {modal === 'settings' && <SettingsDialog settings={settings} onUpdate={update} onClose={closeModal} initialFocus={settingsFocus.current} />}
-      {modal === 'help' && <HelpDialog onClose={closeModal} />}
+      {modal === 'help' && <HelpDialog onClose={closeModal} onDiagnostic={() => setModal('diagnostic')} />}
+      {modal === 'diagnostic' && <DiagnosticDialog onClose={closeModal} />}
       {modal === 'recents' && <RecentsDialog recents={state.import.recents} onOpenRecent={path => { setModal(null); void actions.openRecent(path); }} onOpenOther={() => { setModal(null); open(); }} onClose={closeModal} />}
       {modal === 'info' && board && <InfoDialog board={board} onClose={closeModal} />}
       {modal === 'export' && <ExportDialog api={api} onClose={closeModal} />}
+      {modal === 'notes' && board && <UnresolvedNotesDialog api={api} onClose={closeModal} />}
       {modal === 'link' && <LinkDialog api={api} aliases={aliases} onCreate={createAlias} onRemove={removeAlias} onClose={closeModal} />}
       {noteTarget && <NoteDialog api={api} target={noteTarget} onClose={closeNote} />}
-      <SupportNotice ready={ready} t={t} onSettled={onSupportSettled} />
+      <SupportNotice ready={ready && support.ready} suppressed={support.active} requested={supportRequested} blocked={!!modal || !!noteTarget || !!state.import.keyRequest || state.import.phase !== 'idle'} t={t} onShown={onSupportShown} onSettled={onSupportSettled} onVerified={support.verified} />
       {/* Like the update strip, the key dialog waits for the support notice: shown on top of it, its Esc cancelled the key request instead of skipping the notice (H3-03). The request itself stays pending in the core. */}
       {supportSettled && state.import.keyRequest && <KeyDialog key={state.import.keyRequest.fileName + state.import.keyRequest.code} request={state.import.keyRequest} onSubmit={value => actions.submitKey(value)} onCancel={() => actions.cancelKeyRequest()} />}
       {toasts.length > 0 && <div className="wsp-toasts" aria-live="polite">{toasts.map(toast => <div key={toast.id} className={'toast' + (toast.kind === 'error' ? ' error' : '')} role={toast.kind === 'error' ? 'alert' : 'status'} data-testid="toast">
         {toast.kind === 'error' ? <AlertCircle size={17} /> : <Check size={17} />}<span>{text(toast.message)}</span>
         <button type="button" aria-label={t('toast.close')} onClick={() => toast.id < 0 ? setLocalToasts(list => list.filter(item => item.id !== toast.id)) : actions.dismissNotice(toast.id)}><X size={14} /></button></div>)}</div>}
-      {state.import.phase !== 'idle' && <div className="loading-overlay" role="status" data-testid="loading-overlay"><div className="loading-card"><CircuitBoard size={32} /><h2>{t(state.import.phase === 'processing' ? 'loading.processing' : 'loading.reading')}</h2><div className="loading-track"><span /></div><p>{t('loading.hint')}</p></div></div>}
+      {state.import.phase !== 'idle' && <LoadingOverlay phase={state.import.phase} progress={state.import.progress ?? null} onCancel={() => actions.cancelImport()} />}
       {dragging && <div className="drop-overlay"><div><FolderOpen size={44} /><h2>{board ? T.dropDocuments : t('drop.title')}</h2><p>{board ? T.dropDocumentsHint : DROP_HINT}</p></div></div>}
     </div>
   </UiContext.Provider>;

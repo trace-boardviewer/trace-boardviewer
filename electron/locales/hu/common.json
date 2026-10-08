@@ -1,0 +1,24 @@
+{
+  "common.close": "Bezárás",
+  "common.done": "Kész",
+  "common.save": "Mentés",
+  "common.delete": "Törlés",
+  "common.note": "Megjegyzés",
+  "common.skip": "Kihagyás",
+
+  "unit.components": "{count} alkatrész",
+  "unit.pins": "{count} pin",
+  "unit.nets": "{count} net",
+  "unit.results": "{count} találat",
+  "unit.total": "{count} összesen",
+
+  "side.top": "Felső",
+  "side.bottom": "Alsó",
+  "side.both": "Mindkettő",
+  "side.topLabel": "Felső oldal",
+  "side.bottomLabel": "Alsó oldal",
+  "side.bothLabel": "Mindkét oldal",
+  "side.badgeTop": "F",
+  "side.badgeBottom": "A",
+  "side.badgeBoth": "F/A"
+}

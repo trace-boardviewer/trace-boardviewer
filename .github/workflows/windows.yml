@@ -923,6 +923,12 @@ jobs:
 
           Each .sha256 file verifies the download next to it.
           "@ | Set-Content -LiteralPath release-notes.md -Encoding utf8
+          # A version with a prerelease suffix is a test release: its notes say so first. The notes of a stable version stay exactly as written above.
+          if ($env:TRACE_VERSION -match '-') {
+            $tracePrereleaseNote = '**This is a prerelease for testing.** An installed TRACE never offers it as an update, and it may still change. Please report problems through the bug report form of this repository and do not attach proprietary board files.' + [Environment]::NewLine + [Environment]::NewLine
+            $traceNotes = Get-Content -LiteralPath release-notes.md -Raw
+            Set-Content -LiteralPath release-notes.md -Value ($tracePrereleaseNote + $traceNotes) -Encoding utf8 -NoNewline
+          }
           $traceArgs = @($env:TRACE_TAG) + $traceAssets + @('--draft', '--verify-tag', '--title', "TRACE Boardviewer $env:TRACE_VERSION", '--notes-file', 'release-notes.md')
           # A version with a prerelease suffix (1.3.0-rc.1) is created as a prerelease: GitHub never reports it as the latest
           # release, so the update check inside the app (releases/latest) never sees a suffixed tag.

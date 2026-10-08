@@ -1,0 +1,44 @@
+{
+  "common.close": "Закрити",
+  "common.done": "Готово",
+  "common.save": "Зберегти",
+  "common.delete": "Видалити",
+  "common.note": "Нотатка",
+  "common.skip": "Пропустити",
+
+  "unit.components": {
+    "one": "{count} компонент",
+    "few": "{count} компоненти",
+    "many": "{count} компонентів",
+    "other": "{count} компонентів"
+  },
+  "unit.pins": {
+    "one": "{count} пін",
+    "few": "{count} піни",
+    "many": "{count} пінів",
+    "other": "{count} пінів"
+  },
+  "unit.nets": {
+    "one": "{count} ланцюг",
+    "few": "{count} ланцюги",
+    "many": "{count} ланцюгів",
+    "other": "{count} ланцюгів"
+  },
+  "unit.results": {
+    "one": "{count} результат",
+    "few": "{count} результати",
+    "many": "{count} результатів",
+    "other": "{count} результатів"
+  },
+  "unit.total": "Усього: {count}",
+
+  "side.top": "Верх",
+  "side.bottom": "Низ",
+  "side.both": "Обидві",
+  "side.topLabel": "Верхня сторона",
+  "side.bottomLabel": "Нижня сторона",
+  "side.bothLabel": "Обидві сторони",
+  "side.badgeTop": "В",
+  "side.badgeBottom": "Н",
+  "side.badgeBoth": "В/Н"
+}

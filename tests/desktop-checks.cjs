@@ -158,7 +158,9 @@ async function desktopHarness(directory, options = {}) {
       return options.openExternal ? options.openExternal(url, ...rest) : Promise.resolve();
     },
   };
-  // The only network function main.cjs may use (update check). No test touches the network: a request without `options.fetch` is refused.
+  // The only network function the main process may use: the fetch of the in-memory 'trace-egress' partition (electron/net/egress.cjs, created on first
+  // use), which the harness answers through `net.fetch` so that every request is recorded in `net.requests`. No test touches the network: a request
+  // without `options.fetch` is refused. `partitions` lists every session main.cjs asked for, `egressSession` is the one it got.
   const net = {
     requests: [],
     fetch(url, init) {
@@ -166,6 +168,13 @@ async function desktopHarness(directory, options = {}) {
       return options.fetch ? options.fetch(url, init) : Promise.reject(new Error('no network in tests'));
     },
   };
+  const partitions = [];
+  const egressSession = Object.assign(new EventEmitter(), {
+    webRequest: { listeners: [], onBeforeRequest(filter, listener) { this.listeners.push({ filter, listener }); } },
+    setPermissionRequestHandler(callback) { this.permissionHandler = callback; },
+    setPermissionCheckHandler(callback) { this.permissionCheck = callback; },
+    fetch(url, init) { return net.fetch(url, init); },
+  });
   // The application menu: `templates` holds every template main.cjs built, `applied` every value it set (null, or the built menu).
   const menu = {
     templates: [], applied: [],
@@ -183,7 +192,8 @@ async function desktopHarness(directory, options = {}) {
     },
   };
   const electron = {
-    app, BrowserWindow: MockBrowserWindow, dialog, Menu: menu, nativeImage, shell, net, session: { defaultSession },
+    app, BrowserWindow: MockBrowserWindow, dialog, Menu: menu, nativeImage, shell, net,
+    session: { defaultSession, fromPartition(name, partitionOptions) { partitions.push({ name, options: partitionOptions }); return egressSession; } },
     ipcMain: {
       handle(channel, callback) { handlers.set(channel, callback); },
       on(channel, callback) { messages.set(channel, callback); },
@@ -212,7 +222,7 @@ async function desktopHarness(directory, options = {}) {
   if (!options.deferReady && !options.noWindow) await waitForWindow();
   const event = () => ({ sender: window.webContents, senderFrame: window.webContents.mainFrame });
   return {
-    get window() { return window; }, get windows() { return [...created]; }, context, app, dialog, shell, net, menu, nativeImage, session: electron.session, handlers, languageCalls, waitForWindow,
+    get window() { return window; }, get windows() { return [...created]; }, context, app, dialog, shell, net, partitions, egressSession, menu, nativeImage, session: electron.session, handlers, languageCalls, waitForWindow,
     releaseReady: () => markReady(),
     invoke: (channel, ...args) => handlers.get(channel)(event(), ...args),
     message: (channel, ...args) => messages.get(channel)(event(), ...args),
@@ -305,7 +315,7 @@ test('desktop IPC, local import, persistence and boundary checks', async (t) => 
 
   await t.test('paths, extensions, empty and oversized files fail clearly; recognition is left to the renderer parser', async () => {
     await assert.rejects(invoke('trace:read-board', '../Circuit.CAD'), /Érvénytelen helyi/);
-    await assert.rejects(invoke('trace:read-board', path.join(directory, 'secret.txt')), { message: i18n.translate('hu', 'native.error.unsupportedFile') });
+    await assert.rejects(invoke('trace:read-board', path.join(directory, 'secret.unsupported')), { message: i18n.translate('hu', 'native.error.unsupportedFile') });
     await assert.rejects(invoke('trace:read-board', path.join(directory, 'missing.cad')), /nem található/);
     const arbitrary = path.join(directory, 'not-a-board.cad');
     await fs.writeFile(arbitrary, 'This file is not GENCAD');
@@ -370,7 +380,7 @@ test('desktop IPC, local import, persistence and boundary checks', async (t) => 
       assert.equal(payload.name, path.basename(filename));
       assert.equal(bytesOf(payload.data).toString('utf8'), `bytes of ${extension}`);
     }
-    for (const name of ['board.txt', 'board.cad.bak', 'board', 'board.CAD.exe', 'cad']) {
+    for (const name of ['board.unsupported', 'board.cad.bak', 'board', 'board.CAD.exe', 'cad']) {
       await assert.rejects(invoke('trace:read-board', path.join(samples, name)), { message: i18n.translate('hu', 'native.error.unsupportedFile') });
     }
     // External launches: --board=, a bare absolute path, and an unsupported bare path that is ignored without a dialog.
@@ -378,7 +388,7 @@ test('desktop IPC, local import, persistence and boundary checks', async (t) => 
     await fs.writeFile(brd, 'str_length:\n');
     const kicad = path.join(samples, 'Launch.kicad_pcb');
     await fs.writeFile(kicad, '(kicad_pcb)');
-    await fs.writeFile(path.join(samples, 'notes.txt'), 'not a board');
+    await fs.writeFile(path.join(samples, 'notes.unsupported'), 'not a board');
     const launched = await desktopHarness(path.join(directory, 'extension-launch-profile'));
     await launched.invoke('trace:initial-board');
     const delivered = () => launched.window.webContents.sent.filter((event) => event.channel === 'trace:board-opened').map((event) => event.value.name);
@@ -386,7 +396,7 @@ test('desktop IPC, local import, persistence and boundary checks', async (t) => 
     await settle(() => delivered().length >= 1);
     launched.app.emit('second-instance', {}, ['electron.exe', 'app', kicad]);
     await settle(() => delivered().length >= 2);
-    launched.app.emit('second-instance', {}, ['electron.exe', 'app', path.join(samples, 'notes.txt')]);
+    launched.app.emit('second-instance', {}, ['electron.exe', 'app', path.join(samples, 'notes.unsupported')]);
     await new Promise((resolve) => setTimeout(resolve, 30));
     assert.deepEqual(delivered(), ['Launch.brd', 'Launch.kicad_pcb']);
     assert.equal(launched.dialog.messages.length, 0);
@@ -1065,9 +1075,9 @@ test('native localization: language setting, migration, detection, dialogs and m
   });
 
   await t.test('every native message key used by the native modules exists in all eight catalogs and none is left unused', async () => {
-    // main.cjs hands its translator to store.cjs and documents.cjs, which look up their own keys.
+    // main.cjs hands its translator to store.cjs, repair-store.cjs and documents.cjs, which look up their own keys.
     let source = '';
-    for (const name of ['main', 'store', 'documents', 'workspace', 'identity', 'formats']) source += await fs.readFile(path.resolve(__dirname, '..', 'electron', `${name}.cjs`), 'utf8');
+    for (const name of ['main', 'store', 'repair-store', 'documents', 'workspace', 'identity', 'formats']) source += await fs.readFile(path.resolve(__dirname, '..', 'electron', `${name}.cjs`), 'utf8');
     const used = new Set([...source.matchAll(/\bt\('(native\.[\w.]+)'/g)].map((match) => match[1]));
     assert.ok(used.size >= 25, 'main.cjs should use the native catalog keys');
     // Recognition moved to the renderer parser: the key that judged GENCAD content was removed from every catalog.
@@ -1118,7 +1128,7 @@ test('format manifest: electron/formats.cjs mirrors electron/formats.json and re
   assert.equal(formats.companionNames('format.asc').includes('other.asc'), false, 'callers receive a copy');
   assert.equal(formats.isSupportedExtension('C:\\Boards\\BOARD.CAD'), true);
   assert.equal(formats.isSupportedExtension('board.kicad_pcb'), formats.SUPPORTED_EXTENSIONS.includes('.kicad_pcb'));
-  for (const value of ['board.txt', 'board.cad.bak', 'board', '', 'cad', undefined, null, 7]) assert.equal(formats.isSupportedExtension(value), false, String(value));
+  for (const value of ['board.unsupported', 'board.cad.bak', 'board', '', 'cad', undefined, null, 7]) assert.equal(formats.isSupportedExtension(value), false, String(value));
   const filters = formats.dialogFilters('Every board');
   assert.deepEqual(filters[0], { name: 'Every board', extensions: formats.SUPPORTED_EXTENSIONS.map((extension) => extension.slice(1)) });
   for (const filter of filters) assert.ok(filter.extensions.every((extension) => !extension.startsWith('.') && formats.SUPPORTED_EXTENSIONS.includes(`.${extension}`)), filter.name);
@@ -1130,8 +1140,11 @@ test('format manifest: electron/formats.cjs mirrors electron/formats.json and re
     { extensions: ['.c ad'] }, { extensions: ['.cad'], companions: [] }, { extensions: ['.cad'], companions: { 'format.asc': 'pins.asc' } },
     { extensions: ['.cad'], companions: { 'format.asc': ['format.asc'] } }, { extensions: ['.cad'], companions: { 'Format.asc': ['pins.asc'] } },
     { extensions: ['.cad'], companions: { 'format.asc': ['../pins.asc'] } }, { extensions: ['.cad'], companions: { 'format.asc': ['PINS.asc'] } },
+    { extensions: ['.cad'], families: {} }, { extensions: ['.cad'], families: [{ name: 'GenCAD', extensions: ['.brd'] }] }, { extensions: ['.cad'], families: [{ name: 'Gén', extensions: ['.cad'] }] },
+    { extensions: ['.cad'], families: [{ name: 'GenCAD', extensions: '.cad' }] }, { extensions: ['.cad'], families: [null] },
   ]) assert.throws(() => load(bad), /formats\.json/, JSON.stringify(bad));
-  const loaded = load({ extensions: ['.cad'], companions: { 'a.asc': ['b.asc'] } });
+  assert.deepEqual(Array.from(load({ extensions: ['.cad'] }).dialogFilters('x'), (filter) => Array.from(filter.extensions)), [['cad']], 'no families: only the every-format filter');
+  const loaded = load({ extensions: ['.cad'], companions: { 'a.asc': ['b.asc'] }, families: [{ name: 'GenCAD', extensions: ['.cad'] }] });
   assert.deepEqual([...loaded.SUPPORTED_EXTENSIONS], ['.cad']);
   assert.deepEqual([...loaded.companionNames('A.ASC')], ['b.asc']);
   assert.deepEqual(Array.from(loaded.dialogFilters('x'), (filter) => Array.from(filter.extensions)), [['cad'], ['cad']]);
@@ -1203,6 +1216,56 @@ test('native workspace, documents and shutdown gate through the IPC handlers', a
     await assert.rejects(harness.invoke('trace:get-notes', KEY), { message: text('native.error.notesUnreadable') });
     await harness.invoke('trace:save-notes', KEY, [component]);
     assert.deepEqual(plain(await harness.invoke('trace:get-notes', KEY)), [component], 'an explicit save recovers a damaged file');
+  });
+
+  await t.test('keyed notes: stored and returned as keys next to positional notes, validated like the others; the first save that replaces positional notes keeps the old file once', async () => {
+    const directory = profile();
+    const harness = await desktopHarness(directory);
+    const file = path.join(directory, 'notes', `${KEY}.json`), copy = `${file}.positional.bak`;
+    const exists = (target) => fs.access(target).then(() => true, () => false);
+    const positional = [{ id: 'n1', componentId: 'part:1', text: 'old part note', updatedAt: NOW }, { id: 'n2', componentId: 'part:1', pinId: 'pin:4', text: 'old pin note', measurements: { voltage: '0.4 V' }, updatedAt: NOW }];
+    // An older writer (or the renderer before the conversion): positional notes, no copy is made of anything.
+    await harness.invoke('trace:save-notes', KEY, positional);
+    assert.equal(await exists(copy), false, 'nothing was converted, nothing is kept');
+    await harness.invoke('trace:save-notes', KEY, [...positional, { id: 'n3', componentId: 'part:2', text: 'second save, still positional', updatedAt: NOW }]);
+    assert.equal(await exists(copy), false);
+    // The conversion: keyed notes plus one that could not be placed. The file as it was is kept beside the new one.
+    const before = JSON.parse(await fs.readFile(file, 'utf8'));
+    const converted = [
+      { id: 'n1', target: { ref: 'U1' }, text: 'old part note', updatedAt: NOW },
+      { id: 'n2', target: { ref: 'U1', pin: '3' }, text: 'old pin note', measurements: { voltage: '0.4 V' }, updatedAt: NOW },
+      { id: 'n3', componentId: 'part:2', text: 'second save, still positional', updatedAt: NOW, unresolved: { reason: 'legacy-id-missing', at: NOW } },
+    ];
+    await harness.invoke('trace:save-notes', KEY, converted);
+    assert.deepEqual(plain(await harness.invoke('trace:get-notes', KEY)), converted, 'keys, positional leftovers and their record survive a round trip');
+    assert.deepEqual(JSON.parse(await fs.readFile(copy, 'utf8')), before, 'the copy is exactly the file that was replaced');
+    assert.deepEqual((await fs.readdir(path.join(directory, 'notes'))).filter((name) => name.endsWith('.tmp')), []);
+    // Later saves change the notes, never the copy.
+    await harness.invoke('trace:save-notes', KEY, [...converted, { id: 'n4', target: { ref: 'R1', at: { side: 'top', x: 12.5, y: -8.25 } }, text: 'duplicate reference, bound by position', updatedAt: NOW }]);
+    assert.deepEqual(JSON.parse(await fs.readFile(copy, 'utf8')), before);
+    assert.equal(plain(await harness.invoke('trace:get-notes', KEY)).length, 4);
+    // The copy is not a note file: another board never sees it, and it is not read as this board's notes.
+    assert.deepEqual(plain(await harness.invoke('trace:get-notes', 'b'.repeat(64))), []);
+    // A board that never had positional notes gets no copy.
+    const other = 'c'.repeat(64);
+    await harness.invoke('trace:save-notes', other, [{ id: 'k', target: { ref: 'U1' }, text: 'keyed from the start', updatedAt: NOW }]);
+    await harness.invoke('trace:save-notes', other, [{ id: 'k', target: { ref: 'U1' }, text: 'edited', updatedAt: NOW }]);
+    assert.equal(await exists(path.join(directory, 'notes', `${other}.json.positional.bak`)), false);
+    // The same rules on write and read as for the positional kind (B15): one note per key, canonical names, bounded positions.
+    const invalid = { message: text('native.error.invalidNote', { max: 8000 }) };
+    const keyed = { id: 'k1', target: { ref: 'U1' }, text: 'a', updatedAt: NOW };
+    await assert.rejects(harness.invoke('trace:save-notes', KEY, [keyed, { ...keyed, id: 'k2', target: { ref: ' U1 ' } }]), invalid, 'two spellings of one key');
+    await assert.rejects(harness.invoke('trace:save-notes', KEY, [{ ...keyed, target: {} }]), invalid);
+    await assert.rejects(harness.invoke('trace:save-notes', KEY, [{ ...keyed, target: { ref: 'U1', pin: '1', pinAt: { side: 'top', x: 0, y: 0 } } }]), invalid);
+    await assert.rejects(harness.invoke('trace:save-notes', KEY, [{ ...keyed, target: { at: { side: 'top', x: 1e10, y: 0 } } }]), invalid);
+    await assert.rejects(harness.invoke('trace:save-notes', KEY, [{ ...keyed, componentId: 'U1' }]), invalid, 'a key and a positional id together');
+    await assert.rejects(harness.invoke('trace:save-notes', KEY, [{ id: 'n3', componentId: 'part:2', text: 'x', updatedAt: NOW, unresolved: { reason: 'because', at: NOW } }]), invalid);
+    // A damaged file is still reported and still recovered by an explicit save, with the copy untouched.
+    await fs.writeFile(file, JSON.stringify([keyed, { ...keyed, id: 'k2' }]));
+    await assert.rejects(harness.invoke('trace:get-notes', KEY), { message: text('native.error.notesUnreadable') });
+    await harness.invoke('trace:save-notes', KEY, [keyed]);
+    assert.deepEqual(plain(await harness.invoke('trace:get-notes', KEY)), [keyed]);
+    assert.deepEqual(JSON.parse(await fs.readFile(copy, 'utf8')), before);
   });
 
   await t.test('workspace channels: round trip, BOARD_MISMATCH never attaches another board, damaged files are reported and recoverable', async () => {
@@ -1445,9 +1508,10 @@ test('native workspace, documents and shutdown gate through the IPC handlers', a
     const source = await fs.readFile(path.resolve(__dirname, '..', 'electron', 'preload.cjs'), 'utf8');
     vm.runInNewContext(source, { require: (name) => (name === 'electron' ? electron : require(name)) }, { filename: 'preload.cjs' });
     assert.deepEqual(Object.keys(api).sort(), [
-      'acceptBoard', 'checkForUpdates', 'close', 'droppedFilePath', 'exportWorkspace', 'getNotes', 'getSettings', 'initialBoard', 'isMaximized', 'loadWorkspace', 'locateDocuments', 'maximize', 'minimize',
-      'onFlushRequest', 'onMaximized', 'onOpenBoard', 'openBoard', 'openSupportLink', 'openUpdatePage', 'pickDocuments', 'readBoard', 'readDocument', 'recentBoards', 'saveNotes', 'saveSettings', 'saveWorkspace',
-    ], 'the preload exposes exactly the TraceDesktop members (plus onFlushRequest, the close/quit flush hook; openSupportLink takes an id, never a URL; checkForUpdates and openUpdatePage take no argument at all)');
+      'acceptBoard', 'appendReadings', 'checkForUpdates', 'clearNetworkActivity', 'close', 'droppedFilePath', 'exportReadings', 'exportWorkspace', 'getNetworkActivity', 'getNotes', 'getSettings', 'importReadings', 'initialBoard', 'isMaximized',
+      'checkSupport', 'getSupportStatus', 'prepareSupport', 'listReadingFamilies', 'loadWorkspace', 'locateDocuments', 'maximize', 'minimize', 'onFlushRequest', 'onMaximized', 'onOpenBoard', 'openBoard', 'openSupportLink', 'openUpdatePage', 'pickDiagnosticFile', 'pickDocuments', 'readBoard', 'readDocument', 'readReadings',
+      'recentBoards', 'saveDiagnosticReport', 'saveNotes', 'saveSettings', 'saveWorkspace',
+    ].sort(), 'the preload exposes exactly the TraceDesktop members; support status, preparation and verification accept no argument');
     harness.app.emit('before-quit', { preventDefault() {} });
     for (const call of [() => api.saveNotes(KEY, []), () => api.saveWorkspace(KEY, manifest()), async () => api.saveSettings(await api.getSettings())]) {
       await assert.rejects(call(), (error) => error.code === 'STORE_CLOSING' && /^\[STORE_CLOSING\] The data store is shutting down/.test(error.message) && !/Error invoking/.test(error.message));
@@ -1794,15 +1858,28 @@ test('native workspace, documents and shutdown gate through the IPC handlers', a
 });
 
 // Support notice (shown on every start, easy to skip). The links are constants of the MAIN process only: the
-// renderer sends an id over 'trace:open-support-link', main maps it and calls shell.openExternal for exactly these three URLs (Stripe, Ko-fi, the GitHub bug report form).
-test('support notice: trace:open-support-link opens only the three fixed links by id; any other value is rejected and shell.openExternal is never called', async (t) => {
+// renderer sends an id over 'trace:open-support-link', main maps it and calls shell.openExternal for exactly these four URLs (Stripe, Ko-fi, the GitHub bug report form,
+// and the support page of the project website that the heart button of the top bar opens).
+test('support notice: trace:open-support-link opens only the four fixed links by id; any other value is rejected and shell.openExternal is never called', async (t) => {
   const root = await makeTempDir('trace-support-link-test-');
   t.after(async () => {
     const absolute = path.resolve(root);
     assert.ok(await isInsideTemp(absolute));
     await fs.rm(absolute, { recursive: true, force: true });
   });
-  const URLS = { stripe: 'https://donate.stripe.com/7sYaEZeET2op8PxaGE5EY00', kofi: 'https://ko-fi.com/tracerboardview', bug: 'https://github.com/trace-boardviewer/trace-boardviewer/issues/new?template=bug_report.yml' };
+  const URLS = {
+    stripe: 'https://donate.stripe.com/7sYaEZeET2op8PxaGE5EY00', kofi: 'https://ko-fi.com/tracerboardview', bug: 'https://github.com/trace-boardviewer/trace-boardviewer/issues/new?template=bug_report.yml',
+    support: 'https://trace-boardviewer.github.io/support.html',
+  };
+  const stripeLink = async harness => {
+    const url = new URL(URLS.stripe);
+    if (require('../electron/support-verification.json').enabled) {
+      const prepared = await harness.invoke('trace:prepare-support');
+      assert.match(prepared.code, /^[a-f0-9]{32}$/);
+      url.searchParams.set('client_reference_id', prepared.code);
+    }
+    return url.href;
+  };
   let counter = 0;
   const profile = () => path.join(root, `profile-${++counter}`);
   const describeValue = (value) => (typeof value === 'symbol' ? `symbol ${value.description}` : typeof value === 'bigint' ? `${value}n` : typeof value === 'function' ? 'function' : typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value));
@@ -1816,15 +1893,18 @@ test('support notice: trace:open-support-link opens only the three fixed links b
     assert.deepEqual(harness.shell.opened, []);
   });
 
-  await t.test('stripe, kofi and bug open exactly their constant URLs, once per request, with no extra arguments', async () => {
+  await t.test('stripe, kofi, bug and support open exactly their constant URLs, once per request, with no extra arguments', async () => {
     const harness = await desktopHarness(profile());
+    const stripe = await stripeLink(harness);
     assert.equal(await harness.invoke('trace:open-support-link', 'stripe'), undefined);
-    assert.deepEqual(harness.shell.opened, [URLS.stripe]);
+    assert.deepEqual(harness.shell.opened, [stripe]);
     assert.equal(await harness.invoke('trace:open-support-link', 'kofi'), undefined);
-    assert.deepEqual(harness.shell.opened, [URLS.stripe, URLS.kofi]);
+    assert.deepEqual(harness.shell.opened, [stripe, URLS.kofi]);
     assert.equal(await harness.invoke('trace:open-support-link', 'bug'), undefined);
-    assert.deepEqual(harness.shell.opened, [URLS.stripe, URLS.kofi, URLS.bug]);
-    assert.deepEqual(harness.shell.extraArguments, [[], [], []], 'openExternal gets the URL only');
+    assert.deepEqual(harness.shell.opened, [stripe, URLS.kofi, URLS.bug]);
+    assert.equal(await harness.invoke('trace:open-support-link', 'support'), undefined);
+    assert.deepEqual(harness.shell.opened, [stripe, URLS.kofi, URLS.bug, URLS.support]);
+    assert.deepEqual(harness.shell.extraArguments, [[], [], [], []], 'openExternal gets the URL only');
     for (const url of harness.shell.opened) assert.equal(new URL(url).protocol, 'https:');
   });
 
@@ -1832,9 +1912,12 @@ test('support notice: trace:open-support-link opens only the three fixed links b
     const harness = await desktopHarness(profile());
     const invalid = [
       'paypal', 'Stripe', 'KOFI', ' stripe', 'kofi ', 'stripe\n', 'stripe\0', '', 'ko-fi', 'donate', 'Bug', 'BUG', 'bug ', 'bug\n', 'bugs', 'issue', 'issues', 'report', 'github',
+      'Support', 'SUPPORT', ' support', 'support ', 'support\n', 'support\0', 'supports', 'support.html', 'website', 'site', 'home', 'trace-boardviewer',
       'constructor', 'toString', '__proto__', 'hasOwnProperty', 'valueOf', 'prototype',
-      URLS.stripe, URLS.kofi, URLS.bug, 'https://github.com/trace-boardviewer/trace-boardviewer/issues', 'https://evil.example/', 'http://ko-fi.com/tracerboardview', 'file:///C:/Windows/System32/calc.exe', 'javascript:alert(1)', 'ms-settings:', 'C:\\Windows\\System32\\calc.exe',
+      URLS.stripe, URLS.kofi, URLS.bug, URLS.support, 'https://trace-boardviewer.github.io/', 'https://trace-boardviewer.github.io/support.html?next=https://evil.example/', 'http://trace-boardviewer.github.io/support.html',
+      'https://github.com/trace-boardviewer/trace-boardviewer/issues', 'https://evil.example/', 'http://ko-fi.com/tracerboardview', 'file:///C:/Windows/System32/calc.exe', 'javascript:alert(1)', 'ms-settings:', 'C:\\Windows\\System32\\calc.exe',
       undefined, null, 0, 1, true, false, NaN, 10n, Symbol.for('stripe'), ['stripe'], ['kofi', 'stripe'], { id: 'stripe' }, { toString: () => 'stripe' }, () => 'stripe', new String('stripe'),
+      Symbol.for('support'), ['support'], ['support', 'stripe'], { id: 'support' }, { toString: () => 'support' }, () => 'support', new String('support'),
     ];
     for (const value of invalid) {
       await assert.rejects(harness.invoke('trace:open-support-link', value), /unknown support link/i, `rejected: ${describeValue(value)}`);
@@ -1852,10 +1935,11 @@ test('support notice: trace:open-support-link opens only the three fixed links b
   await t.test('an operating system failure is reported to the renderer (rejected), not swallowed; the next request still works', async () => {
     let fail = true;
     const harness = await desktopHarness(profile(), { openExternal: async () => { if (fail) throw new Error('no handler for https'); } });
+    const stripe = await stripeLink(harness);
     await assert.rejects(harness.invoke('trace:open-support-link', 'stripe'), /no handler for https/);
     fail = false;
     await harness.invoke('trace:open-support-link', 'kofi');
-    assert.deepEqual(harness.shell.opened, [URLS.stripe, URLS.kofi]);
+    assert.deepEqual(harness.shell.opened, [stripe, URLS.kofi]);
   });
 
   await t.test('existing isolation stays untouched: sandbox, context isolation, popups denied, foreign navigation blocked, clipboard-only permissions', async () => {
@@ -1875,10 +1959,13 @@ test('support notice: trace:open-support-link opens only the three fixed links b
     assert.deepEqual(harness.shell.opened, []);
   });
 
-  await t.test('the main-process source holds the two support URLs exactly once each and builds the bug form from the repository slug; the preload source holds none (the renderer never sends a URL)', async () => {
+  await t.test('the main-process source holds the three fixed support URLs exactly once each and builds the bug form from the repository slug; the preload source holds none (the renderer never sends a URL)', async () => {
     const main = await fs.readFile(path.resolve(__dirname, '..', 'electron', 'main.cjs'), 'utf8');
     const preload = await fs.readFile(path.resolve(__dirname, '..', 'electron', 'preload.cjs'), 'utf8');
-    for (const url of [URLS.stripe, URLS.kofi]) assert.equal(main.split(url).length - 1, 1, `${url} appears once in main.cjs`);
+    for (const url of [URLS.stripe, URLS.kofi, URLS.support]) assert.equal(main.split(url).length - 1, 1, `${url} appears once in main.cjs`);
+    const table = /const SUPPORT_LINKS = Object\.freeze\(\{([\s\S]*?)\n\}\);/.exec(main);
+    assert.ok(table, 'main.cjs has the frozen SUPPORT_LINKS table');
+    assert.deepEqual([...table[1].matchAll(/^\s+([a-z]+):/gm)].map((match) => match[1]), ['stripe', 'kofi', 'bug', 'support'], 'the table has exactly the four ids, in this order');
     assert.equal(main.split('bug: `https://github.com/${updates.REPOSITORY}/issues/new?template=bug_report.yml`').length - 1, 1, 'the bug form is built from the slug of updates.cjs (electron/repository.json), once');
     assert.doesNotMatch(main, /github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9._-]+/, 'main.cjs names no repository of its own');
     for (const url of Object.values(URLS)) assert.equal(preload.includes(url), false, `${url} is not in preload.cjs`);
@@ -1901,7 +1988,8 @@ test('support notice: trace:open-support-link opens only the three fixed links b
     await api.openSupportLink('stripe');
     await api.openSupportLink('kofi');
     await api.openSupportLink('bug');
-    assert.deepEqual(calls, [['trace:open-support-link', 'stripe'], ['trace:open-support-link', 'kofi'], ['trace:open-support-link', 'bug']]);
+    await api.openSupportLink('support');
+    assert.deepEqual(calls, [['trace:open-support-link', 'stripe'], ['trace:open-support-link', 'kofi'], ['trace:open-support-link', 'bug'], ['trace:open-support-link', 'support']]);
   });
 });
 
@@ -2061,7 +2149,12 @@ test('update check (electron/updates.cjs): one fixed HTTPS request, a strict tag
   });
 
   await t.test('a timeout is "unavailable" and aborts the request; a fetch that ignores the signal, one that honours it and a body that never ends are all cut off', async () => {
-    const started = Date.now();
+    const delays = [];
+    const nativeTimeout = globalThis.setTimeout;
+    t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
+      delays.push(delay);
+      return nativeTimeout(callback, 0, ...args);
+    });
     const ignoring = await check(() => new Promise(() => {}), { timeoutMs: 40 });
     assert.deepEqual(ignoring.result, UNAVAILABLE);
     assert.equal(ignoring.calls[0].init.signal.aborted, true, 'the signal was aborted');
@@ -2069,7 +2162,8 @@ test('update check (electron/updates.cjs): one fixed HTTPS request, a strict tag
     assert.deepEqual(honouring.result, UNAVAILABLE);
     const stalled = new Response(new ReadableStream({ pull() { return new Promise(() => {}); } }), { status: 200 });
     assert.deepEqual((await check(stalled, { timeoutMs: 40 })).result, UNAVAILABLE);
-    assert.ok(Date.now() - started < 4000, 'none of the three waited for the default 8 s');
+    assert.deepEqual(delays, [40, 40, 40], 'every request uses the caller deadline');
+    globalThis.setTimeout.mock.restore();
     // A fast answer is not delayed or lost by the timer.
     assert.equal((await check(jsonResponse(releaseBody('v1.2.1')), { timeoutMs: 5000 })).result.status, 'available');
   });
@@ -2358,7 +2452,7 @@ test('update notification: trace:check-for-updates and trace:open-update-page ar
       assert.equal(main.includes(url), false, `${url} is not in main.cjs`);
       assert.equal(preload.includes(url), false, `${url} is not in preload.cjs`);
     }
-    assert.equal(main.split('net.fetch(').length - 1, 1, 'exactly one net.fetch call site in main.cjs');
+    assert.equal(main.split('net.fetch(').length - 1, 0, 'main.cjs makes no request itself: the update check goes through electron/net/egress.cjs, the one fetch call site (see the egress isolation test)');
     assert.equal(/\bfetch\(|XMLHttpRequest|node:https?|\bhttps?\.request/.test(preload), false, 'the preload makes no request');
     const calls = [];
     let api;
@@ -2436,6 +2530,1009 @@ test('settings: updateCheck defaults to on, is validated like the other booleans
     const after = plain(await harness.invoke('trace:get-settings'));
     assert.deepEqual(after, { ...settings, theme: 'light' }, 'nothing changed after the rejected saves');
     assert.equal((await readConfig(directory)).settings.theme, 'light');
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// Egress (electron/net/egress.cjs): the one place of the main process that may use the network. Every feature registers with an exact host
+// allow-list, methods, limits, an opt-in and fixed headers; every request and its outcome goes into a bounded in-memory log that the renderer can
+// read (never write, apart from emptying it). No test below touches the network: the fetch is injected.
+// ---------------------------------------------------------------------------------------------------------------
+const egressModule = require('../electron/net/egress.cjs');
+const { createEgress, createElectronFetch } = egressModule;
+
+const SAMPLE_HOST = 'data.example.org';
+const SAMPLE_URL = `https://${SAMPLE_HOST}/library/index.json`;
+const SAMPLE_ID = 'sample-library';
+const sampleFeature = (extra = {}) => ({
+  id: SAMPLE_ID, hosts: [SAMPLE_HOST], methods: ['GET'], maxBytes: 4096, timeoutMs: 1000, headers: { Accept: 'application/json' }, responseHeaders: ['retry-after'], ...extra,
+});
+/** An egress around a fake fetch; `answer` is a Response, or a function (url, init) that makes one or throws. Returns the layer and the calls the fetch saw. */
+function sampleEgress({ answer = () => jsonResponse({ ok: true }), feature = {}, register = true, ...options } = {}) {
+  const calls = [];
+  const fetchImpl = async (url, init) => { calls.push({ url, init }); return typeof answer === 'function' ? answer(url, init) : answer; };
+  const layer = createEgress({ fetchImpl, version: '1.2.0', ...options });
+  if (register) layer.register(sampleFeature(feature));
+  return { layer, calls };
+}
+const lastEntry = (layer) => layer.activity().entries.at(-1);
+/** A body that streams `chunks` (byte counts) and counts how often it is pulled and whether it was cancelled. */
+function countedStream(chunkSizes, { endless = false } = {}) {
+  const state = { pulls: 0, cancelled: false };
+  let index = 0;
+  const body = new ReadableStream({
+    pull(controller) {
+      state.pulls++;
+      if (index < chunkSizes.length) controller.enqueue(new Uint8Array(chunkSizes[index++]).fill(120));
+      else if (endless) controller.enqueue(new Uint8Array(1024).fill(120));
+      else controller.close();
+    },
+    cancel() { state.cancelled = true; },
+  });
+  return { body, state };
+}
+
+test('egress registration: a feature needs an exact host list and limits; a bad descriptor or a repeated id throws, nothing is ever opened by accident', async (t) => {
+  const fresh = () => createEgress({ fetchImpl: async () => jsonResponse({}), version: '1.2.0' });
+
+  await t.test('a good descriptor registers once and is frozen; a changed copy of it later does not change the policy', async () => {
+    const layer = fresh();
+    const descriptor = sampleFeature();
+    const feature = layer.register(descriptor);
+    assert.equal(Object.isFrozen(feature), true);
+    assert.equal(Object.isFrozen(feature.hosts), true);
+    assert.equal(Object.isFrozen(feature.headers), true);
+    assert.throws(() => layer.register(sampleFeature()), TypeError, 'the same id twice');
+    descriptor.hosts.push('evil.example');
+    descriptor.headers.Cookie = 'a=b';
+    assert.deepEqual([...feature.hosts], [SAMPLE_HOST]);
+    assert.deepEqual({ ...feature.headers }, { Accept: 'application/json' });
+    assert.equal(layer.isAllowedUrl('https://evil.example/'), false);
+    assert.deepEqual(layer.features(), [{ id: SAMPLE_ID, hosts: [SAMPLE_HOST], methods: ['GET'], optIn: null, enabled: true }]);
+  });
+
+  await t.test('every descriptor that could widen the policy is rejected: wildcards, IPs, ports, schemes, other methods, redirect following, forbidden headers, unknown fields', async () => {
+    const { maxBytes: _maxBytes, ...withoutMaxBytes } = sampleFeature();
+    const { timeoutMs: _timeoutMs, ...withoutTimeout } = sampleFeature();
+    const bad = [
+      {}, null, [], 'sample', sampleFeature({ id: 'Bad Id' }), sampleFeature({ id: 'x' }), sampleFeature({ id: 'a'.repeat(49) }), sampleFeature({ id: undefined }),
+      sampleFeature({ hosts: [] }), sampleFeature({ hosts: undefined }), sampleFeature({ hosts: 'data.example.org' }), sampleFeature({ hosts: ['*.example.org'] }),
+      sampleFeature({ hosts: ['example.org:8443'] }), sampleFeature({ hosts: ['Example.org'] }), sampleFeature({ hosts: ['localhost'] }), sampleFeature({ hosts: ['192.168.0.1'] }),
+      sampleFeature({ hosts: ['[::1]'] }), sampleFeature({ hosts: ['https://example.org'] }), sampleFeature({ hosts: ['example.org/path'] }), sampleFeature({ hosts: ['example.org.'] }),
+      sampleFeature({ hosts: ['a.example.org', 'a.example.org'] }), sampleFeature({ hosts: Array.from({ length: 9 }, (_, i) => `h${i}.example.org`) }), sampleFeature({ hosts: [''] }), sampleFeature({ hosts: [42] }),
+      sampleFeature({ methods: ['POST'] }), sampleFeature({ methods: ['GET', 'DELETE'] }), sampleFeature({ methods: [] }), sampleFeature({ methods: ['get'] }), sampleFeature({ methods: 'GET' }),
+      sampleFeature({ redirect: 'follow' }), sampleFeature({ redirect: 'manual' }), sampleFeature({ redirect: 'error' }),
+      withoutMaxBytes, withoutTimeout, sampleFeature({ maxBytes: 0 }), sampleFeature({ maxBytes: -1 }), sampleFeature({ maxBytes: 1.5 }), sampleFeature({ maxBytes: '4096' }), sampleFeature({ maxBytes: 64 * 1024 * 1024 }),
+      sampleFeature({ timeoutMs: 0 }), sampleFeature({ timeoutMs: 10 ** 9 }), sampleFeature({ timeoutMs: NaN }), sampleFeature({ maxInFlight: 0 }), sampleFeature({ maxInFlight: 9 }),
+      ...['Authorization', 'authorization', 'Proxy-Authorization', 'Cookie', 'Cookie2', 'Set-Cookie', 'Referer', 'Origin', 'Host', 'User-Agent', 'Accept-Language', 'Content-Type', 'Content-Length', 'Transfer-Encoding', 'Connection',
+        'X-Api-Key', 'X-Session-Id', 'X-Auth-Token', 'X-Password', 'X-Secret', 'X-Forwarded-For', 'X-Real-IP', 'Via', 'Bad Name', 'X:Y', ''].map((name) => sampleFeature({ headers: { [name]: 'x' } })),
+      sampleFeature({ headers: { Accept: 'a\r\nX-Evil: 1' } }), sampleFeature({ headers: { Accept: 7 } }), sampleFeature({ headers: { Accept: '' } }), sampleFeature({ headers: { Accept: ' padded ' } }), sampleFeature({ headers: ['Accept'] }), sampleFeature({ headers: null }),
+      sampleFeature({ headers: { Accept: 'a', accept: 'b' } }),
+      sampleFeature({ responseHeaders: ['Set-Cookie'] }), sampleFeature({ responseHeaders: ['set-cookie'] }), sampleFeature({ responseHeaders: ['set-cookie2'] }), sampleFeature({ responseHeaders: ['bad header'] }), sampleFeature({ responseHeaders: Array.from({ length: 9 }, (_, i) => `x-h${i}`) }),
+      sampleFeature({ paths: ['library/index.json'] }), sampleFeature({ paths: ['/a?b=1'] }), sampleFeature({ paths: ['/a#b'] }), sampleFeature({ paths: ['/a\\b'] }), sampleFeature({ pathPrefixes: ['/library'] }), sampleFeature({ pathPrefixes: ['library/'] }),
+      sampleFeature({ bodyStatuses: [404] }), sampleFeature({ bodyStatuses: [200.5] }), sampleFeature({ bodyStatuses: '200' }),
+      sampleFeature({ optIn: { setting: 'bad key!' } }), sampleFeature({ optIn: { setting: 'x', extra: 1 } }), sampleFeature({ optIn: 'updateCheck' }), sampleFeature({ optIn: { setting: 'x', bypassWithUserAction: 'yes' } }), sampleFeature({ optIn: [] }),
+      sampleFeature({ download: { maxBytes: 10 } }), sampleFeature({ download: { extension: 'json' } }), sampleFeature({ download: { maxBytes: 10, extension: 'a/b' } }), sampleFeature({ download: { maxBytes: 10, extension: 'json', directory: '/tmp' } }),
+      sampleFeature({ download: { maxBytes: 10 ** 10, extension: 'json' } }), sampleFeature({ download: 'json' }),
+      sampleFeature({ allowQuery: 'yes' }), sampleFeature({ cookies: true }), sampleFeature({ followRedirects: true }), sampleFeature({ proxy: 'http://evil.example' }), sampleFeature({ body: 'x' }),
+    ];
+    for (const descriptor of bad) assert.throws(() => fresh().register(descriptor), TypeError, JSON.stringify(descriptor)?.slice(0, 120));
+    // Registering nothing leaves nothing reachable.
+    const layer = fresh();
+    for (const descriptor of bad) { try { layer.register(descriptor); } catch { /* expected */ } }
+    assert.deepEqual(layer.features(), []);
+    assert.equal(layer.isAllowedUrl(SAMPLE_URL), false);
+  });
+
+  await t.test('the layer needs a fetch function; without a valid version nothing is sent', async () => {
+    for (const fetchImpl of [undefined, null, 'https://data.example.org', {}, 42]) assert.throws(() => createEgress({ fetchImpl, version: '1.2.0' }), TypeError);
+    for (const version of [undefined, null, '', 'dev', '1.2', '1.2.0\r\nX-Evil: 1', 'v1.2.0', 120, '1.2.0 ']) {
+      const { layer, calls } = sampleEgress({ version });
+      assert.deepEqual(await layer.request(SAMPLE_ID, SAMPLE_URL), { ok: false, error: 'not-allowed' }, String(version));
+      assert.equal(calls.length, 0);
+      assert.equal(layer.userAgent, null);
+    }
+    assert.equal(sampleEgress({ version: '1.3.0-rc.1' }).layer.userAgent, 'TRACE-Boardviewer/1.3.0-rc.1');
+  });
+});
+
+test('egress allow-list: another host, http, a port, credentials, a tricky or un-normalized URL, a path outside the list or another method never reaches the fetch', async (t) => {
+  const refused = async (label, rawUrl, error, options, feature) => {
+    const { layer, calls } = sampleEgress({ feature });
+    const result = await layer.request(SAMPLE_ID, rawUrl, options);
+    assert.deepEqual(result, { ok: false, error }, label);
+    assert.equal(calls.length, 0, `${label}: the fetch was never called`);
+    const entry = lastEntry(layer);
+    assert.equal(entry.outcome, 'refused', label);
+    assert.equal(entry.error, error, label);
+    assert.equal(entry.status, null);
+    assert.equal(layer.activity().entries.length, 1, `${label}: the refusal is in the log`);
+  };
+
+  await t.test('only the exact host is reachable: suffixes, subdomains, a trailing dot, a userinfo trick and look-alikes are refused', async () => {
+    for (const rawUrl of [
+      'https://evil.example/library/index.json', `https://${SAMPLE_HOST}.evil.example/library/index.json`, `https://evil.example/${SAMPLE_HOST}/library/index.json`,
+      `https://x.${SAMPLE_HOST}/library/index.json`, `https://${SAMPLE_HOST}./library/index.json`, 'https://example.org/library/index.json', 'https://data.example.org.evil.example/library/index.json',
+      'https://93.184.216.34/library/index.json', 'https://[::1]/library/index.json', 'https://localhost/library/index.json',
+    ]) await refused(rawUrl, rawUrl, 'host');
+    for (const rawUrl of [
+      `https://${SAMPLE_HOST}@evil.example/library/index.json`, `https://user:secret@${SAMPLE_HOST}/library/index.json`, `https://user@${SAMPLE_HOST}/library/index.json`,
+      `https://:secret@${SAMPLE_HOST}/library/index.json`,
+    ]) await refused(rawUrl, rawUrl, 'invalid-url');
+  });
+
+  await t.test('only https: http, ftp, file, data, javascript and websocket URLs are refused', async () => {
+    for (const rawUrl of [`http://${SAMPLE_HOST}/library/index.json`, `ftp://${SAMPLE_HOST}/library/index.json`, 'file:///C:/Windows/win.ini', 'data:text/plain,hello', 'javascript:alert(1)', `wss://${SAMPLE_HOST}/library/index.json`, 'blob:https://data.example.org/x']) {
+      await refused(rawUrl, rawUrl, 'scheme');
+    }
+  });
+
+  await t.test('only the default port, no fragment, no query (unless the feature allows one), and the URL must already be normalized', async () => {
+    for (const rawUrl of [
+      `https://${SAMPLE_HOST}:8443/library/index.json`, `https://${SAMPLE_HOST}:443/library/index.json`, `https://${SAMPLE_HOST}:/library/index.json`,
+      `${SAMPLE_URL}#fragment`, `${SAMPLE_URL}#`, `${SAMPLE_URL}?x=1`, `${SAMPLE_URL}?`, `${SAMPLE_URL}?token=SECRET`,
+      `HTTPS://DATA.EXAMPLE.ORG/library/index.json`, `https://${SAMPLE_HOST}/library/../library/index.json`, `https://${SAMPLE_HOST}/library/%2e%2e/library/index.json`, `https://${SAMPLE_HOST}/library/./index.json`,
+      `https://${SAMPLE_HOST}\\library\\index.json`, ` ${SAMPLE_URL}`, `${SAMPLE_URL}\n`, `${SAMPLE_URL}\t`, `https://${SAMPLE_HOST}/lib\nrary/index.json`, 'https://d\u0430ta.example.org/library/index.json',
+      `https://${SAMPLE_HOST}/${'a'.repeat(3000)}`, '', ' ',
+    ]) await refused(JSON.stringify(rawUrl).slice(0, 80), rawUrl, 'invalid-url');
+    for (const value of [null, undefined, 42, true, {}, [SAMPLE_URL], { href: SAMPLE_URL }, new URL(SAMPLE_URL), { toString: () => SAMPLE_URL }]) await refused(String(typeof value), value, 'invalid-url');
+  });
+
+  await t.test('a path outside the feature\'s exact paths and prefixes is refused; inside them it is sent', async () => {
+    const feature = { paths: ['/library/index.json'], pathPrefixes: ['/library/files/'] };
+    for (const rawUrl of [`https://${SAMPLE_HOST}/other.json`, `https://${SAMPLE_HOST}/library/index.json/extra`, `https://${SAMPLE_HOST}/library/files`, `https://${SAMPLE_HOST}/library/filesystem/a`, `https://${SAMPLE_HOST}/`]) {
+      await refused(rawUrl, rawUrl, 'path', undefined, feature);
+    }
+    const { layer, calls } = sampleEgress({ feature });
+    for (const rawUrl of [SAMPLE_URL, `https://${SAMPLE_HOST}/library/files/a.json`, `https://${SAMPLE_HOST}/library/files/deep/er/b.json`]) assert.equal((await layer.request(SAMPLE_ID, rawUrl)).ok, true, rawUrl);
+    assert.equal(calls.length, 3);
+  });
+
+  await t.test('a query is sent only when the feature allows it, and it never reaches the log', async () => {
+    const { layer, calls } = sampleEgress({ feature: { allowQuery: true } });
+    assert.equal((await layer.request(SAMPLE_ID, `${SAMPLE_URL}?token=SECRET&x=1`)).ok, true);
+    assert.equal(calls[0].url, `${SAMPLE_URL}?token=SECRET&x=1`);
+    assert.doesNotMatch(JSON.stringify(layer.activity()), /SECRET|token|x=1|\?/);
+    assert.equal(lastEntry(layer).path, '/library/index.json');
+  });
+
+  await t.test('only the feature\'s methods: POST, DELETE, a lower-case get and HEAD (when not listed) are refused; HEAD works when listed and reads no body', async () => {
+    for (const method of ['POST', 'PUT', 'DELETE', 'PATCH', 'get', 'CONNECT', 'TRACE', 'OPTIONS', 'HEAD', '', 42, {}]) await refused(String(method), SAMPLE_URL, 'method', { method });
+    const { layer, calls } = sampleEgress({ feature: { methods: ['GET', 'HEAD'] }, answer: () => new Response(null, { status: 200, headers: { 'retry-after': '5' } }) });
+    const head = await layer.request(SAMPLE_ID, SAMPLE_URL, { method: 'HEAD' });
+    assert.deepEqual({ ...head, headers: { ...head.headers } }, { ok: true, status: 200, headers: { 'retry-after': '5' }, body: null });
+    assert.equal(calls[0].init.method, 'HEAD');
+    const get = await layer.request(SAMPLE_ID, SAMPLE_URL, { method: 'GET' });
+    assert.equal(get.ok, false, 'a GET of an empty body answer is not a usable answer');
+  });
+
+  await t.test('an unknown or hostile feature id is "not-registered"; nothing is sent and the log shows no unvetted text', async () => {
+    const { layer, calls } = sampleEgress();
+    for (const id of ['nope', '__proto__', 'constructor', 'toString', 'hasOwnProperty', '', null, undefined, 42, {}, ['sample-library'], 'SAMPLE-LIBRARY', 'sample-library ', 'x'.repeat(100)]) {
+      assert.deepEqual(await layer.request(id, SAMPLE_URL), { ok: false, error: 'not-registered' }, String(id));
+    }
+    assert.equal(calls.length, 0);
+    for (const entry of layer.activity().entries) {
+      assert.equal(entry.outcome, 'refused');
+      assert.match(entry.feature, /^(?:[a-z0-9-]{1,48}|\?)$/);
+    }
+    assert.deepEqual(await layer.download('nope', SAMPLE_URL), { ok: false, error: 'not-registered' });
+  });
+});
+
+test('egress request shape: fixed headers, no credentials, no referrer, no redirect, no caller-chosen header or option', async (t) => {
+  const BASE_KEYS = ['credentials', 'headers', 'method', 'redirect', 'referrer', 'referrerPolicy', 'signal'];
+
+  await t.test('the fetch gets exactly the normalized URL and exactly these init keys and headers', async () => {
+    const { layer, calls } = sampleEgress();
+    const result = await layer.request(SAMPLE_ID, SAMPLE_URL);
+    assert.equal(result.ok, true);
+    assert.equal(result.status, 200);
+    assert.deepEqual(JSON.parse(result.body.toString('utf8')), { ok: true });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, SAMPLE_URL);
+    const init = calls[0].init;
+    assert.deepEqual(Object.keys(init).sort(), BASE_KEYS);
+    assert.equal(init.method, 'GET');
+    assert.deepEqual({ ...init.headers }, { Accept: 'application/json', 'Accept-Language': 'en', 'User-Agent': 'TRACE-Boardviewer/1.2.0' });
+    assert.equal(init.credentials, 'omit');
+    assert.equal(init.referrer, '');
+    assert.equal(init.referrerPolicy, 'no-referrer');
+    assert.equal(init.redirect, 'error');
+    assert.ok(init.signal instanceof AbortSignal);
+    for (const name of Object.keys(init.headers)) assert.doesNotMatch(name, /^(?:authorization|cookie|proxy-authorization|referer|origin|x-.*token.*)$/i);
+  });
+
+  await t.test('the language header is fixed to en whatever the system says, and the User-Agent carries only the version', async () => {
+    const { layer, calls } = sampleEgress({ version: '1.4.2' });
+    await layer.request(SAMPLE_ID, SAMPLE_URL);
+    assert.equal(calls[0].init.headers['Accept-Language'], 'en');
+    assert.equal(calls[0].init.headers['User-Agent'], 'TRACE-Boardviewer/1.4.2');
+    assert.doesNotMatch(JSON.stringify(calls[0].init.headers), /Electron|Chrome|Windows|Linux|Mac/i);
+  });
+
+  await t.test('a caller cannot add a header, a credential, a body, a redirect mode, a referrer, a signal or another URL through the options', async () => {
+    const { layer, calls } = sampleEgress();
+    await layer.request(SAMPLE_ID, SAMPLE_URL, {});
+    const baseline = calls[0].init;
+    const hostile = {
+      headers: { Cookie: 'a=b', Authorization: 'Bearer x', 'X-Evil': '1' }, credentials: 'include', redirect: 'follow', referrer: 'https://evil.example/', referrerPolicy: 'unsafe-url', body: 'x', signal: new AbortController().signal,
+      url: 'https://evil.example/', keepalive: true, cache: 'default', mode: 'no-cors', proxy: 'http://evil.example', session: {}, useSessionCookies: true,
+    };
+    await layer.request(SAMPLE_ID, SAMPLE_URL, hostile);
+    const init = calls[1].init;
+    assert.deepEqual(Object.keys(init).sort(), BASE_KEYS);
+    assert.deepEqual({ ...init.headers }, { ...baseline.headers });
+    for (const key of ['method', 'credentials', 'redirect', 'referrer', 'referrerPolicy']) assert.equal(init[key], baseline[key], key);
+    assert.notEqual(init.signal, hostile.signal);
+    assert.equal(calls[1].url, SAMPLE_URL);
+    for (const junk of [null, 'x', 42, [], () => {}]) assert.equal((await layer.request(SAMPLE_ID, SAMPLE_URL, junk)).ok, true);
+  });
+
+  await t.test('the response headers handed back are only the feature\'s allow-list (never a cookie, a location or a server text), cleaned and capped', async () => {
+    const asked = [];
+    const served = { 'retry-after': '120', 'set-cookie': 'session=SECRET; HttpOnly', location: 'https://evil.example/', 'x-evil': 'phish', 'content-type': 'application/json' };
+    const { layer } = sampleEgress({ answer: () => ({ status: 200, headers: { get(name) { asked.push(name.toLowerCase()); return served[name.toLowerCase()] ?? null; } }, body: new Response('{}').body }) });
+    const result = await layer.request(SAMPLE_ID, SAMPLE_URL);
+    assert.deepEqual({ ...result.headers }, { 'retry-after': '120' });
+    assert.doesNotMatch(JSON.stringify(result.headers), /SECRET|evil|phish|cookie/i);
+    assert.deepEqual([...new Set(asked)].sort(), ['content-length', 'retry-after'], 'no other header of the answer is even looked at');
+    const long = sampleEgress({ answer: () => jsonResponse({}, { headers: { 'retry-after': 'x'.repeat(1000) } }) });
+    assert.equal((await long.layer.request(SAMPLE_ID, SAMPLE_URL)).headers['retry-after'].length, 256);
+  });
+});
+
+test('egress redirects are refused: the request says so, a rejecting fetch is a network error, and a response that was redirected or comes from elsewhere is never used', async (t) => {
+  const run = (answer, feature) => { const { layer, calls } = sampleEgress({ answer, feature }); return layer.request(SAMPLE_ID, SAMPLE_URL).then((result) => ({ result, layer, calls })); };
+  const reportsUrl = (response, url) => Object.defineProperty(response, 'url', { value: url });
+
+  await t.test('the request carries redirect "error"; a fetch that honours it rejects, which is a network error', async () => {
+    const { result, calls } = await run((_url, init) => (init.redirect === 'error' ? Promise.reject(new TypeError('redirect mode is set to error')) : jsonResponse({})));
+    assert.equal(calls[0].init.redirect, 'error');
+    assert.deepEqual(result, { ok: false, error: 'network' });
+  });
+
+  await t.test('a response that says it was redirected, or reports another host, scheme or an unparsable URL, is refused and its body released', async () => {
+    let released = 0;
+    const releasing = (response) => { const body = response.body; const cancel = body.cancel.bind(body); body.cancel = (...args) => { released++; return cancel(...args); }; return response; };
+    for (const answer of [
+      () => Object.defineProperty(jsonResponse({}), 'redirected', { value: true }),
+      () => reportsUrl(jsonResponse({}), 'https://evil.example/library/index.json'), () => reportsUrl(jsonResponse({}), `https://${SAMPLE_HOST}.evil.example/x`),
+      () => reportsUrl(jsonResponse({}), `https://${SAMPLE_HOST}@evil.example/x`), () => reportsUrl(jsonResponse({}), `http://${SAMPLE_HOST}/library/index.json`), () => reportsUrl(jsonResponse({}), 'ftp://data.example.org/x'),
+    ]) {
+      const { result, layer } = await run(() => releasing(answer()));
+      assert.deepEqual(result, { ok: false, error: 'redirect' });
+      assert.equal(lastEntry(layer).outcome, 'error');
+      assert.equal(lastEntry(layer).error, 'redirect');
+    }
+    assert.equal(released, 6, 'every refused body was released unread');
+    const { result } = await run(() => reportsUrl(jsonResponse({}), 'not a url'));
+    assert.deepEqual(result, { ok: false, error: 'bad-response' });
+    assert.equal((await run(() => reportsUrl(jsonResponse({}), SAMPLE_URL))).result.ok, true, 'the host that was asked is fine');
+    assert.equal((await run(() => jsonResponse({}))).result.ok, true, 'net.fetch does not report a URL (documented): an empty one is accepted');
+  });
+
+  await t.test('a 3xx answer is a refused redirect (with its status), never followed or read; 304 and the others are plain statuses', async () => {
+    for (const status of [300, 301, 302, 303, 305, 307, 308]) {
+      const { result } = await run(() => jsonResponse({}, { status, headers: { location: 'https://evil.example/' } }));
+      assert.deepEqual(result, { ok: false, error: 'redirect', status }, String(status));
+    }
+    for (const status of [304, 400, 404, 500]) assert.equal((await run(() => (status === 304 ? new Response(null, { status }) : jsonResponse({}, { status })))).result.status, status);
+  });
+
+  await t.test('answers that are no HTTP response at all are "bad-response": nothing, a primitive, a missing or impossible status', async () => {
+    for (const answer of [() => undefined, () => null, () => 'ok', () => 42, () => ({}), () => ({ status: 'ok' }), () => ({ status: 99 }), () => ({ status: 600 }), () => ({ status: 200.5 }), () => ({ status: 200 }), () => ({ status: 200, body: {} })]) {
+      const { result } = await run(answer);
+      assert.deepEqual(result, { ok: false, error: 'bad-response' });
+    }
+    // A rejection or a throw never leaks its text.
+    const secret = 'C:\\Users\\Someone\\secret-token-123';
+    for (const answer of [() => Promise.reject(new Error(secret)), () => { throw new Error(secret); }, () => ({ status: 200, body: { getReader() { throw new Error(secret); } } })]) {
+      const { result, layer } = await run(answer);
+      assert.equal(result.ok, false);
+      assert.doesNotMatch(JSON.stringify(result), /secret|Someone/);
+      assert.doesNotMatch(JSON.stringify(layer.activity()), /secret|Someone/);
+    }
+  });
+});
+
+test('egress size and time limits: an oversize body (declared or streamed), a slow or endless body and a fetch that never answers are cut off, and a caller can only tighten the limits', async (t) => {
+  await t.test('a body over the limit is refused (declared or streamed), exactly the limit is accepted, and the rest of a long stream is never read', async () => {
+    const exact = sampleEgress({ answer: () => new Response(new Uint8Array(4096).fill(120)) });
+    const ok = await exact.layer.request(SAMPLE_ID, SAMPLE_URL);
+    assert.equal(ok.ok, true);
+    assert.equal(ok.body.length, 4096);
+    assert.equal(lastEntry(exact.layer).bytes, 4096);
+    const over = sampleEgress({ answer: () => new Response(new Uint8Array(4097).fill(120)) });
+    assert.deepEqual(await over.layer.request(SAMPLE_ID, SAMPLE_URL), { ok: false, error: 'too-large' });
+    assert.equal(lastEntry(over.layer).bytes, 0, 'a refused body counts no bytes');
+    let declaredCancelled = false;
+    const declared = sampleEgress({ answer: () => new Response(new ReadableStream({ cancel() { declaredCancelled = true; } }), { status: 200, headers: { 'content-length': '999999' } }) });
+    assert.deepEqual(await declared.layer.request(SAMPLE_ID, SAMPLE_URL), { ok: false, error: 'too-large' });
+    assert.equal(declaredCancelled, true, 'the unread body was released');
+    const stream = countedStream([], { endless: true });
+    const endless = sampleEgress({ answer: () => new Response(stream.body, { status: 200 }) });
+    assert.deepEqual(await endless.layer.request(SAMPLE_ID, SAMPLE_URL), { ok: false, error: 'too-large' });
+    assert.equal(stream.state.cancelled, true, 'the endless stream was cancelled');
+    assert.ok(stream.state.pulls < 50, `the stream was read only up to the limit (${stream.state.pulls} pulls)`);
+  });
+
+  await t.test('a caller\'s timeoutMs and maxBytes can only be smaller than the feature\'s, never larger', async () => {
+    const small = sampleEgress({ answer: () => new Response(new Uint8Array(100).fill(120)) });
+    assert.deepEqual(await small.layer.request(SAMPLE_ID, SAMPLE_URL, { maxBytes: 99 }), { ok: false, error: 'too-large' });
+    assert.equal((await small.layer.request(SAMPLE_ID, SAMPLE_URL, { maxBytes: 100 })).ok, true);
+    const big = sampleEgress({ answer: () => new Response(new Uint8Array(5000).fill(120)) });
+    assert.deepEqual(await big.layer.request(SAMPLE_ID, SAMPLE_URL, { maxBytes: 10 ** 9 }), { ok: false, error: 'too-large' }, 'a larger limit is ignored');
+    for (const value of [0, -5, NaN, Infinity, '99', null]) assert.equal((await sampleEgress({ answer: () => new Response(new Uint8Array(100)) }).layer.request(SAMPLE_ID, SAMPLE_URL, { maxBytes: value })).ok, true, String(value));
+    const slow = sampleEgress({ feature: { timeoutMs: 60 }, answer: () => new Promise(() => {}) });
+    const delays = [];
+    const nativeTimeout = globalThis.setTimeout;
+    t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
+      delays.push(delay);
+      return nativeTimeout(callback, 0, ...args);
+    });
+    assert.deepEqual(await slow.layer.request(SAMPLE_ID, SAMPLE_URL, { timeoutMs: 600000 }), { ok: false, error: 'timeout' });
+    assert.deepEqual(delays, [60], 'the feature deadline caps the caller deadline');
+    globalThis.setTimeout.mock.restore();
+  });
+
+  await t.test('a fetch that never answers, one that honours the signal and a body that never ends are all cut off with a timeout; the signal is aborted', async () => {
+    const delays = [];
+    const nativeTimeout = globalThis.setTimeout;
+    t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
+      delays.push(delay);
+      return nativeTimeout(callback, 0, ...args);
+    });
+    const ignoring = sampleEgress({ answer: () => new Promise(() => {}) });
+    assert.deepEqual(await ignoring.layer.request(SAMPLE_ID, SAMPLE_URL, { timeoutMs: 40 }), { ok: false, error: 'timeout' });
+    assert.equal(ignoring.calls[0].init.signal.aborted, true);
+    const honouring = sampleEgress({ answer: (_url, init) => new Promise((_resolve, reject) => init.signal.addEventListener('abort', () => reject(new Error('aborted')))) });
+    assert.deepEqual(await honouring.layer.request(SAMPLE_ID, SAMPLE_URL, { timeoutMs: 40 }), { ok: false, error: 'timeout' });
+    let stalledCancelled = false;
+    const stalled = sampleEgress({ answer: () => new Response(new ReadableStream({ pull() { return new Promise(() => {}); }, cancel() { stalledCancelled = true; } }), { status: 200 }) });
+    assert.deepEqual(await stalled.layer.request(SAMPLE_ID, SAMPLE_URL, { timeoutMs: 40 }), { ok: false, error: 'timeout' });
+    assert.equal(stalledCancelled, true, 'the stalled body was cancelled');
+    const dripping = sampleEgress({ answer: () => new Response(new ReadableStream({ pull(controller) { return new Promise((resolve) => setTimeout(() => { try { controller.enqueue(new Uint8Array(1)); } catch { /* cancelled meanwhile */ } resolve(); }, 15)); } }), { status: 200 }) });
+    assert.deepEqual(await dripping.layer.request(SAMPLE_ID, SAMPLE_URL, { timeoutMs: 80 }), { ok: false, error: 'timeout' }, 'a body that drips for ever is cut off at the deadline');
+    assert.deepEqual(delays.filter(delay => delay !== 15), [40, 40, 40, 80], 'each request sets one caller deadline');
+    globalThis.setTimeout.mock.restore();
+    assert.equal(lastEntry(dripping.layer).error, 'timeout');
+    // A fast answer is not delayed or lost by the timer.
+    assert.equal((await sampleEgress().layer.request(SAMPLE_ID, SAMPLE_URL, { timeoutMs: 5000 })).ok, true);
+  });
+
+  await t.test('only the statuses the feature has a use for are read; any other answer releases its body unread', async () => {
+    let released = false;
+    const { layer } = sampleEgress({ answer: () => new Response(new ReadableStream({ pull(controller) { controller.enqueue(new Uint8Array(16)); }, cancel() { released = true; } }), { status: 429, headers: { 'retry-after': '90' } }) });
+    const result = await layer.request(SAMPLE_ID, SAMPLE_URL);
+    assert.deepEqual({ ...result, headers: { ...result.headers } }, { ok: true, status: 429, headers: { 'retry-after': '90' }, body: null });
+    assert.equal(released, true);
+    assert.equal(lastEntry(layer).bytes, 0);
+    assert.equal(lastEntry(layer).status, 429);
+    const wide = sampleEgress({ feature: { bodyStatuses: [200, 202] }, answer: () => new Response('{"a":1}', { status: 202 }) });
+    assert.equal((await wide.layer.request(SAMPLE_ID, SAMPLE_URL)).body.toString(), '{"a":1}');
+  });
+
+  await t.test('at most maxInFlight requests of one feature run at once; a finished or timed-out one frees its place', async () => {
+    let calls = 0;
+    let release;
+    const { layer } = sampleEgress({ feature: { maxInFlight: 1, timeoutMs: 50 }, answer: () => { calls++; return calls === 1 ? new Promise((resolve) => { release = () => resolve(jsonResponse({})); }) : calls === 2 ? new Promise(() => {}) : jsonResponse({}); } });
+    const first = layer.request(SAMPLE_ID, SAMPLE_URL);
+    await settle(() => typeof release === 'function');
+    assert.deepEqual(await layer.request(SAMPLE_ID, SAMPLE_URL), { ok: false, error: 'busy' });
+    assert.equal(calls, 1, 'the busy request was not sent');
+    release();
+    assert.equal((await first).ok, true);
+    assert.deepEqual(await layer.request(SAMPLE_ID, SAMPLE_URL), { ok: false, error: 'timeout' }, 'the second request hangs and times out');
+    assert.equal((await layer.request(SAMPLE_ID, SAMPLE_URL)).ok, true, 'a timed-out request freed its place');
+    assert.deepEqual(layer.activity().entries.map((entry) => `${entry.outcome}:${entry.error ?? ''}`), ['ok:', 'refused:busy', 'error:timeout', 'ok:']);
+    // The default allows two at once.
+    let open = 0;
+    const releases = [];
+    const pair = sampleEgress({ answer: () => { open++; return new Promise((resolve) => { releases.push(() => resolve(jsonResponse({}))); }); } });
+    const a = pair.layer.request(SAMPLE_ID, SAMPLE_URL);
+    const b = pair.layer.request(SAMPLE_ID, SAMPLE_URL);
+    await settle(() => open === 2);
+    assert.deepEqual(await pair.layer.request(SAMPLE_ID, SAMPLE_URL), { ok: false, error: 'busy' });
+    releases.forEach((go) => go());
+    assert.deepEqual((await Promise.all([a, b])).map((result) => result.ok), [true, true]);
+  });
+});
+
+test('egress opt-in: a feature with a setting is off until the setting is on, the setting is read at the moment of each request, and only an explicit user action passes a feature that allows it', async (t) => {
+  const settings = { readingsLibrary: false };
+  const optedIn = (extra = {}, options = {}) => sampleEgress({ feature: { optIn: { setting: 'readingsLibrary', ...extra } }, isEnabled: (key) => settings[key] === true, ...options });
+
+  await t.test('off: refused as "disabled", nothing sent, logged as refused; on: sent; off again: refused again (the setting is never cached)', async () => {
+    settings.readingsLibrary = false;
+    const { layer, calls } = optedIn();
+    assert.deepEqual(await layer.request(SAMPLE_ID, SAMPLE_URL), { ok: false, error: 'disabled' });
+    assert.equal(calls.length, 0);
+    assert.deepEqual({ outcome: lastEntry(layer).outcome, error: lastEntry(layer).error, host: lastEntry(layer).host }, { outcome: 'refused', error: 'disabled', host: SAMPLE_HOST });
+    settings.readingsLibrary = true;
+    assert.equal((await layer.request(SAMPLE_ID, SAMPLE_URL)).ok, true);
+    assert.equal(calls.length, 1);
+    settings.readingsLibrary = false;
+    assert.deepEqual(await layer.request(SAMPLE_ID, SAMPLE_URL), { ok: false, error: 'disabled' });
+    assert.equal(calls.length, 1);
+    assert.deepEqual(layer.activity().entries.map((entry) => entry.outcome), ['refused', 'ok', 'refused']);
+  });
+
+  await t.test('a setting that is not exactly true is off: a failing or missing isEnabled, and any other truthy value', async () => {
+    for (const isEnabled of [undefined, () => { throw new Error('no settings'); }, () => 1, () => 'true', () => ({}), () => undefined, () => null, () => false]) {
+      const { layer, calls } = sampleEgress({ feature: { optIn: { setting: 'readingsLibrary' } }, isEnabled });
+      assert.deepEqual(await layer.request(SAMPLE_ID, SAMPLE_URL), { ok: false, error: 'disabled' }, String(isEnabled));
+      assert.equal(calls.length, 0);
+      assert.equal(layer.features()[0].enabled, false);
+    }
+    const asked = [];
+    const { layer } = sampleEgress({ feature: { optIn: { setting: 'readingsLibrary' } }, isEnabled: (key) => { asked.push(key); return true; } });
+    await layer.request(SAMPLE_ID, SAMPLE_URL);
+    assert.deepEqual(asked, ['readingsLibrary'], 'only the feature\'s own setting is asked');
+  });
+
+  await t.test('an opt-in that allows a user action lets exactly userAction: true through while the setting is off; the renderer-style truthy values do not', async () => {
+    settings.readingsLibrary = false;
+    const { layer, calls } = optedIn({ bypassWithUserAction: true });
+    for (const userAction of [undefined, false, 1, 'true', {}, null]) assert.deepEqual(await layer.request(SAMPLE_ID, SAMPLE_URL, { userAction }), { ok: false, error: 'disabled' }, String(userAction));
+    assert.equal(calls.length, 0);
+    assert.equal((await layer.request(SAMPLE_ID, SAMPLE_URL, { userAction: true })).ok, true);
+    assert.equal(calls.length, 1);
+    // A feature that does not allow it is refused even for a user action: the setting is the only switch.
+    const strict = optedIn();
+    assert.deepEqual(await strict.layer.request(SAMPLE_ID, SAMPLE_URL, { userAction: true }), { ok: false, error: 'disabled' });
+    assert.equal(strict.calls.length, 0);
+  });
+
+  await t.test('features() lists the setting a feature depends on and whether it is on; a feature without an opt-in is always listed as on', async () => {
+    settings.readingsLibrary = false;
+    const { layer } = optedIn();
+    layer.register(sampleFeature({ id: 'always-on', hosts: ['other.example.org'] }));
+    assert.deepEqual(layer.features(), [
+      { id: SAMPLE_ID, hosts: [SAMPLE_HOST], methods: ['GET'], optIn: 'readingsLibrary', enabled: false },
+      { id: 'always-on', hosts: ['other.example.org'], methods: ['GET'], optIn: null, enabled: true },
+    ]);
+    settings.readingsLibrary = true;
+    assert.equal(layer.features()[0].enabled, true);
+    assert.equal(layer.isAllowedUrl('https://other.example.org/x'), true);
+    assert.equal(layer.isAllowedUrl('https://other.example.org:444/x'), false);
+    assert.equal(layer.isAllowedUrl('http://other.example.org/x'), false);
+    assert.equal(layer.isAllowedUrl('https://user@other.example.org/x'), false);
+    assert.equal(layer.isAllowedUrl('https://evil.example/x'), false);
+    assert.equal(layer.isAllowedUrl(42), false);
+  });
+});
+
+test('egress log: every request and its outcome, host and path only, bounded, in memory and read as copies', async (t) => {
+  await t.test('an entry has exactly these fields; time, duration, bytes, status and outcome come from the exchange', async () => {
+    let clock = Date.parse('2026-10-07T10:00:00.000Z');
+    const { layer } = sampleEgress({ now: () => clock, answer: () => { clock += 25; return jsonResponse({ ok: true }); } });
+    assert.deepEqual(layer.activity(), { limit: 200, dropped: 0, entries: [] });
+    await layer.request(SAMPLE_ID, SAMPLE_URL);
+    clock += 1000;
+    assert.deepEqual(layer.activity().entries, [{
+      id: 1, time: '2026-10-07T10:00:00.000Z', kind: 'request', feature: SAMPLE_ID, method: 'GET', host: SAMPLE_HOST, path: '/library/index.json',
+      outcome: 'ok', status: 200, bytes: JSON.stringify({ ok: true }).length, durationMs: 25, error: null,
+    }]);
+    assert.deepEqual(Object.keys(lastEntry(layer)).sort(), ['bytes', 'durationMs', 'error', 'feature', 'host', 'id', 'kind', 'method', 'outcome', 'path', 'status', 'time']);
+  });
+
+  await t.test('a request in flight is already in the log as "pending" and is completed in place', async () => {
+    let release;
+    const { layer } = sampleEgress({ answer: () => new Promise((resolve) => { release = () => resolve(jsonResponse({})); }) });
+    const pending = layer.request(SAMPLE_ID, SAMPLE_URL);
+    await settle(() => typeof release === 'function');
+    assert.deepEqual({ outcome: lastEntry(layer).outcome, status: lastEntry(layer).status, durationMs: lastEntry(layer).durationMs, bytes: lastEntry(layer).bytes }, { outcome: 'pending', status: null, durationMs: null, bytes: 0 });
+    release();
+    await pending;
+    assert.equal(layer.activity().entries.length, 1);
+    assert.equal(lastEntry(layer).outcome, 'ok');
+    assert.equal(lastEntry(layer).status, 200);
+  });
+
+  await t.test('failures are logged with a class from the fixed list and never with the text of an error, a header or a body', async () => {
+    const secret = 'token=SECRET-123 C:\\Users\\Someone';
+    const { layer } = sampleEgress({ answer: (url, init) => { if (url.includes('boom')) throw new Error(`failed https://data.example.org/x?${secret}`); return jsonResponse({}, { status: 500, headers: { 'x-secret': secret } }); } });
+    await layer.request(SAMPLE_ID, `https://${SAMPLE_HOST}/boom`);
+    await layer.request(SAMPLE_ID, `https://${SAMPLE_HOST}/server-error`);
+    const [failed, status] = layer.activity().entries;
+    assert.deepEqual({ outcome: failed.outcome, error: failed.error, status: failed.status }, { outcome: 'error', error: 'network', status: null });
+    assert.deepEqual({ outcome: status.outcome, error: status.error, status: status.status }, { outcome: 'ok', error: null, status: 500 });
+    assert.doesNotMatch(JSON.stringify(layer.activity()), /SECRET|Someone|token|x-secret|User-Agent|Accept/i);
+    for (const entry of layer.activity().entries) assert.ok(entry.error === null || egressModule.ERROR_CLASSES.includes(entry.error));
+  });
+
+  await t.test('only the host and the path of an https/http URL are ever shown: other schemes show nothing, a long path is cut, the query and fragment are gone', async () => {
+    const { layer } = sampleEgress({ feature: { allowQuery: true } });
+    await layer.request(SAMPLE_ID, 'data:text/plain,SECRET-IN-DATA');
+    await layer.request(SAMPLE_ID, 'javascript:alert(SECRET)');
+    await layer.request(SAMPLE_ID, `https://user:SECRET@${SAMPLE_HOST}/library/index.json`);
+    await layer.request(SAMPLE_ID, `https://${SAMPLE_HOST}/${'a'.repeat(300)}?token=SECRET`);
+    const [data, script, userinfo, long] = layer.activity().entries;
+    assert.deepEqual([data.host, data.path, script.host, script.path], ['', '', '', '']);
+    assert.deepEqual([userinfo.host, userinfo.path], [SAMPLE_HOST, '/library/index.json']);
+    assert.equal(long.path.length, 120);
+    assert.ok(long.path.endsWith('…'));
+    assert.doesNotMatch(JSON.stringify(layer.activity()), /SECRET|token|user:/);
+  });
+
+  await t.test('the log is a ring: only the newest entries stay, the dropped ones are counted, the sequence never repeats, and the size is clamped', async () => {
+    const { layer } = sampleEgress({ logLimit: 5 });
+    for (let index = 0; index < 12; index++) await layer.request(SAMPLE_ID, SAMPLE_URL);
+    const { entries, dropped, limit } = layer.activity();
+    assert.equal(limit, 5);
+    assert.equal(entries.length, 5);
+    assert.equal(dropped, 7);
+    assert.deepEqual(entries.map((entry) => entry.id), [8, 9, 10, 11, 12]);
+    assert.equal(sampleEgress().layer.logLimit, 200, 'the default');
+    for (const logLimit of [0, -1, NaN, '5', 1.5, null, Infinity]) assert.equal(sampleEgress({ logLimit }).layer.logLimit, 200, String(logLimit));
+    assert.equal(sampleEgress({ logLimit: 99999 }).layer.logLimit, 1000, 'the largest');
+    const big = sampleEgress({ logLimit: 99999 });
+    for (let index = 0; index < 1001; index++) await big.layer.request(SAMPLE_ID, SAMPLE_URL);
+    assert.equal(big.layer.activity().entries.length, 1000);
+    assert.equal(big.layer.activity().dropped, 1);
+    const flood = sampleEgress();
+    for (let index = 0; index < 500; index++) await flood.layer.request(SAMPLE_ID, 'https://evil.example/x');
+    assert.equal(flood.layer.activity().entries.length, 200, 'a flood of refused requests is bounded too');
+    assert.equal(flood.layer.activity().dropped, 300);
+  });
+
+  await t.test('clearing empties the log and the dropped count but not the sequence; reading gives copies that cannot change the log', async () => {
+    const { layer } = sampleEgress();
+    await layer.request(SAMPLE_ID, SAMPLE_URL);
+    await layer.request(SAMPLE_ID, SAMPLE_URL);
+    const copy = layer.activity();
+    copy.entries[0].host = 'evil.example';
+    copy.entries.length = 0;
+    assert.equal(layer.activity().entries.length, 2);
+    assert.equal(layer.activity().entries[0].host, SAMPLE_HOST);
+    layer.clearLog();
+    assert.deepEqual(layer.activity(), { limit: 200, dropped: 0, entries: [] });
+    await layer.request(SAMPLE_ID, SAMPLE_URL);
+    assert.deepEqual(layer.activity().entries.map((entry) => entry.id), [3]);
+    assert.equal(Object.isFrozen(layer), true, 'the layer object itself cannot be changed');
+  });
+});
+
+test('egress download: the audited path to disk writes only into the folder main chose, under a name made from the SHA-256, size-capped, and leaves nothing behind on any failure', async (t) => {
+  const root = await makeTempDir('trace-egress-download-test-');
+  t.after(async () => {
+    const absolute = path.resolve(root);
+    assert.ok(await isInsideTemp(absolute));
+    await fs.rm(absolute, { recursive: true, force: true });
+  });
+  let counter = 0;
+  const content = Buffer.from('{"readings":[1,2,3]}');
+  const digest = sha256(content);
+  const listing = async (directory) => { try { return (await fs.readdir(directory)).sort(); } catch (error) { if (error.code === 'ENOENT') return []; throw error; } };
+  const downloading = ({ feature = {}, ...options } = {}) => {
+    const directory = path.join(root, `downloads-${++counter}`);
+    const built = sampleEgress({
+      feature: { timeoutMs: 30_000, download: { maxBytes: 1024, extension: 'json' }, ...feature }, downloadDirectory: directory,
+      answer: () => new Response(content, { status: 200, headers: { 'content-disposition': 'attachment; filename="../../evil.exe"' } }), ...options,
+    });
+    return { ...built, directory };
+  };
+
+  await t.test('the file is named by its SHA-256 and the feature\'s extension, written into the chosen folder, and the path, digest and size come back', async () => {
+    const { layer, calls, directory } = downloading();
+    const result = await layer.download(SAMPLE_ID, SAMPLE_URL);
+    assert.deepEqual(result, { ok: true, status: 200, path: path.join(directory, `${digest}.json`), sha256: digest, bytes: content.length });
+    assert.deepEqual(await fs.readFile(result.path), content);
+    assert.deepEqual(await listing(directory), [`${digest}.json`], 'no temporary file is left');
+    assert.equal(path.dirname(result.path), directory);
+    assert.deepEqual(Object.keys(calls[0].init).sort(), ['credentials', 'headers', 'method', 'redirect', 'referrer', 'referrerPolicy', 'signal'], 'the same request as any other');
+    assert.equal(calls[0].init.redirect, 'error');
+    assert.equal(calls[0].init.credentials, 'omit');
+    const entry = lastEntry(layer);
+    assert.deepEqual({ kind: entry.kind, outcome: entry.outcome, bytes: entry.bytes, status: entry.status, path: entry.path }, { kind: 'download', outcome: 'ok', bytes: content.length, status: 200, path: '/library/index.json' });
+    assert.doesNotMatch(JSON.stringify(layer.activity()), /downloads-|Users|Temp/i, 'the log shows no local path');
+    if (process.platform !== 'win32') assert.equal((await fs.stat(result.path)).mode & 0o777, 0o600);
+    // The same bytes again land in the same file.
+    const again = await layer.download(SAMPLE_ID, SAMPLE_URL);
+    assert.equal(again.path, result.path);
+    assert.deepEqual(await listing(directory), [`${digest}.json`]);
+  });
+
+  await t.test('the caller supplies no folder, path or file name, and nothing from the URL or the server reaches the file system', async () => {
+    const { layer, directory } = downloading();
+    const other = path.join(root, 'elsewhere');
+    const result = await layer.download(`${SAMPLE_ID}`, `https://${SAMPLE_HOST}/library/..%2F..%2Fevil.json`, {
+      directory: other, downloadDirectory: other, path: other, fileName: '../../x.json', filename: 'x.json', target: path.join(other, 'x.json'), extension: 'exe', userAction: true,
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.path, path.join(directory, `${digest}.json`));
+    assert.deepEqual(await listing(directory), [`${digest}.json`], 'neither the URL path nor the Content-Disposition name was used');
+    assert.deepEqual(await listing(other), [], 'the folder the caller named was never touched');
+    await assert.rejects(fs.access(other), 'and not even created');
+  });
+
+  await t.test('too large (declared, streamed or endless) is refused, a caller can only lower the cap, and no file or temporary file remains', async () => {
+    const { layer, directory } = downloading({ answer: () => new Response(new Uint8Array(1025).fill(120)) });
+    assert.deepEqual(await layer.download(SAMPLE_ID, SAMPLE_URL), { ok: false, error: 'too-large' });
+    assert.deepEqual(await listing(directory), []);
+    const declared = downloading({ answer: () => new Response(new Uint8Array(10), { headers: { 'content-length': '5000' } }) });
+    assert.deepEqual(await declared.layer.download(SAMPLE_ID, SAMPLE_URL), { ok: false, error: 'too-large' });
+    assert.deepEqual(await listing(declared.directory), []);
+    const stream = countedStream([], { endless: true });
+    const endless = downloading({ answer: () => new Response(stream.body) });
+    assert.deepEqual(await endless.layer.download(SAMPLE_ID, SAMPLE_URL), { ok: false, error: 'too-large' });
+    assert.equal(stream.state.cancelled, true);
+    assert.ok(stream.state.pulls < 50);
+    assert.deepEqual(await listing(endless.directory), []);
+    const small = downloading();
+    assert.deepEqual(await small.layer.download(SAMPLE_ID, SAMPLE_URL, { maxBytes: content.length - 1 }), { ok: false, error: 'too-large' });
+    assert.deepEqual(await listing(small.directory), []);
+    const huge = downloading({ answer: () => new Response(new Uint8Array(2000)) });
+    assert.deepEqual(await huge.layer.download(SAMPLE_ID, SAMPLE_URL, { maxBytes: 10 ** 9 }), { ok: false, error: 'too-large' }, 'a larger cap is ignored');
+    assert.deepEqual(await listing(huge.directory), []);
+    assert.equal(lastEntry(huge.layer).outcome, 'error');
+    assert.equal(lastEntry(huge.layer).kind, 'download');
+  });
+
+  await t.test('a body that stalls half way, a fetch that never answers and a drip are cut off by the deadline and take their temporary file with them', async () => {
+    const stalled = downloading({ feature: { timeoutMs: 80 }, answer: () => new Response(new ReadableStream({ start(controller) { controller.enqueue(new Uint8Array(10).fill(1)); }, pull() { return new Promise(() => {}); } })) });
+    assert.deepEqual(await stalled.layer.download(SAMPLE_ID, SAMPLE_URL), { ok: false, error: 'timeout' });
+    assert.deepEqual(await listing(stalled.directory), []);
+    const silent = downloading({ answer: () => new Promise(() => {}) });
+    assert.deepEqual(await silent.layer.download(SAMPLE_ID, SAMPLE_URL, { timeoutMs: 40 }), { ok: false, error: 'timeout' });
+    assert.deepEqual(await listing(silent.directory), []);
+    assert.equal(silent.calls[0].init.signal.aborted, true);
+  });
+
+  await t.test('an expected digest is checked before the file is kept: a wrong one leaves nothing, the right one succeeds, a malformed one is refused', async () => {
+    const wrong = downloading();
+    assert.deepEqual(await wrong.layer.download(SAMPLE_ID, SAMPLE_URL, { expectedSha256: sha256('other') }), { ok: false, error: 'hash-mismatch' });
+    assert.deepEqual(await listing(wrong.directory), []);
+    const right = downloading();
+    assert.equal((await right.layer.download(SAMPLE_ID, SAMPLE_URL, { expectedSha256: digest })).ok, true);
+    assert.deepEqual(await listing(right.directory), [`${digest}.json`]);
+    for (const expectedSha256 of [digest.toUpperCase(), digest.slice(1), `${digest}0`, '', 42, null, {}, [digest]]) {
+      const malformed = downloading();
+      assert.deepEqual(await malformed.layer.download(SAMPLE_ID, SAMPLE_URL, { expectedSha256 }), { ok: false, error: 'not-allowed' }, String(expectedSha256));
+      assert.equal(malformed.calls.length, 0);
+    }
+    assert.deepEqual(await sampleEgress().layer.request(SAMPLE_ID, SAMPLE_URL, { expectedSha256: digest }), { ok: false, error: 'not-allowed' }, 'a plain request cannot be checked against a digest');
+  });
+
+  await t.test('only a 200 answer is kept; redirects and other statuses are refused and write nothing', async () => {
+    for (const [status, error] of [[404, 'bad-response'], [500, 'bad-response'], [202, 'bad-response'], [301, 'redirect'], [307, 'redirect']]) {
+      const { layer, directory } = downloading({ answer: () => new Response(content, { status }) });
+      assert.deepEqual(await layer.download(SAMPLE_ID, SAMPLE_URL), { ok: false, error, status }, String(status));
+      assert.deepEqual(await listing(directory), []);
+    }
+    const redirected = downloading({ answer: () => Object.defineProperty(new Response(content), 'redirected', { value: true }) });
+    assert.deepEqual(await redirected.layer.download(SAMPLE_ID, SAMPLE_URL), { ok: false, error: 'redirect' });
+    assert.deepEqual(await listing(redirected.directory), []);
+  });
+
+  await t.test('the same policy as a request applies first: host, scheme, path, method, opt-in; no folder, a relative folder or a feature without download is "not-allowed"', async () => {
+    const { layer, calls } = downloading({ feature: { optIn: { setting: 'readingsLibrary' } }, isEnabled: () => false });
+    assert.deepEqual(await layer.download(SAMPLE_ID, SAMPLE_URL), { ok: false, error: 'disabled' });
+    const policy = downloading();
+    assert.deepEqual(await policy.layer.download(SAMPLE_ID, 'https://evil.example/x.json'), { ok: false, error: 'host' });
+    assert.deepEqual(await policy.layer.download(SAMPLE_ID, `http://${SAMPLE_HOST}/x.json`), { ok: false, error: 'scheme' });
+    assert.deepEqual(await policy.layer.download(SAMPLE_ID, `${SAMPLE_URL}?x=1`), { ok: false, error: 'invalid-url' });
+    assert.deepEqual(await policy.layer.download(SAMPLE_ID, SAMPLE_URL, { method: 'HEAD' }), { ok: false, error: 'method' });
+    assert.equal(policy.calls.length + calls.length, 0);
+    assert.deepEqual(await listing(policy.directory), []);
+    for (const downloadDirectory of [undefined, null, '', 'relative/downloads', './downloads', 42, 'C:\\ok\0bad']) {
+      const refused = sampleEgress({ feature: { download: { maxBytes: 1024, extension: 'json' } }, downloadDirectory });
+      assert.deepEqual(await refused.layer.download(SAMPLE_ID, SAMPLE_URL), { ok: false, error: 'not-allowed' }, String(downloadDirectory));
+      assert.equal(refused.calls.length, 0);
+    }
+    const plain = sampleEgress({ downloadDirectory: path.join(root, 'no-download-feature') });
+    assert.deepEqual(await plain.layer.download(SAMPLE_ID, SAMPLE_URL), { ok: false, error: 'not-allowed' });
+    assert.equal(plain.calls.length, 0);
+    assert.deepEqual(await listing(path.join(root, 'no-download-feature')), []);
+  });
+
+  await t.test('a folder that cannot be used, a write that fails or writes nothing and a failing rename are "storage" errors that leave nothing behind; short writes are completed', async () => {
+    const blocker = path.join(root, 'a-file');
+    await fs.writeFile(blocker, 'x');
+    const file = sampleEgress({ feature: { download: { maxBytes: 1024, extension: 'json' } }, downloadDirectory: blocker });
+    assert.deepEqual(await file.layer.download(SAMPLE_ID, SAMPLE_URL), { ok: false, error: 'storage' });
+    assert.equal(await fs.readFile(blocker, 'utf8'), 'x');
+    const failing = async (patch) => {
+      const { layer, directory } = downloading({ fs: patch });
+      const result = await layer.download(SAMPLE_ID, SAMPLE_URL);
+      return { result, files: await listing(directory) };
+    };
+    const writeFails = await failing({ ...fs, open: async (...args) => { const handle = await fs.open(...args); handle.write = async () => { throw new Error('disk full'); }; return handle; } });
+    assert.deepEqual(writeFails, { result: { ok: false, error: 'storage' }, files: [] });
+    const writesNothing = await failing({ ...fs, open: async (...args) => { const handle = await fs.open(...args); handle.write = async () => ({ bytesWritten: 0 }); return handle; } });
+    assert.deepEqual(writesNothing, { result: { ok: false, error: 'storage' }, files: [] });
+    const renameFails = await failing({ ...fs, rename: async () => { throw new Error('locked'); } });
+    assert.deepEqual(renameFails, { result: { ok: false, error: 'storage' }, files: [] });
+    const openFails = await failing({ ...fs, open: async () => { throw new Error('denied'); } });
+    assert.deepEqual(openFails, { result: { ok: false, error: 'storage' }, files: [] });
+    const { layer, directory } = downloading({ fs: { ...fs, open: async (...args) => { const handle = await fs.open(...args); const write = handle.write.bind(handle); handle.write = (buffer, offset, length, position) => write(buffer, offset, Math.min(length, 3), position); return handle; } } });
+    const result = await layer.download(SAMPLE_ID, SAMPLE_URL);
+    assert.equal(result.ok, true);
+    assert.deepEqual(await fs.readFile(result.path), content, 'a legal short write is completed');
+    assert.deepEqual(await listing(directory), [`${digest}.json`]);
+  });
+});
+
+test('egress transport: the production fetch is the in-memory trace-egress partition, created on first use, with no permission, no download and a second line of defence for the hosts', async (t) => {
+  const partitions = [];
+  const sessionCalls = [];
+  const partition = Object.assign(new EventEmitter(), {
+    webRequest: { listeners: [], onBeforeRequest(filter, listener) { this.listeners.push({ filter, listener }); } },
+    setPermissionRequestHandler(callback) { this.permissionHandler = callback; },
+    setPermissionCheckHandler(callback) { this.permissionCheck = callback; },
+    fetch(url, init) { sessionCalls.push({ url, init }); return Promise.resolve(jsonResponse({ ok: true })); },
+  });
+  const session = { fromPartition(name, options) { partitions.push({ name, options }); return partition; }, get defaultSession() { throw new Error('the default session is never used'); } };
+  const { layer } = sampleEgress({ register: true });
+
+  await t.test('nothing is created until the first request; then one partition without cache, named without "persist:" (so it lives in memory only), and the fetch goes through its session', async () => {
+    const fetchImpl = createElectronFetch({ session, isAllowed: (url) => layer.isAllowedUrl(url) });
+    assert.deepEqual(partitions, [], 'created lazily');
+    const response = await fetchImpl(SAMPLE_URL, { method: 'GET' });
+    assert.equal(response.status, 200);
+    await fetchImpl(SAMPLE_URL, { method: 'GET' });
+    assert.deepEqual(partitions, [{ name: 'trace-egress', options: { cache: false } }], 'one partition, reused');
+    assert.equal(egressModule.PARTITION, 'trace-egress');
+    assert.doesNotMatch(partitions[0].name, /^persist:/);
+    assert.deepEqual(sessionCalls.map((call) => call.url), [SAMPLE_URL, SAMPLE_URL]);
+  });
+
+  await t.test('the partition grants no permission, starts no download, and cancels any request to a URL no feature may reach', async () => {
+    const answers = [];
+    partition.permissionHandler({}, 'notifications', (allowed) => answers.push(allowed));
+    assert.deepEqual(answers, [false]);
+    assert.equal(partition.permissionCheck({}, 'clipboard-read'), false);
+    let prevented = false;
+    partition.emit('will-download', { preventDefault() { prevented = true; } });
+    assert.equal(prevented, true);
+    assert.equal(partition.webRequest.listeners.length, 1);
+    const { filter, listener } = partition.webRequest.listeners[0];
+    assert.deepEqual(filter, { urls: ['*://*/*'] });
+    const decide = (url) => { let decision; listener({ url }, (value) => { decision = value; }); return decision; };
+    assert.deepEqual(decide(SAMPLE_URL), { cancel: false });
+    for (const url of ['https://evil.example/', `http://${SAMPLE_HOST}/library/index.json`, `https://${SAMPLE_HOST}:8443/x`, `https://user@${SAMPLE_HOST}/x`, 'wss://data.example.org/', 'file:///C:/x']) assert.deepEqual(decide(url), { cancel: true }, url);
+  });
+
+  await t.test('a session that lacks the optional hooks still works (they are best effort), and the hooks are installed once however many requests follow', async () => {
+    const bare = { fetch: () => Promise.resolve(jsonResponse({})) };
+    const fetchImpl = createElectronFetch({ session: { fromPartition: () => bare }, isAllowed: () => true });
+    assert.equal((await fetchImpl(SAMPLE_URL, {})).status, 200);
+    assert.equal(partition.webRequest.listeners.length, 1, 'the first session was not hooked again');
+  });
+});
+
+test('egress isolation: no main-process file but electron/net/egress.cjs reaches the network, egress itself uses only Node built-ins, and the renderer CSP is unchanged', async (t) => {
+  const electronDirectory = path.resolve(__dirname, '..', 'electron');
+  const walk = async (directory) => (await Promise.all((await fs.readdir(directory, { withFileTypes: true })).map(async (entry) => {
+    const full = path.join(directory, entry.name);
+    return entry.isDirectory() ? walk(full) : /\.(?:cjs|mjs|js|ts)$/.test(entry.name) ? [full] : [];
+  }))).flat();
+  const BUILTINS = '(?:node:)?(?:https?|http2|net|tls|dgram|dns|undici)|node-fetch|axios|got|electron-updater|request|superagent|ws';
+  /** Every way a file of the main process could reach the network on its own. A comment may mention them; a call, an import or a require may not. */
+  const NETWORK = [
+    /\.fetch\s*\(/, /(?<![\w.$])fetch\s*\(/, /\bnet\.(?:request|connect|fetch)\s*\(/, /\bnew\s+(?:XMLHttpRequest|WebSocket|EventSource|ClientRequest)\b/, /\bnavigator\.sendBeacon\b/,
+    new RegExp(`require\\(\\s*['"](?:${BUILTINS})['"]\\s*\\)`), new RegExp(`import\\s*\\(\\s*['"](?:${BUILTINS})['"]`), new RegExp(`from\\s+['"](?:${BUILTINS})['"]`),
+    /\bautoUpdater\b/, /\bdownloadURL\s*\(/, /\{[^}]*\bnet\b[^}]*\}\s*=\s*require\(\s*['"]electron['"]\s*\)/,
+  ];
+  const files = (await walk(electronDirectory)).map((file) => path.relative(electronDirectory, file).split(path.sep).join('/'));
+
+  await t.test('the scan sees the main process files, and only electron/net/egress.cjs matches a network pattern', async () => {
+    for (const expected of ['main.cjs', 'updates.cjs', 'store.cjs', 'documents.cjs', 'workspace.cjs', 'preload.cjs', 'net/egress.cjs']) assert.ok(files.includes(expected), `${expected} is scanned`);
+    const offenders = [];
+    for (const file of files) {
+      const source = await fs.readFile(path.join(electronDirectory, file), 'utf8');
+      for (const pattern of NETWORK) if (pattern.test(source)) offenders.push(`${file}: ${pattern}`);
+    }
+    assert.deepEqual([...new Set(offenders.map((offender) => offender.split(':')[0]))], ['net/egress.cjs'], offenders.join('\n'));
+  });
+
+  await t.test('the patterns really catch a call, an import and a require (so a clean scan means something)', async () => {
+    for (const sample of ['net.fetch(url)', 'await fetch(url)', 'session.defaultSession.fetch(url)', 'const { net } = require(\'electron\')', 'require("node:https")', 'require(\'http\')', 'import https from \'node:https\'', 'new WebSocket(url)', 'new XMLHttpRequest()', 'autoUpdater.checkForUpdates()', 'require("undici")', 'net.request({})']) {
+      assert.ok(NETWORK.some((pattern) => pattern.test(sample)), sample);
+    }
+    for (const sample of ['// net.fetch was here', 'fetchImpl(url, init)', 'const fetchImpl = createElectronFetch({})', 'require(\'node:path\')', 'shell.openExternal(url)']) {
+      assert.equal(NETWORK.some((pattern) => pattern.test(sample.replace(/^\/\/.*$/, ''))), false, sample);
+    }
+  });
+
+  await t.test('egress.cjs has exactly one fetch call (the transport), requires nothing but node:crypto, node:fs/promises and node:path, and never reads or writes a cookie store', async () => {
+    const source = await fs.readFile(path.join(electronDirectory, 'net', 'egress.cjs'), 'utf8');
+    assert.equal(source.split(/\.fetch\s*\(/).length - 1, 1, 'one .fetch( call site');
+    assert.deepEqual([...source.matchAll(/require\(\s*'([^']+)'\s*\)/g)].map((match) => match[1]).sort(), ['node:crypto', 'node:fs/promises', 'node:path']);
+    assert.doesNotMatch(source, /\.cookies\b|\bsetCookie\b/);
+    assert.doesNotMatch(source, /writeFile\(|appendFile\(|createWriteStream\(/, 'the log is memory only; the one file write is the audited download');
+  });
+
+  await t.test('main.cjs, updates.cjs and the preload hold no fetch, no net import and no update URL; updates.cjs reaches the network only through egress', async () => {
+    const [main, updatesSource, preload] = await Promise.all(['main.cjs', 'updates.cjs', 'preload.cjs'].map((name) => fs.readFile(path.join(electronDirectory, name), 'utf8')));
+    assert.match(main, /require\('\.\/net\/egress\.cjs'\)/);
+    assert.match(updatesSource, /require\('\.\/net\/egress\.cjs'\)/);
+    assert.doesNotMatch(main, /\bnet\b[^\n]*require\('electron'\)|\{[^}]*\bnet\b[^}]*\}\s*=\s*require\('electron'\)/);
+    assert.doesNotMatch(updatesSource, /\.fetch\s*\(|(?<![\w.$])fetch\s*\(/);
+    assert.doesNotMatch(preload, /\bfetch\(|XMLHttpRequest|WebSocket|node:https?|\bhttps?\.request/);
+  });
+
+  await t.test('the renderer CSP is unchanged: the page may connect to itself only (plus the dev server websocket, which the production build removes), with no unsafe-eval', async () => {
+    const html = await fs.readFile(path.resolve(__dirname, '..', 'index.html'), 'utf8');
+    const csp = /<meta http-equiv="Content-Security-Policy" content="([^"]*)"/.exec(html)?.[1];
+    assert.equal(csp, "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' ws://127.0.0.1:5173; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'");
+    const production = csp.replace(' ws://127.0.0.1:5173', '');
+    assert.equal(/connect-src ([^;]*)/.exec(production)[1], "'self'");
+    assert.doesNotMatch(csp, /unsafe-eval|\*|https?:|github/i);
+    assert.equal((html.match(/Content-Security-Policy/g) ?? []).length, 1, 'one policy');
+  });
+});
+
+test('network activity in the main process: the update check runs through egress and is logged, and the renderer can read and empty the log but never start a request', async (t) => {
+  const root = await makeTempDir('trace-network-activity-test-');
+  t.after(async () => {
+    const absolute = path.resolve(root);
+    assert.ok(await isInsideTemp(absolute));
+    await fs.rm(absolute, { recursive: true, force: true });
+  });
+  let counter = 0;
+  const plain = (value) => JSON.parse(JSON.stringify(value)); // The harness runs main.cjs in another realm.
+  const networking = (answer, options = {}) => desktopHarness(path.join(root, `profile-${++counter}`), { ...options, fetch: async (url, init) => answer(url, init) });
+  const release = (tag) => () => jsonResponse(releaseBody(tag));
+  const CHANNELS = ['trace:clear-network-activity', 'trace:get-network-activity'];
+  const FORGED = [{ sender: {}, senderFrame: { url: 'https://example.com/' } }];
+  const activity = async (harness) => plain(await harness.invoke('trace:get-network-activity'));
+  const UPDATE_PATH = '/repos/trace-boardviewer/trace-boardviewer/releases/latest';
+
+  await t.test('both channels are privileged handlers: a forged sender or a subframe reaches neither the log nor the network, and they are the only network channels', async () => {
+    const harness = await networking(release('v9.9.9'));
+    await harness.invoke('trace:check-for-updates');
+    for (const channel of CHANNELS) {
+      const handler = harness.handlers.get(channel);
+      assert.equal(typeof handler, 'function', channel);
+      await assert.rejects(handler(...FORGED), /nem az alkalmazás/, channel);
+      await assert.rejects(handler({ sender: harness.window.webContents, senderFrame: { url: 'https://example.com/' } }), /nem az alkalmazás/, channel);
+      await assert.rejects(handler({ sender: harness.window.webContents, senderFrame: { ...harness.window.webContents.mainFrame, url: `${harness.window.webContents.mainFrame.url}?x=1` } }), /nem az alkalmazás/, `${channel}: another page URL`);
+    }
+    assert.equal((await activity(harness)).entries.length, 1, 'the forged clear emptied nothing');
+    assert.equal(harness.net.requests.length, 1);
+    assert.deepEqual([...harness.handlers.keys()].filter((channel) => /network|egress|fetch|download|proxy/i.test(channel)).sort(), CHANNELS, 'no channel lets the renderer name a URL, a host or a feature');
+    assert.deepEqual([...harness.handlers.keys()].filter((channel) => /^trace:(?:get|clear)-network/.test(channel)).sort(), CHANNELS);
+  });
+
+  await t.test('nothing is requested on its own and no session is created before the first request: the list shows the one feature, off the network until the renderer asks', async () => {
+    const harness = await networking(release('v9.9.9'));
+    assert.deepEqual(harness.partitions, [], 'no partition at start-up');
+    const first = await activity(harness);
+    assert.deepEqual(first.features, [{ id: 'update-check', hosts: ['api.github.com'], methods: ['GET'], optIn: 'updateCheck', enabled: true }, { id: 'support-verification', hosts: [require('../electron/support.cjs').FEATURE.hosts[0]], methods: ['GET'], optIn: 'supportVerification', enabled: false }]);
+    assert.deepEqual(first.entries, []);
+    assert.equal(first.dropped, 0);
+    assert.equal(first.limit, 200);
+    assert.deepEqual(harness.net.requests, []);
+    assert.deepEqual(harness.partitions, [], 'listing the features creates no session either');
+  });
+
+  await t.test('the update check is one logged request: host and path only, status and size, no header, no body and no server text', async () => {
+    const harness = await networking(() => jsonResponse(releaseBody('v1.2.1'), { headers: { 'content-type': 'application/json', 'set-cookie': 'a=b', 'x-evil': 'phish' } }));
+    assert.deepEqual(plain(await harness.invoke('trace:check-for-updates')), { status: 'available', version: '1.2.1' });
+    const { entries, features } = await activity(harness);
+    assert.equal(entries.length, 1);
+    const [entry] = entries;
+    assert.deepEqual({ kind: entry.kind, feature: entry.feature, method: entry.method, host: entry.host, path: entry.path, outcome: entry.outcome, status: entry.status, error: entry.error },
+      { kind: 'request', feature: 'update-check', method: 'GET', host: 'api.github.com', path: UPDATE_PATH, outcome: 'ok', status: 200, error: null });
+    assert.ok(entry.bytes > 0 && entry.bytes <= 262144);
+    assert.ok(Number.isInteger(entry.durationMs) && entry.durationMs >= 0);
+    assert.match(entry.time, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/);
+    assert.deepEqual(Object.keys(entry).sort(), ['bytes', 'durationMs', 'error', 'feature', 'host', 'id', 'kind', 'method', 'outcome', 'path', 'status', 'time']);
+    assert.doesNotMatch(JSON.stringify({ entries, features }), /evil|phish|setup\.exe|set-cookie|User-Agent|vnd\.github|Accept/i);
+    assert.deepEqual(harness.partitions, [{ name: 'trace-egress', options: { cache: false } }], 'the request went through the in-memory partition');
+    assert.equal(harness.net.requests[0].url, `https://api.github.com${UPDATE_PATH}`);
+  });
+
+  await t.test('every outcome of the update check is a log entry: a rate limit (status 429), an offline failure (network), an oversize answer (too-large), a redirect, and a repeated ask inside the cooldown adds none', async () => {
+    const answers = [
+      () => jsonResponse(releaseBody('v9.9.9'), { status: 429, headers: { 'retry-after': '90' } }),
+      () => { throw new Error('offline https://api.github.com/x?token=SECRET'); },
+      () => new Response(new Uint8Array(262145), { status: 200 }),
+      () => Object.defineProperty(jsonResponse(releaseBody('v9.9.9')), 'redirected', { value: true }),
+      () => jsonResponse(releaseBody('v1.2.1')),
+    ];
+    const harness = await networking((url, init) => answers.shift()(url, init));
+    const later = (ms) => vm.runInContext(`Date.now = ((real, offset) => () => real() + offset)(Date.now, ${ms})`, harness.context);
+    const results = [];
+    for (let index = 0; index < 5; index++) { later(index === 1 ? 3600000 : 30000); results.push(plain(await harness.invoke('trace:check-for-updates'))); }
+    assert.deepEqual(results.map((result) => result.status), ['unavailable', 'unavailable', 'unavailable', 'unavailable', 'available']);
+    const { entries } = await activity(harness);
+    assert.deepEqual(entries.map((entry) => [entry.outcome, entry.status, entry.error]), [['ok', 429, null], ['error', null, 'network'], ['error', null, 'too-large'], ['error', null, 'redirect'], ['ok', 200, null]]);
+    assert.deepEqual(entries.map((entry) => entry.id), [1, 2, 3, 4, 5]);
+    assert.doesNotMatch(JSON.stringify(entries), /SECRET|offline|token/);
+    await harness.invoke('trace:check-for-updates'); // inside the cooldown: the last answer, no request
+    assert.equal((await activity(harness)).entries.length, 5);
+    assert.equal(harness.net.requests.length, 5);
+  });
+
+  await t.test('the setting is the switch of the automatic check, and Check now (a user action) still goes through with it off; the list shows the state live', async () => {
+    const harness = await networking(release('v1.2.1'));
+    const settings = plain(await harness.invoke('trace:get-settings'));
+    assert.equal((await activity(harness)).features[0].enabled, true);
+    await harness.invoke('trace:save-settings', { ...settings, updateCheck: false });
+    assert.equal((await activity(harness)).features[0].enabled, false, 'off in the list as soon as it is saved');
+    assert.equal((await activity(harness)).features[0].optIn, 'updateCheck');
+    assert.deepEqual(plain(await harness.invoke('trace:check-for-updates')), { status: 'available', version: '1.2.1' }, 'Check now is the user\'s own request');
+    assert.equal(harness.net.requests.length, 1);
+    assert.equal((await activity(harness)).entries[0].outcome, 'ok');
+    await harness.invoke('trace:save-settings', { ...settings, updateCheck: true });
+    assert.equal((await activity(harness)).features[0].enabled, true);
+  });
+
+  await t.test('the egress rules hold for the update feature in the main process: the exact URL only, the exact headers, no credentials, no redirects', async () => {
+    const harness = await networking(release('v1.2.1'), { version: '1.4.2' });
+    await harness.invoke('trace:check-for-updates');
+    const [request] = harness.net.requests;
+    assert.equal(request.url, `https://api.github.com${UPDATE_PATH}`);
+    assert.deepEqual(Object.keys(request.init).sort(), ['credentials', 'headers', 'method', 'redirect', 'referrer', 'referrerPolicy', 'signal']);
+    assert.deepEqual({ ...request.init.headers }, { Accept: 'application/vnd.github+json', 'Accept-Language': 'en', 'User-Agent': 'TRACE-Boardviewer/1.4.2', 'X-GitHub-Api-Version': '2022-11-28' });
+    assert.equal(request.init.credentials, 'omit');
+    assert.equal(request.init.redirect, 'error');
+    assert.equal(request.init.referrer, '');
+    assert.equal(request.init.referrerPolicy, 'no-referrer');
+  });
+
+  await t.test('the network session is the in-memory partition: no permission is granted, no download starts, and only the hosts of registered features pass its filter; the default session is untouched', async () => {
+    const harness = await networking(release('v1.2.1'));
+    await harness.invoke('trace:check-for-updates');
+    assert.equal(harness.partitions.length, 1);
+    const egressSession = harness.egressSession;
+    assert.notEqual(egressSession, harness.session.defaultSession);
+    const answers = [];
+    egressSession.permissionHandler({}, 'geolocation', (allowed) => answers.push(allowed));
+    assert.deepEqual(answers, [false]);
+    assert.equal(egressSession.permissionCheck({}, 'clipboard-sanitized-write'), false);
+    let prevented = false;
+    egressSession.emit('will-download', { preventDefault() { prevented = true; } });
+    assert.equal(prevented, true);
+    const [{ listener }] = egressSession.webRequest.listeners;
+    const decide = (url) => { let decision; listener({ url }, (value) => { decision = value; }); return decision; };
+    assert.deepEqual(decide('https://api.github.com/anything'), { cancel: false });
+    for (const url of ['https://github.com/x', 'https://evil.example/', 'http://api.github.com/x', 'https://api.github.com:8443/x']) assert.deepEqual(decide(url), { cancel: true }, url);
+    // The page's own session keeps its single policy: only the sanitized clipboard write, and this session never got it.
+    assert.equal(harness.session.defaultSession.permissionRequestHandlers, 1);
+    assert.equal(harness.session.defaultSession.permissionCheckHandlers, 1);
+  });
+
+  await t.test('the renderer can empty the log, and both channels ignore every argument: it cannot choose a feature, a URL or a limit', async () => {
+    const harness = await networking(release('v1.2.1'));
+    await harness.invoke('trace:check-for-updates');
+    const evil = ['https://evil.example/', { url: 'https://evil.example/', feature: 'update-check', limit: 1, hosts: ['evil.example'] }, 42];
+    const read = plain(await harness.invoke('trace:get-network-activity', ...evil));
+    assert.equal(read.entries.length, 1);
+    assert.equal(read.limit, 200);
+    assert.deepEqual(read.features.map((feature) => feature.hosts), [['api.github.com'], require('../electron/support.cjs').FEATURE.hosts]);
+    assert.equal(await harness.invoke('trace:clear-network-activity', ...evil), undefined);
+    assert.deepEqual(plain(await harness.invoke('trace:get-network-activity')), { features: read.features, limit: 200, dropped: 0, entries: [] });
+    assert.equal(harness.net.requests.length, 1, 'reading and clearing start no request');
+    const later = (ms) => vm.runInContext(`Date.now = ((real, offset) => () => real() + offset)(Date.now, ${ms})`, harness.context);
+    later(30000);
+    await harness.invoke('trace:check-for-updates');
+    assert.deepEqual((await activity(harness)).entries.map((entry) => entry.id), [2], 'the sequence goes on after a clear');
+  });
+
+  await t.test('the preload forwards no argument for either call, and the renderer gets plain data, never the layer', async () => {
+    const preload = await fs.readFile(path.resolve(__dirname, '..', 'electron', 'preload.cjs'), 'utf8');
+    const calls = [];
+    let api;
+    const electron = {
+      contextBridge: { exposeInMainWorld(_name, value) { api = value; } },
+      ipcRenderer: { invoke: async (channel, ...args) => { calls.push([channel, ...args]); return { features: [], entries: [], dropped: 0, limit: 200 }; }, on() {}, removeListener() {}, send() {} },
+      webUtils: { getPathForFile: () => '' },
+    };
+    vm.runInNewContext(preload, { require: (name) => (name === 'electron' ? electron : require(name)) }, { filename: 'preload.cjs' });
+    assert.equal(typeof api.getNetworkActivity, 'function');
+    assert.equal(typeof api.clearNetworkActivity, 'function');
+    await api.getNetworkActivity('https://evil.example/', { feature: 'x' });
+    await api.clearNetworkActivity('https://evil.example/', 7);
+    assert.deepEqual(calls, [['trace:get-network-activity'], ['trace:clear-network-activity']]);
+    const harness = await networking(release('v1.2.1'));
+    await harness.invoke('trace:check-for-updates');
+    const raw = await harness.invoke('trace:get-network-activity');
+    assert.deepEqual(Object.keys(raw).sort(), ['dropped', 'entries', 'features', 'limit']);
+    for (const entry of raw.entries) for (const value of Object.values(entry)) assert.ok(value === null || ['string', 'number'].includes(typeof value));
   });
 });
 
@@ -3094,7 +4191,7 @@ test('Linux desktop shell: file:// URIs and relative paths as launch arguments, 
 
   await t.test('linux: URIs of another host or scheme, unsupported files and switches are ignored without a dialog; a --board value that names no local file is reported', async () => {
     const remote = uri(launch).replace(/^file:\/\//, 'file://fileserver');
-    const ignored = [[remote], ['https://example.com/Launch.cad'], ['smb://fileserver/share/Launch.cad'], ['sftp://host/Launch.cad'], ['notes.txt'], ['--some-switch=Launch.cad'], ['-x', 'Launch.txt']];
+    const ignored = [[remote], ['https://example.com/Launch.cad'], ['smb://fileserver/share/Launch.cad'], ['sftp://host/Launch.cad'], ['notes.unsupported'], ['--some-switch=Launch.cad'], ['-x', 'Launch.unsupported']];
     for (const argv of ignored) {
       const { harness, result } = await startup('linux', argv, { cwd: boards });
       assert.equal(result, null, `${argv.join(' ')}: nothing is opened`);
@@ -3367,5 +4464,306 @@ test('Linux desktop shell: the question before starting without the Chromium san
       [{ platform: 'linux', noSandbox: 'yes' }, 'start'],
     ];
     for (const [input, expected] of cases) assert.equal(gate(input), expected, JSON.stringify(input));
+  });
+});
+
+test('readings through the IPC handlers: the repair store, a main-owned import dialog that returns text only, a main-validated export, and the quit gate', async (t) => {
+  const readingsFormat = require('../electron/readings.cjs');
+  const root = await makeTempDir('trace-native-readings-test-');
+  t.after(async () => {
+    const absolute = path.resolve(root);
+    assert.ok(await isInsideTemp(absolute));
+    await fs.rm(absolute, { recursive: true, force: true });
+  });
+  let counter = 0;
+  const profile = () => path.join(root, `profile-${++counter}`);
+  const ID = 'c'.repeat(64);
+  const family = { id: ID, createdAt: '2026-10-07T08:00:00Z', members: [{ fingerprint: ID, fingerprintVersion: 1, fileKeys: [] }] };
+  const reading = (id, value, extra = {}) => ({ id, kind: 'diode', target: { net: 'PP3V3_S5' }, value, unit: 'V', conditions: { power: 'unpowered' }, source: 'known-good', ...extra });
+  const pack = (readings, extra = {}) => ({ format: 'trace-readings', version: 1, license: 'CC0-1.0', board: { label: 'Main board' }, readings, ...extra });
+  const plain = (value) => JSON.parse(JSON.stringify(value)); // results built inside main.cjs come from another realm
+
+  await t.test('append, read and list: events are validated natively, a bad call writes nothing, the readings come back as JSON text', async () => {
+    const harness = await desktopHarness(profile());
+    const created = await harness.invoke('trace:append-readings', ID, [{ type: 'family.create', family }, { type: 'reading.add', reading: reading('r1', 0.412) }]);
+    assert.deepEqual(created, { seq: 1, readingCount: 1 });
+    await assert.rejects(harness.invoke('trace:append-readings', ID, [{ type: 'reading.add', reading: reading('r2', -1) }]), { code: 'READINGS_INVALID', message: /^\[READINGS_INVALID\] Invalid readings: events\[0\]\.reading\.value\.$/ });
+    await assert.rejects(harness.invoke('trace:append-readings', ID, [{ type: 'reading.add', reading: reading('r1', 0.5) }]), { code: 'READINGS_CONFLICT' });
+    await assert.rejects(harness.invoke('trace:append-readings', '../x', [{ type: 'reading.remove', id: 'r1' }]), { code: 'READINGS_INVALID' });
+    await assert.rejects(harness.invoke('trace:read-readings', ID, { headerOnly: 'yes' }), { code: 'READINGS_INVALID_REQUEST' });
+    const snapshot = await harness.invoke('trace:read-readings', ID);
+    assert.equal(snapshot.seq, 1);
+    assert.deepEqual(JSON.parse(snapshot.readings), [reading('r1', 0.412)]);
+    assert.equal((await harness.invoke('trace:read-readings', ID, { headerOnly: true })).readings, undefined);
+    assert.equal(await harness.invoke('trace:read-readings', 'd'.repeat(64)), null);
+    const list = await harness.invoke('trace:list-readings-families');
+    assert.deepEqual(list.map((entry) => [entry.id, entry.readingCount, entry.seq]), [[ID, 1, 1]]);
+  });
+
+  await t.test('import: the dialog is main-owned, the result is the base name and the decoded text; binary or unreadable files are refused with a code', async () => {
+    const harness = await desktopHarness(profile());
+    const folder = path.join(root, 'import');
+    await fs.mkdir(folder, { recursive: true });
+    const packFile = path.join(folder, 'board.trace-readings.json');
+    const packText = readingsFormat.serializePack(readingsFormat.validatePack(pack([reading('r1', 0.412)])));
+    await fs.writeFile(packFile, `﻿${packText}`);
+    assert.equal(await harness.invoke('trace:import-readings'), null, 'a cancelled dialog imports nothing');
+    harness.dialog.choice = { canceled: false, filePaths: [packFile] };
+    const imported = await harness.invoke('trace:import-readings');
+    assert.deepEqual(plain(imported), { name: 'board.trace-readings.json', bytes: Buffer.byteLength(packText) + 3, text: packText }, 'base name only (never the path), BOM removed');
+    assert.equal(harness.dialog.openOptions.at(-1).properties.includes('openFile'), true);
+    const utf16 = path.join(folder, 'obdata.txt');
+    await fs.writeFile(utf16, Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('ID 820-00165\nPP3V3 0.41 3.3 OL\n', 'utf16le')]));
+    harness.dialog.choice = { canceled: false, filePaths: [utf16] };
+    assert.equal((await harness.invoke('trace:import-readings')).text, 'ID 820-00165\nPP3V3 0.41 3.3 OL\n');
+    const binary = path.join(folder, 'image.json');
+    await fs.writeFile(binary, Buffer.from([0x7b, 0x00, 0x7d]));
+    harness.dialog.choice = { canceled: false, filePaths: [binary] };
+    await assert.rejects(harness.invoke('trace:import-readings'), { code: 'READINGS_NOT_TEXT' });
+    harness.dialog.choice = { canceled: false, filePaths: [path.join(folder, 'missing.csv')] };
+    await assert.rejects(harness.invoke('trace:import-readings'), { code: 'READINGS_FILE_UNREADABLE' });
+  });
+
+  await t.test('export: the pack is validated natively (licence marking included) before any dialog, and the written bytes are those of the native writers', async () => {
+    const harness = await desktopHarness(profile());
+    const folder = path.join(root, 'export');
+    await fs.mkdir(folder, { recursive: true });
+    const odbl = reading('o1', 0.5, { source: 'imported', license: 'ODbL-1.0', provenance: { origin: 'openboarddata', title: '820-00165' } });
+    await assert.rejects(harness.invoke('trace:export-readings', { format: 'pack', pack: pack([reading('r1', 0.4), odbl]) }), { code: 'READINGS_INVALID', message: /not listed in licenses/ });
+    await assert.rejects(harness.invoke('trace:export-readings', { format: 'xml', pack: pack([]) }), { code: 'READINGS_INVALID_REQUEST' });
+    assert.equal(harness.dialog.saveOptions.length, 0, 'no dialog opened for a refused export');
+    assert.equal(await harness.invoke('trace:export-readings', { format: 'pack', pack: pack([reading('r1', 0.4)]) }), null, 'a cancelled dialog writes nothing');
+    assert.equal(harness.dialog.saveOptions.at(-1).defaultPath, 'Main board.trace-readings.json');
+    const marked = pack([reading('r1', 0.4), odbl], { licenses: ['CC0-1.0', 'ODbL-1.0'] });
+    const expected = readingsFormat.serializePack(readingsFormat.validatePack(marked));
+    harness.dialog.saveChoice = { canceled: false, filePath: path.join(folder, 'shared') };
+    const written = await harness.invoke('trace:export-readings', { format: 'pack', pack: marked });
+    assert.deepEqual(plain(written), { name: 'shared.json', bytes: Buffer.byteLength(expected), readings: 2 });
+    assert.equal(await fs.readFile(path.join(folder, 'shared.json'), 'utf8'), expected);
+    harness.dialog.saveChoice = { canceled: false, filePath: path.join(folder, 'table.csv') };
+    await harness.invoke('trace:export-readings', { format: 'csv', pack: marked, name: 'table' });
+    const csv = await fs.readFile(path.join(folder, 'table.csv'), 'utf8');
+    assert.equal(csv, readingsFormat.packToCsv(readingsFormat.validatePack(marked)));
+    assert.match(csv.split('\r\n')[1], /,known-good,CC0-1\.0,/, 'a row without a licence of its own names the pack licence');
+    assert.match(csv.split('\r\n')[2], /,imported,ODbL-1\.0,openboarddata,/, 'the ODbL row keeps its licence and provenance');
+    assert.deepEqual((await fs.readdir(folder)).filter((name) => name.endsWith('.tmp')), []);
+  });
+
+  await t.test('quit gate: appends and file dialogs are refused once quitting began, reads still answer', async () => {
+    const harness = await desktopHarness(profile());
+    await harness.invoke('trace:append-readings', ID, [{ type: 'family.create', family }]);
+    harness.app.emit('before-quit', { preventDefault() {} });
+    await assert.rejects(harness.invoke('trace:append-readings', ID, [{ type: 'reading.add', reading: reading('r1', 0.4) }]), { code: 'STORE_CLOSING' });
+    await assert.rejects(harness.invoke('trace:import-readings'), { code: 'READINGS_CLOSING' });
+    await assert.rejects(harness.invoke('trace:export-readings', { format: 'pack', pack: pack([]) }), { code: 'READINGS_CLOSING' });
+    assert.equal((await harness.invoke('trace:read-readings', ID)).readingCount, 0);
+  });
+});
+
+test('format diagnostic report through the IPC handlers: main-owned dialogs, a neutral name, a secret that stays in the profile, a validated and canonical save', async (t) => {
+  const root = await makeTempDir('trace-diagnostic-test-');
+  t.after(async () => {
+    const absolute = path.resolve(root);
+    assert.ok(await isInsideTemp(absolute));
+    await fs.rm(absolute, { recursive: true, force: true });
+  });
+  const diagnostics = require('../electron/diagnostics.cjs');
+  const text = (key, params) => i18n.translate('hu', key, params);
+  let counter = 0;
+  const profile = () => path.join(root, `profile-${++counter}`);
+  const folder = path.join(root, 'Customer Secret QZX7');
+  await fs.mkdir(folder, { recursive: true });
+  const BOARD = '$HEADER\nGENCAD 1.4\nUNITS MM\n$ENDHEADER\n$BOARD\nLINE 0 0 10 0\n$ENDBOARD\n';
+  const plain = (value) => JSON.parse(JSON.stringify(value));
+  const choose = (harness, ...files) => { harness.dialog.choice = { canceled: false, filePaths: files }; };
+  const reviewed = () => ({
+    schema: 'trace-format-diagnostic/1',
+    app: { version: '1.3.0', adapterSet: '0123abcd', os: 'win32' },
+    privacy: { redaction: 1, level: 1, reviewedByUser: true, dedupe: false },
+    input: { extension: '.cad', sizeLog2: 6, companions: { count: 0, extensions: [] }, container: 'none', textLike: true, encoding: 'ascii', lineEndings: 'lf', entropy: Array.from({ length: 16 }, () => 4.5), magic: 'none' },
+    detection: { outcome: 'unrecognized', selected: null, format: null, ambiguous: false, adapters: [] },
+    structure: null, result: null, plausibility: null, keys: { supplied: false, parity: 'n/a' }, performance: { parseMs: 3, peakHeapLog2: null }, dedupe: null,
+  });
+
+  await t.test('the file dialog is the main process\'s own: any file, localized, cancel resolves null, the renderer chooses nothing', async () => {
+    const harness = await desktopHarness(profile());
+    harness.dialog.choice = { canceled: true, filePaths: [] };
+    assert.equal(await harness.invoke('trace:diagnostic-pick'), null);
+    const options = harness.dialog.openOptions.at(-1);
+    assert.equal(options.title, text('native.dialog.diagnosticPickTitle'));
+    assert.equal(options.buttonLabel, text('native.dialog.diagnosticPickButton'));
+    assert.deepEqual(plain(options.properties), ['openFile']);
+    assert.deepEqual(plain(options.filters[0]), { name: text('native.dialog.diagnosticAllFiles'), extensions: ['*'] }, 'any file may be diagnosed: "all files" comes first');
+    assert.ok(options.filters.length > 1, 'the format filters follow');
+    // An argument from the renderer changes nothing: no path can be named.
+    const board = path.join(folder, 'QZX7 board REV3.cad');
+    await fs.writeFile(board, BOARD);
+    harness.dialog.choice = { canceled: true, filePaths: [] };
+    assert.equal(await harness.invoke('trace:diagnostic-pick', board), null, 'a path argument is ignored');
+  });
+
+  await t.test('the renderer gets the bytes under a neutral name: never the file name, the folder, the user or the secret', async () => {
+    const dir = profile();
+    const harness = await desktopHarness(dir);
+    const board = path.join(folder, 'QZX7 board REV3.CAD');
+    await fs.writeFile(board, BOARD);
+    choose(harness, board);
+    const payload = await harness.invoke('trace:diagnostic-pick');
+    assert.deepEqual(Object.keys(payload).sort(), ['data', 'dedupe', 'name', 'os'], 'nothing else travels');
+    assert.equal(payload.name, 'diagnostic.cad');
+    assert.equal(payload.os, 'win32');
+    assert.equal(Object.prototype.toString.call(payload.data), '[object Uint8Array]');
+    assert.equal(bytesOf(payload.data).toString('utf8'), BOARD);
+    assert.match(payload.dedupe, /^[0-9a-f]{16}$/);
+    const wire = JSON.stringify({ ...payload, data: undefined });
+    for (const secret of ['QZX7', 'Customer', 'Secret', 'REV3', 'board', root, os.userInfo().username]) assert.equal(wire.includes(secret), false, `${secret} does not travel`);
+    const stored = JSON.parse(await fs.readFile(path.join(dir, 'diagnostic-secret.json'), 'utf8'));
+    assert.deepEqual(Object.keys(stored).sort(), ['secret', 'version']);
+    assert.match(stored.secret, /^[0-9a-f]{64}$/);
+    assert.equal(JSON.stringify(payload).includes(stored.secret), false, 'the secret never reaches the renderer');
+    assert.equal(harness.net.requests.length, 0, 'no network request');
+  });
+
+  await t.test('extension-less and unknown-extension files work, an empty file too; only a safe extension survives', async () => {
+    const harness = await desktopHarness(profile());
+    for (const [file, expected] of [['readme', 'diagnostic'], ['dump.XYZ', 'diagnostic.xyz'], ['weird.name.with-dash', 'diagnostic'], ['empty.brd', 'diagnostic.brd']]) {
+      const target = path.join(folder, file);
+      await fs.writeFile(target, file === 'empty.brd' ? '' : 'some bytes');
+      choose(harness, target);
+      const payload = await harness.invoke('trace:diagnostic-pick');
+      assert.equal(payload.name, expected, file);
+      assert.equal(payload.data.byteLength, file === 'empty.brd' ? 0 : 10);
+    }
+  });
+
+  await t.test('the repeat-detection code: an HMAC under the install\'s own secret, the same for the same bytes under any name, different for other bytes, other installs and a public hash', async () => {
+    const dir = profile();
+    const harness = await desktopHarness(dir);
+    const a = path.join(folder, 'a.cad'), b = path.join(folder, 'renamed copy.cad'), c = path.join(folder, 'c.cad');
+    await fs.writeFile(a, BOARD); await fs.writeFile(b, BOARD); await fs.writeFile(c, `${BOARD}\n`);
+    const codeOf = async (file, h = harness) => { choose(h, file); return (await h.invoke('trace:diagnostic-pick')).dedupe; };
+    const first = await codeOf(a);
+    assert.equal(await codeOf(b), first, 'a renamed copy gives the same code');
+    assert.notEqual(await codeOf(c), first, 'other bytes, other code');
+    const again = await desktopHarness(dir);
+    assert.equal(await codeOf(a, again), first, 'the secret persists in the profile');
+    const other = await desktopHarness(profile());
+    assert.notEqual(await codeOf(a, other), first, 'another install has another secret');
+    for (const algorithm of ['sha256', 'sha1', 'md5']) assert.equal(createHash(algorithm).update(BOARD).digest('hex').startsWith(first), false, `not a plain ${algorithm}`);
+    // A damaged secret file is replaced, not trusted.
+    await fs.writeFile(path.join(dir, 'diagnostic-secret.json'), '{"version":1,"secret":"nothex"}');
+    const repaired = await desktopHarness(dir);
+    const fresh = await codeOf(a, repaired);
+    assert.match(fresh, /^[0-9a-f]{16}$/);
+    assert.match(JSON.parse(await fs.readFile(path.join(dir, 'diagnostic-secret.json'), 'utf8')).secret, /^[0-9a-f]{64}$/);
+  });
+
+  await t.test('a companion set gives the same code whichever member was chosen, with the fixed role names', async () => {
+    const harness = await desktopHarness(profile());
+    const set = path.join(folder, 'trio');
+    await fs.mkdir(set, { recursive: true });
+    for (const [name, content] of [['Format.ASC', 'f'], ['pins.asc', 'p'], ['NAILS.asc', 'n']]) await fs.writeFile(path.join(set, name), content);
+    const codes = [];
+    for (const member of ['Format.ASC', 'pins.asc', 'NAILS.asc']) {
+      choose(harness, path.join(set, member));
+      const payload = await harness.invoke('trace:diagnostic-pick');
+      assert.equal(payload.name, member.toLowerCase());
+      assert.deepEqual(Object.keys(payload.companions).sort(), ['format.asc', 'nails.asc', 'pins.asc'].filter((name) => name !== member.toLowerCase()));
+      codes.push(payload.dedupe);
+    }
+    assert.equal(new Set(codes).size, 1);
+  });
+
+  await t.test('refusals: a folder, a missing file, an oversize file, a path that is not local, and the quit gate; the dialog opens only when it should', async () => {
+    const harness = await desktopHarness(profile());
+    choose(harness, folder);
+    await assert.rejects(harness.invoke('trace:diagnostic-pick'), { message: text('native.error.notAFile') });
+    choose(harness, path.join(folder, 'missing.cad'));
+    await assert.rejects(harness.invoke('trace:diagnostic-pick'), { message: text('native.error.boardNotFound') });
+    choose(harness, 'relative/path.cad');
+    await assert.rejects(harness.invoke('trace:diagnostic-pick'), { message: text('native.error.invalidPath') });
+    const huge = path.join(folder, 'huge.bin');
+    await fs.writeFile(huge, '');
+    await fs.truncate(huge, 64 * 1024 * 1024 + 1);
+    choose(harness, huge);
+    await assert.rejects(harness.invoke('trace:diagnostic-pick'), { message: text('native.error.boardTooLarge', { max: 64 }) });
+    const opened = harness.dialog.openOptions.length;
+    harness.app.emit('before-quit', { preventDefault() {} });
+    await assert.rejects(harness.invoke('trace:diagnostic-pick'), { code: 'DIAGNOSTIC_CLOSING', message: `[DIAGNOSTIC_CLOSING] ${text('native.error.diagnosticClosing')}` });
+    await assert.rejects(harness.invoke('trace:diagnostic-save', reviewed()), { code: 'DIAGNOSTIC_CLOSING' });
+    assert.equal(harness.dialog.openOptions.length, opened, 'no dialog after the quit intent');
+    assert.equal(harness.dialog.saveOptions.length, 0);
+  });
+
+  await t.test('save: the report is validated against the closed schema again, the user must have reviewed it, and a refused report opens no dialog', async () => {
+    const harness = await desktopHarness(profile());
+    const bad = [
+      null, 'text', [], {}, { ...reviewed(), extra: 1 }, { ...reviewed(), privacy: { ...reviewed().privacy, reviewedByUser: false } },
+      { ...reviewed(), input: { ...reviewed().input, extension: '.secret-customer' } }, { ...reviewed(), input: { ...reviewed().input, fileName: 'board.cad' } },
+      { ...reviewed(), detection: { ...reviewed().detection, adapters: [{ id: 'QZX7', sniff: 'certain', result: 'claimed', code: null, stage: null, format: null, keyKind: null }] } },
+      { ...reviewed(), structure: { hook: 'gencad', kind: 'text', variant: null, headerOk: true, linesLog2: 3, keywords: { QZX7NET: 1 }, fields: {}, numbers: null, sections: [], header: { codes: {}, counts: {} }, blocks: null } },
+    ];
+    for (const report of bad) {
+      await assert.rejects(harness.invoke('trace:diagnostic-save', report), { code: 'DIAGNOSTIC_INVALID', message: `[DIAGNOSTIC_INVALID] ${text('native.error.diagnosticInvalid')}` }, JSON.stringify(report)?.slice(0, 60));
+    }
+    assert.equal(harness.dialog.saveOptions.length, 0, 'a refused report opens no dialog');
+  });
+
+  await t.test('save: the main-owned dialog, a bare default name, .json added, the canonical text written, cancel writes nothing, and a failed write is reported', async () => {
+    const harness = await desktopHarness(profile());
+    const report = reviewed();
+    harness.dialog.saveChoice = { canceled: true, filePath: undefined };
+    assert.equal(await harness.invoke('trace:diagnostic-save', report), null);
+    const options = harness.dialog.saveOptions.at(-1);
+    assert.equal(options.title, text('native.dialog.diagnosticSaveTitle'));
+    assert.equal(options.buttonLabel, text('native.dialog.diagnosticSaveButton'));
+    assert.equal(options.defaultPath, 'trace-format-diagnostic.json', 'a bare name: the dialog does not start next to the examined file');
+    assert.deepEqual(plain(options.filters), [{ name: text('native.dialog.diagnosticSaveFilter'), extensions: ['json'] }]);
+    const target = path.join(folder, 'shared report');
+    harness.dialog.saveChoice = { canceled: false, filePath: target };
+    const written = await harness.invoke('trace:diagnostic-save', report);
+    const expected = diagnostics.serializeReport(diagnostics.validateReport(report, { reviewed: true }));
+    assert.deepEqual(plain(written), { bytes: Buffer.byteLength(expected) });
+    assert.equal(await fs.readFile(`${target}.json`, 'utf8'), expected, 'the canonical text, with .json added');
+    await assert.rejects(fs.stat(target), { code: 'ENOENT' });
+    // The renderer's own key order does not matter: the file is the canonical form.
+    const shuffled = Object.fromEntries(Object.entries(report).reverse());
+    harness.dialog.saveChoice = { canceled: false, filePath: path.join(folder, 'again.JSON') };
+    await harness.invoke('trace:diagnostic-save', shuffled);
+    assert.equal(await fs.readFile(path.join(folder, 'again.JSON'), 'utf8'), expected);
+    harness.dialog.saveChoice = { canceled: false, filePath: path.join(folder, 'no-such-folder', 'x.json') };
+    await assert.rejects(harness.invoke('trace:diagnostic-save', report), { code: 'DIAGNOSTIC_WRITE_FAILED', message: `[DIAGNOSTIC_WRITE_FAILED] ${text('native.error.diagnosticWriteFailed')}` });
+    assert.equal(harness.net.requests.length, 0, 'no network request');
+  });
+
+  await t.test('the preload forwards nothing but the report: the pick takes no argument, the save takes the report only', async () => {
+    const harness = await desktopHarness(profile());
+    let api;
+    const calls = [];
+    const electron = {
+      contextBridge: { exposeInMainWorld(_name, value) { api = value; } },
+      ipcRenderer: { invoke: (channel, ...args) => { calls.push([channel, args]); return harness.invoke(channel, ...args); }, on() {}, removeListener() {}, send() {} },
+      webUtils: { getPathForFile: () => '' },
+    };
+    const source = await fs.readFile(path.resolve(__dirname, '..', 'electron', 'preload.cjs'), 'utf8');
+    vm.runInNewContext(source, { require: (name) => (name === 'electron' ? electron : require(name)) }, { filename: 'preload.cjs' });
+    harness.dialog.choice = { canceled: true, filePaths: [] };
+    await api.pickDiagnosticFile('C:\\secret\\board.cad', { more: true });
+    harness.dialog.saveChoice = { canceled: true, filePath: undefined };
+    await api.saveDiagnosticReport(reviewed(), '/elsewhere');
+    assert.deepEqual(plain(calls), [['trace:diagnostic-pick', []], ['trace:diagnostic-save', [plain(reviewed())]]]);
+    const preload = source.split('\n').filter((line) => /Diagnostic/.test(line)).join('\n');
+    assert.doesNotMatch(preload, /clipboard|fetch|https?:/, 'the diagnostic calls of the preload carry no URL and no clipboard');
+  });
+
+  await t.test('the source: the diagnostic code reaches no network or clipboard, and the validator module needs only node:crypto and the schema', async () => {
+    const [main, validator] = await Promise.all(['main.cjs', 'diagnostics.cjs'].map((name) => fs.readFile(path.resolve(__dirname, '..', 'electron', name), 'utf8')));
+    assert.deepEqual([...validator.matchAll(/require\(\s*'([^']+)'\s*\)/g)].map((match) => match[1]).sort(), ['./diagnostic-schema.json', 'node:crypto']);
+    const code = validator.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '$1');
+    assert.doesNotMatch(code, /\bfetch\(|XMLHttpRequest|node:https?|\bnet\b\.|clipboard|process\.env|Date\.now|new Date\b|os\.hostname|userInfo/);
+    assert.doesNotMatch(main, /clipboard\./, 'the main process never writes the clipboard');
+    const block = main.slice(main.indexOf('async function readDiagnosticFile'), main.indexOf('function acceptBoard'));
+    assert.ok(block.length > 1000);
+    assert.doesNotMatch(block, /\bfetch\(|egress|shell\.|clipboard|openExternal|net\./, 'the diagnostic block reaches nothing outside the file dialogs');
   });
 });

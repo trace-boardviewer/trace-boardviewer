@@ -1,0 +1,6 @@
+Designator,Pin,Net Name,X,Y,Side,Comment
+"R1","1","GND","10.00","20.00","Top","10k, 1%"
+R1,2,"NET,WITH,COMMAS",11.00,20.00,Top,"10k, 1%"
+R2,1,"say ""hi""",10.00,22.00,Top,"two
+lines"
+R2,2,"VCC",11.00,22.00,Top,

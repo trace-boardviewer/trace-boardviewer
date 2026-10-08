@@ -1,7 +1,8 @@
 import { AlertCircle, FileWarning, LoaderCircle, RefreshCcw, Trash2 } from 'lucide-react';
-import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { DocumentRuntime, WorkspaceApi } from '../../app/api';
 import type { SchematicSelection, ViewerCamera } from '../viewer-contracts';
+import { UiContext } from './ui-context';
 import './workspace.css';
 
 // i18n: pending
@@ -89,10 +90,11 @@ function PdfDocument({ api, doc, chrome, focusNonce }: { api: WorkspaceApi; doc:
   const onBookmarks = useCallback((next: DocumentRuntime['record']['bookmarks']) => actionsRef.current.setBookmarks(id, next), [id]);
   const onAnnotations = useCallback((next: DocumentRuntime['record']['annotations']) => actionsRef.current.setAnnotations(id, next), [id]);
   const onProbe = useCallback((regionId: string) => actionsRef.current.activateProbeRegion(id, regionId), [id]);
+  const language = useContext(UiContext)?.language;
   if (!doc.pdf) return <StateCard api={api} doc={{ ...doc, status: 'error' }} />;
   return <PdfViewer session={doc.pdf} camera={camera} onCameraChange={setCamera} theme={chrome.theme} motion={chrome.motion} compact={chrome.compact}
     bookmarks={doc.record.bookmarks} annotations={doc.record.annotations} onBookmarksChange={onBookmarks} onAnnotationsChange={onAnnotations}
-    highlights={overlay?.highlights} probeRegions={overlay?.probeRegions} onProbeRegionClick={onProbe} searchQuery={query} onSearchQueryChange={setQuery} focusSearchNonce={focusNonce} navigateNonce={state.probe.nonce} />;
+    highlights={overlay?.highlights} probeRegions={overlay?.probeRegions} onProbeRegionClick={onProbe} searchQuery={query} onSearchQueryChange={setQuery} focusSearchNonce={focusNonce} navigateNonce={state.probe.nonce} language={language} />;
 }
 
 function ImageDocument({ api, doc, chrome }: { api: WorkspaceApi; doc: DocumentRuntime; chrome: ViewerChrome }) {

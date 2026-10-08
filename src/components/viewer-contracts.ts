@@ -1,4 +1,5 @@
 import type { DocumentAnnotation, DocumentBookmark, DocumentCalibration } from '../lib/documents';
+import type { Language } from '../lib/i18n';
 import type { PdfSession } from '../lib/pdf/session-contract';
 import type { SchematicDesign } from '../lib/schematic/model';
 
@@ -36,9 +37,15 @@ export interface ViewerHighlight {
   label?: string;
   /** The currently navigated hit (stronger style). */
   active?: boolean;
+  /** Set when the highlighted text is recognized text (OCR): its confidence 0-100. The viewer marks it as such. */
+  confidence?: number;
 }
 /** A clickable region produced by the cross-reference (a text hit that equals an existing board reference or net). */
-export interface ViewerProbeRegion { id: string; page?: number; rect: DocRect; label: string }
+export interface ViewerProbeRegion {
+  id: string; page?: number; rect: DocRect; label: string;
+  /** Set when the link comes from recognized text (OCR): its confidence 0-100 (always at least OCR_LINK_MIN_CONFIDENCE). */
+  confidence?: number;
+}
 
 export interface ViewerCommon {
   camera: ViewerCamera;
@@ -62,6 +69,8 @@ export interface PdfViewerProps extends ViewerCommon {
   /** Search box value is controlled so the unified search can drive it. */
   searchQuery: string;
   onSearchQueryChange(query: string): void;
+  /** Interface language of the viewer's localized texts (text recognition); default English. */
+  language?: Language;
   /** Incrementing number: focus the viewer's search field (Ctrl+F inside the viewer pane). */
   focusSearchNonce?: number;
   /**

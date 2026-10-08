@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "description": "Performance budgets of the synthetic benchmark (node scripts/qa-performance.cjs --synthetic=...). Report only: a failed budget is shown but does not fail the run unless --strict is given. Frame metrics are the cost of one redrawn frame including the GPU raster wait (frameCost.*.total), p95 over the sampled frames.",
+  "reference": "Master plan: R2 section 2.5 acceptance table and gate G1; R5 section 3.7",
+  "budgets": [
+    { "id": "pan-p95-100k", "size": "100k", "metric": "frameCost.pan.fit.total.p95", "max": 12, "unit": "ms", "label": "Pan p95, fit view, 100k pins", "source": "R2 2.5" },
+    { "id": "zoom-p95-100k", "size": "100k", "metric": "frameCost.zoom.fit.total.p95", "max": 16, "unit": "ms", "label": "Zoom p95, fit view, 100k pins", "source": "R2 2.5" },
+    { "id": "first-paint-100k", "size": "100k", "metric": "load.firstPaintMs", "max": 3000, "unit": "ms", "label": "Open to first paint, 100k pins", "source": "R2 2.5" },
+    { "id": "pan-p95-250k", "size": "250k", "metric": "frameCost.pan.fit.total.p95", "max": 33, "unit": "ms", "label": "Pan p95, fit view, 250k pins", "source": "R2 2.5" },
+    { "id": "zoom-p95-250k", "size": "250k", "metric": "frameCost.zoom.fit.total.p95", "max": 33, "unit": "ms", "label": "Zoom p95, fit view, 250k pins", "source": "R2 2.5" },
+    { "id": "hover-p95-100k", "size": "100k", "metric": "hover.fit.pointerMoveMs.p95", "max": 2, "unit": "ms", "label": "Hover handler p95, 100k pins", "source": "R5 3.7" },
+    { "id": "select-net-100k", "size": "100k", "metric": "selectNet.firstDrawMs", "max": 50, "unit": "ms", "label": "Select the GND net to first draw, 100k pins", "source": "R5 3.7" },
+    { "id": "search-p95-100k", "size": "100k", "metric": "search.keystrokeMs.p95", "max": 100, "unit": "ms", "label": "Search keystroke to results p95, 100k pins", "source": "R5 3.7" },
+    { "id": "pan-p95-1m", "size": "1m", "metric": "frameCost.pan.fit.total.p95", "max": 33, "unit": "ms", "label": "Pan p95, fit view, 1M pins", "source": "R5 3.7" },
+    { "id": "open-1m", "size": "1m", "metric": "load.firstPaintMs", "max": 15000, "unit": "ms", "label": "Open to first paint, 1M pins", "source": "R5 3.7" },
+    { "id": "memory-1m", "size": "1m", "metric": "memory.afterInteraction.processes.rendererPeakWorkingSetMB", "max": 1536, "unit": "MB", "label": "Peak renderer memory, 1M pins", "source": "R5 3.7" }
+  ]
+}

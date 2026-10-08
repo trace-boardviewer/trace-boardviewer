@@ -1,0 +1,18 @@
+{
+  "support.title": "A TRACE ingyenes, és az is marad",
+  "support.body": "Ha a TRACE időt spórol neked a műhelyben, kérlek támogasd a további fejlesztését 5 euróval. A támogatás a fejlesztés eszközeire és szolgáltatásaira, a windowsos kódaláíró tanúsítványra, a macOS-build aláírásához szükséges Apple Developer Program tagságra, a weboldalra és az új projektek elindítására megy — a következő hamarosan érkezik, és később a TRACE-be kerül integrálásra.",
+  "support.thanks": "Köszönjük mindenkinek, aki már támogatja a TRACE-t ❤",
+  "support.testing": "Nagyon köszönöm, ha teszteled a TRACE-t és megosztod a véleményed, külön köszönet érte! Ha bugot találsz, kérlek mindenképp jelezd.",
+  "support.stripe": "Támogatom 5 euróval",
+  "support.kofi": "Egy kávé a Ko-fi-n",
+  "support.bug": "Hiba bejelentése",
+  "support.notNow": "Most nem",
+  "support.bugFailed": "A hibabejelentő oldalt nem sikerült megnyitni.",
+  "support.button": "TRACE támogatása",
+  "support.buttonFailed": "A támogatási oldalt nem sikerült megnyitni.",
+  "support.reference": "Támogatási kód",
+  "support.referenceHint": "Ko-fi esetén másold ezt a kódot a fizetés üzenetébe. A Stripe automatikusan megkapja. Fizetés után itt ellenőrizheted; az igazolás egy évre elrejti a támogatási kéréseket.",
+  "support.verify": "Fizetés ellenőrzése",
+  "support.pending": "A fizetési visszaigazolás még nem érkezett meg. Kihagyhatod, és később újra ellenőrizheted.",
+  "support.unavailable": "A fizetés ellenőrzése most nem érhető el. Kihagyhatod, és később újra próbálhatod."
+}

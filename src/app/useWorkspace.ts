@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { bundledOcrEngine } from '../lib/ocr/bundled';
 import { createPdfSession } from '../lib/pdf/session';
 import type { WorkspaceApi } from './api';
 import { createWorkspaceController } from './controller';
@@ -38,7 +39,8 @@ export function browserDeps(): ControllerDeps {
     desktop: window.traceDesktop,
     createBoardWorker: boardWorker,
     createSchematicWorker: schematicWorker,
-    createPdfSession: options => createPdfSession(options),
+    // Text recognition for pages without a text layer: the bundled engine, run in its own worker, offered on request only.
+    createPdfSession: options => createPdfSession({ ...options, ocr: { engine: bundledOcrEngine } }),
     storage: browserStorage(),
     pickFiles,
   };

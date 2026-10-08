@@ -1,0 +1,26 @@
+{
+  "help.title": "Shortcuts at your fingertips",
+  "help.open": "Open file",
+  "help.search": "Search components",
+  "help.fit": "Fit board",
+  "help.rotate": "Rotate",
+  "help.measure": "Measure distance",
+  "help.labels": "Labels",
+  "help.note": "Note",
+  "help.zoom": "Zoom in / out",
+  "help.layout": "Workshop / Focus",
+  "help.escape": "Clear highlight / stop measuring",
+  "help.footer": "Mouse wheel: zoom at the cursor. Drag: pan the board. Click: select a component or pin.",
+  "help.diagnosticReport": "Format diagnostic report…",
+  "help.diagnosticHint": "Describes a file that does not open, without its content.",
+
+  "recents.title": "Recent boards",
+  "recents.empty": "No file has been opened yet.",
+  "recents.openOther": "Open another file",
+
+  "info.title": "Board information",
+  "info.format": "Format",
+  "info.size": "Board size",
+  "info.counts": "Components / pins / nets",
+  "info.footer": "Guide lines show net connectivity. They do not replace the geometry of the copper traces in the file."
+}

@@ -1,0 +1,19 @@
+{
+  "pdf.ocr.recognize": "Riconosci il testo",
+  "pdf.ocr.recognizeTitle": "Legge il testo delle pagine senza livello di testo, su questo computer. Non viene caricato nulla.",
+  "pdf.ocr.stop": "Interrompi",
+  "pdf.ocr.pageOffer": "Questa pagina è un’immagine senza livello di testo. Riconosci il testo per cercarlo e collegare i riferimenti della scheda.",
+  "pdf.ocr.documentOffer": "Nessun livello di testo: questo PDF è scansionato o raster. Riconosci il testo per cercarlo e collegare i riferimenti della scheda.",
+  "pdf.ocr.starting": "Avvio del riconoscimento del testo…",
+  "pdf.ocr.running": "Riconoscimento del testo: pagina {page} ({done} di {total})",
+  "pdf.ocr.summary": "Testo riconosciuto · pagine: {pages} · parole: {words}",
+  "pdf.ocr.linkRule": "Le parole riconosciute sono contrassegnate. Diventano collegamenti solo i nomi esatti della scheda letti con un’affidabilità di almeno il {floor}%.",
+  "pdf.ocr.cancelled": "Riconoscimento del testo interrotto dopo {done} pagine su {total}. Le pagine riconosciute restano ricercabili.",
+  "pdf.ocr.timeouts": "Pagine non riconosciute entro il limite di tempo: {pages}",
+  "pdf.ocr.failed": "Riconoscimento del testo non riuscito: {message}",
+  "pdf.ocr.unavailable": "Il riconoscimento del testo non è disponibile qui: {message}",
+  "pdf.ocr.badge": "Testo riconosciuto",
+  "pdf.ocr.badgeTitle": "Testo riconosciuto con OCR su questo computer, affidabilità media {confidence}%",
+  "pdf.ocr.wordTitle": "Testo riconosciuto, affidabilità {confidence}%",
+  "pdf.ocr.linkLabel": "{name}, testo riconosciuto, affidabilità {confidence}%"
+}

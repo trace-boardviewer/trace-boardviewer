@@ -40,9 +40,13 @@ export function viewBounds(view: SchView, width: number, height: number, marginP
   return { minX: view.x - hw / view.scale, minY: view.y - hh / view.scale, maxX: view.x + hw / view.scale, maxY: view.y + hh / view.scale };
 }
 
-/** `page` shows the whole extent; `width` fits its width and aligns the top edge (long sheets scroll vertically). */
+/**
+ * `page` shows all of `bounds`; `width` fits its width and aligns the top edge (long sheets scroll vertically). The padding
+ * never takes more than 7 % of the shorter viewport side, so the fitted bounds fill at least 86 % of the limiting dimension
+ * even in a small pane.
+ */
 export function fitView(bounds: SchBounds, width: number, height: number, mode: 'width' | 'page', padding = 28): SchView {
-  const pad = Math.min(padding, width / 4, height / 4);
+  const pad = Math.min(padding, width / 4, height / 4, Math.min(width, height) * 0.07);
   const bw = Math.max(1e-3, bounds.maxX - bounds.minX), bh = Math.max(1e-3, bounds.maxY - bounds.minY);
   const fitW = Math.max(1, width - pad * 2) / bw, fitH = Math.max(1, height - pad * 2) / bh;
   const scale = clampScale(mode === 'width' ? fitW : Math.min(fitW, fitH));
@@ -74,14 +78,17 @@ export function clampView(view: SchView, extent: SchBounds, width: number, heigh
 
 export const viewToCamera = (view: SchView, fit: FitMode): ViewerCamera => ({ zoom: view.scale / BASE_SCALE, x: view.x, y: view.y, fit });
 
-/** Restores a persisted camera; anything incomplete or non-finite degrades to a page fit instead of a broken view. */
-export function cameraToView(camera: ViewerCamera, extent: SchBounds, width: number, height: number): { view: SchView; fit: FitMode } {
-  if (camera.fit === 'page' || camera.fit === 'width') return { view: fitView(extent, width, height, camera.fit), fit: camera.fit };
+/**
+ * Restores a persisted camera; anything incomplete or non-finite degrades to a page fit instead of a broken view. A fitted
+ * camera fits `fitBounds` (the sheet's paper, see SheetData.fitBounds); a free camera may roam over the whole `extent`.
+ */
+export function cameraToView(camera: ViewerCamera, extent: SchBounds, width: number, height: number, fitBounds: SchBounds = extent): { view: SchView; fit: FitMode } {
+  if (camera.fit === 'page' || camera.fit === 'width') return { view: fitView(fitBounds, width, height, camera.fit), fit: camera.fit };
   const { zoom, x, y } = camera;
   if (typeof zoom === 'number' && typeof x === 'number' && typeof y === 'number' && Number.isFinite(zoom) && Number.isFinite(x) && Number.isFinite(y) && zoom > 0) {
     return { view: clampView({ x, y, scale: clampScale(zoom * BASE_SCALE) }, extent, width, height), fit: 'none' };
   }
-  return { view: fitView(extent, width, height, 'page'), fit: 'page' };
+  return { view: fitView(fitBounds, width, height, 'page'), fit: 'page' };
 }
 
 /** Equality with a sub-pixel tolerance, so a shell that rounds the stored camera does not cause a feedback loop. */
@@ -256,8 +263,13 @@ function buildGrid(boxes: Float64Array, count: number, extent: SchBounds): Grid 
 
 export interface SheetData {
   def: SchSheetDef;
-  /** Everything that can appear on the sheet (content and paper): the extent a camera may roam over and fit to. */
+  /** Everything that can appear on the sheet (content and paper): the extent a camera may roam over, so stray items stay reachable by panning. */
   extent: SchBounds;
+  /**
+   * What "fit" shows: the paper when the sheet has one (unless most of the drawing lies outside it), else the content without far
+   * outliers. Always inside `extent`; a stray note far off the page does not shrink the fitted sheet.
+   */
+  fitBounds: SchBounds;
   frame: PaperFrame | null;
   count: number;
   boxes: Float64Array;
@@ -316,6 +328,63 @@ export function symbolGeometry(sym: SchSymbol): { draw: SchBounds; hit: SchBound
   return { draw, hit };
 }
 
+const hasArea = (b: SchBounds) => isValid(b) && (b.maxX > b.minX || b.maxY > b.minY);
+
+/** An element is a far outlier when it lies entirely beyond this fence around the core box of the element centres: half the span of that box, at least this many mm. */
+const OUTLIER_FENCE_MIN = 25;
+
+/**
+ * Bounds of the drawn elements (4 numbers each in `boxes`, NaN = not drawn) without far outliers: a stray note or a symbol
+ * left behind outside the drawing. The core box is the box of the element centres without the 2 % smallest and the 2 %
+ * largest values on each axis; an element is dropped when its box lies entirely beyond a fence of half the span of the core
+ * box (at least 25 mm) around it, so nothing at the edge of a normal drawing is ever cut off. A sheet of fewer than 50
+ * elements is never trimmed, and up to 2 % of the elements on one side of an axis can be outliers. Returns an invalid
+ * (empty) bounds when nothing is drawn.
+ */
+export function robustContentBounds(boxes: Float64Array, count: number): SchBounds {
+  const ids: number[] = [];
+  for (let i = 0; i < count; i++) if (boxes[i * 4] <= boxes[i * 4 + 2] && boxes[i * 4 + 1] <= boxes[i * 4 + 3] && Number.isFinite(boxes[i * 4] + boxes[i * 4 + 1] + boxes[i * 4 + 2] + boxes[i * 4 + 3])) ids.push(i);
+  const all = emptyBounds();
+  for (const i of ids) { grow(all, boxes[i * 4], boxes[i * 4 + 1]); grow(all, boxes[i * 4 + 2], boxes[i * 4 + 3]); }
+  const skip = Math.floor(ids.length / 50);
+  if (skip < 1) return all;
+  const xs = new Float64Array(ids.length), ys = new Float64Array(ids.length);
+  ids.forEach((i, n) => { xs[n] = (boxes[i * 4] + boxes[i * 4 + 2]) / 2; ys[n] = (boxes[i * 4 + 1] + boxes[i * 4 + 3]) / 2; });
+  xs.sort(); ys.sort();
+  const x0 = xs[skip], x1 = xs[ids.length - 1 - skip], y0 = ys[skip], y1 = ys[ids.length - 1 - skip];
+  const mx = Math.max((x1 - x0) / 2, OUTLIER_FENCE_MIN), my = Math.max((y1 - y0) / 2, OUTLIER_FENCE_MIN);
+  const kept = emptyBounds();
+  for (const i of ids) {
+    if (boxes[i * 4 + 2] < x0 - mx || boxes[i * 4] > x1 + mx || boxes[i * 4 + 3] < y0 - my || boxes[i * 4 + 1] > y1 + my) continue;
+    grow(kept, boxes[i * 4], boxes[i * 4 + 1]); grow(kept, boxes[i * 4 + 2], boxes[i * 4 + 3]);
+  }
+  return hasArea(kept) ? kept : all;
+}
+
+/** What fit shows (see SheetData.fitBounds). */
+function sheetFitBounds(extent: SchBounds, frame: PaperFrame | null, boxes: Float64Array, count: number): SchBounds {
+  if (frame) {
+    // A drawing that mostly lies outside its own page (a default A4 under a larger drawing) is fitted together with the page.
+    let drawn = 0, inside = 0;
+    const paper = frame.paper;
+    for (let i = 0; i < count; i++) {
+      const o = i * 4;
+      if (!Number.isFinite(boxes[o] + boxes[o + 1] + boxes[o + 2] + boxes[o + 3])) continue;
+      drawn++;
+      const cx = (boxes[o] + boxes[o + 2]) / 2, cy = (boxes[o + 1] + boxes[o + 3]) / 2;
+      if (cx >= paper.minX && cx <= paper.maxX && cy >= paper.minY && cy <= paper.maxY) inside++;
+    }
+    if (inside * 2 >= drawn) return { ...paper };
+    const both = emptyBounds();
+    growBounds(both, paper);
+    const content = robustContentBounds(boxes, count);
+    if (isValid(content)) growBounds(both, content);
+    return both;
+  }
+  const content = robustContentBounds(boxes, count);
+  return hasArea(content) ? content : { ...extent };
+}
+
 export function buildSheetData(def: SchSheetDef): SheetData {
   const counts = [def.symbols.length, def.wires.length, def.buses.length, def.busEntries.length, def.junctions.length, def.noConnects.length, def.labels.length, def.sheetRefs.length, def.graphics.length];
   const offsets: number[] = [];
@@ -359,13 +428,13 @@ export function buildSheetData(def: SchSheetDef): SheetData {
 
   const content = emptyBounds();
   for (let i = 0; i < count; i++) if (boxes[i * 4] <= boxes[i * 4 + 2]) { grow(content, boxes[i * 4], boxes[i * 4 + 1]); grow(content, boxes[i * 4 + 2], boxes[i * 4 + 3]); }
-  const hasArea = (b: SchBounds) => isValid(b) && (b.maxX > b.minX || b.maxY > b.minY);
   if (!isValid(content) && hasArea(def.bounds)) growBounds(content, def.bounds);
   const frame = paperFrame(def);
   const extent = isValid(content) ? { ...content } : emptyBounds();
   if (frame) growBounds(extent, frame.paper);
   if (!hasArea(extent)) { extent.minX = 0; extent.minY = 0; extent.maxX = 100; extent.maxY = 100; }
-  return { def, extent, frame, count, boxes, kind, offsets, hit, labels, symbolById, wireById, grid: buildGrid(boxes, count, extent), stamp: new Uint32Array(count), epoch: 0 };
+  const fitBounds = sheetFitBounds(extent, frame, boxes, count);
+  return { def, extent, fitBounds, frame, count, boxes, kind, offsets, hit, labels, symbolById, wireById, grid: buildGrid(boxes, count, extent), stamp: new Uint32Array(count), epoch: 0 };
 }
 
 /** Appends the ids of every element whose bounds intersect the rectangle to `out` (cleared first). */

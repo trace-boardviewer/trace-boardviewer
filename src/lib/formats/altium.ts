@@ -13,31 +13,38 @@
  *   /FileHeader       (only to name SchDoc/SchLib/PcbLib containers that are not a PcbDoc)
  * NOT read (disclosed as a warning on every import): Tracks6, Vias6, Arcs6, Fills6, Regions6, Polygons6, Texts6/WideStrings6,
  * Models, rules, classes. Net membership therefore covers component pads only; free pads (no component) are skipped.
- * Untested against real Altium files: every layout is verified only with original synthetic containers. Versions are unknown;
+ * Every layout is covered by original synthetic containers; the binary layout was also read from, and its nets compared with the SchDoc
+ * nets and the P-CAD netlist of the same designs, on real openly licensed boards. Versions are unknown;
  * pad sub-records shorter than the documented 110 bytes, block flag bytes, %UTF8% text keys, non-contiguous outline vertices,
- * unknown shape/pad-mode codes and pads on inner layers are rejected as UNSUPPORTED_VARIANT instead of being interpreted.
+ * unknown shape/pad-mode codes and layer ids no pad can sit on are rejected as UNSUPPORTED_VARIANT instead of being interpreted.
+ *
+ * What a top/bottom view cannot show is left out and counted in the import notes, never refused: components on an inner layer (net ties
+ * on Mid-Layer 1), pads on inner copper layers, pads on layers without copper (paste, solder mask, overlay, mechanical, drill), and a pad
+ * with neither copper size nor hole. A plated hole whose copper size is 0 x 0 is drawn as a round pad of its hole diameter. Pads address
+ * components by record index, so an inner-layer component keeps its index and only its output is skipped.
  *
  * ASCII PcbDoc (`|RECORD=Board|KIND=Protel_Advanced_PCB|...` lines): Board/Component/Net property names are the ones documented
- * for the binary text records; the Pad record keys (NAME, COMPONENT, NET, LAYER, X, Y, XSIZE, YSIZE, SHAPE, ROTATION) and 0-based
- * record-index references are NOT documented publicly and are covered by synthetic tests only. A pad lacking those keys is rejected.
+ * for the binary text records; the Pad record keys (NAME, COMPONENT, NET, LAYER, X, Y, XSIZE, YSIZE, SHAPE, ROTATION, HOLESIZE) and
+ * 0-based record-index references are not documented publicly; a real export of 4,063 pads gives, pad for pad, the board of its
+ * binary twin. A pad lacking those keys is rejected. Real exports also write Region and ComponentBody records without the leading
+ * bar ("RECORD=Region|...") and let a Text value run over several lines; the lines after a Text record up to the next record are that text.
  *
  * Coordinates are Y-up; binary values are int32 in 1/10000 mil (1 unit = 2.54e-6 mm); text values need a mil/mm/in suffix
  * (a bare 0 is accepted, any other bare number is rejected because its unit is undocumented). Rotations are counter-clockwise degrees.
  */
 import type { Board, BoardSide, ParseIssue, Point } from '../types';
+import { CFB_MAGIC, readCompound as readCompoundWith, type Compound } from './altium-cfb';
 import { asciiPrefix, BoardFormatError, buildBoard, decodeText, MAX_MM, note, startsWithBytes, type FormatErrorCode, type ParseInput, type RawBoard, type RawPart, type RawPin } from './common';
 
 export const ALTIUM_ASCII = 'Altium ASCII PcbDoc';
 export const ALTIUM_BINARY = 'Altium binary PcbDoc';
 const MIL_MM = 0.0254;
 const INTERNAL_UNIT_MM = MIL_MM / 10000;
-const CFB_MAGIC = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
 const ABSENT = 0xffff; // "no net" / "no component" in u16 pad references.
 const MAX_BINARY_REFERENCES = 0xfffe; // Pad net/component references are u16 and 0xFFFF is the sentinel.
 const MAX_PADS = 1_000_000, MAX_ASCII_RECORDS = 1_500_000, MAX_ASCII_COMPONENTS = 250_000, MAX_ASCII_NETS = 250_000;
 const MAX_TEXT_RECORD_BYTES = 1 << 20, MAX_BOARD_RECORD_BYTES = 16 << 20, MAX_ASCII_LINE = 4 << 20, MAX_RECORD_KEYS = 500_000;
 const MAX_OUTLINE_VERTICES = 20_000, MAX_RECORD_KEYS_SCAN = 4_000_000;
-const MAX_DIRECTORY_ENTRIES = 100_000, MAX_STORAGE_DEPTH = 8;
 const PAD_RECORD_MIN = 110; // Documented minimum size of pad sub-record 5.
 const latin1 = new TextDecoder('windows-1252');
 
@@ -74,7 +81,7 @@ class Props {
 const COMPONENT_KEYS = new Set(['SOURCEDESIGNATOR', 'PATTERN', 'LAYER', 'X', 'Y', 'ROTATION']);
 const NET_KEYS = new Set(['NAME']);
 const BOARD_KEY = /^(?:KIND|(?:VX|VY|KIND|CX|CY|R|SA|EA)\d+)$/;
-const ASCII_PAD_KEYS = new Set(['NAME', 'COMPONENT', 'NET', 'LAYER', 'X', 'Y', 'XSIZE', 'YSIZE', 'SHAPE', 'ROTATION']);
+const ASCII_PAD_KEYS = new Set(['NAME', 'COMPONENT', 'NET', 'LAYER', 'X', 'Y', 'XSIZE', 'YSIZE', 'SHAPE', 'ROTATION', 'HOLESIZE']);
 
 const COORDINATE = /^([+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(mil|mm|in)?$/i;
 /** "1000mil" / "25.4mm" / "1in" → mm. A bare number is only accepted when it is zero (unit independent). */
@@ -101,20 +108,35 @@ function degrees(value: string | undefined, label: string, format: string): numb
 }
 const angle = (value: number) => ((value % 360) + 360) % 360;
 
-/** Layer names of text records: TOP / BOTTOM, and MULTILAYER for pads. */
-function textLayerSide(value: string | undefined, label: string, format: string, multi: boolean): BoardSide {
+/**
+ * Where a placed object sits as far as a top/bottom view is concerned: a side, an inner copper layer (nothing to draw on either side),
+ * or a layer without copper (paste, solder mask, overlay, mechanical, drill layers).
+ */
+type LayerUse = BoardSide | 'inner' | 'other';
+/** Layer names of text records. Names seen in real exports: TOP, BOTTOM, MID1..MIDn, MULTILAYER, MECHANICAL1..16, TOPOVERLAY, BOTTOMOVERLAY, TOPSOLDER, DRILLDRAWING. */
+const TEXT_NON_COPPER = /^(?:MECHANICAL\d+|TOPOVERLAY|BOTTOMOVERLAY|TOPPASTE|BOTTOMPASTE|TOPSOLDER|BOTTOMSOLDER|DRILLGUIDE|KEEPOUT|DRILLDRAWING)$/;
+function textLayerUse(value: string | undefined, label: string, format: string, pad: boolean): LayerUse {
   const layer = (value ?? '').trim().toUpperCase();
   if (!layer) return fail(format, `Altium ${label} has no LAYER.`);
   if (layer === 'TOP') return 'top';
   if (layer === 'BOTTOM') return 'bottom';
-  if (multi && layer === 'MULTILAYER') return 'both';
+  if (/^MID\d+$/.test(layer)) return 'inner';
+  if (pad && layer === 'MULTILAYER') return 'both';
+  if (pad && TEXT_NON_COPPER.test(layer)) return 'other';
   return fail(format, `Altium ${label} is on layer "${layer.slice(0, 40)}", which cannot be shown in a top/bottom view.`, 'UNSUPPORTED_VARIANT');
 }
-function idLayerSide(layer: number, label: string, format: string): BoardSide {
+/**
+ * Binary layer ids as the documentation lists them: 1 Top, 2..31 Mid-Layer 1..30, 32 Bottom, 33/34 Top/Bottom Overlay, 35/36 Top/Bottom Paste,
+ * 37/38 Top/Bottom Solder, 39..54 Internal Plane 1..16, 55 Drill Guide, 56 Keep-Out, 57..72 Mechanical 1..16, 73 Drill Drawing, 74 Multi-Layer.
+ * Anything else (0, 75 and up) is not a layer a pad can sit on.
+ */
+function idLayerUse(layer: number, label: string, format: string): LayerUse {
   if (layer === 1) return 'top';
   if (layer === 32) return 'bottom';
   if (layer === 74) return 'both';
-  return fail(format, `Altium ${label} is on layer id ${layer}; only Top (1), Bottom (32) and Multi-Layer (74) pads are supported.`, 'UNSUPPORTED_VARIANT');
+  if (layer >= 2 && layer <= 31 || layer >= 39 && layer <= 54) return 'inner';
+  if (layer >= 33 && layer <= 38 || layer >= 55 && layer <= 73) return 'other';
+  return fail(format, `Altium ${label} is on layer id ${layer}, which is not a documented pad layer.`, 'UNSUPPORTED_VARIANT');
 }
 type PadShape = { shape: NonNullable<RawPin['shape']>; approximated: boolean };
 /** Shape codes 1 round, 2 rectangle, 3 octagonal, 9 rounded rectangle; only exact round/rectangle keep their form. */
@@ -126,8 +148,19 @@ function padShape(code: number | undefined, width: number, height: number, label
 }
 const ASCII_SHAPES: Record<string, number> = { '1': 1, ROUND: 1, '2': 2, RECTANGLE: 2, RECTANGULAR: 2, '3': 3, OCTAGONAL: 3, '9': 9, ROUNDEDRECTANGLE: 9 };
 
-interface Stats { approximated: number; free: number; unnamed: number; stackDiffers: number; arcs: number; emptyPads: number }
-const newStats = (): Stats => ({ approximated: 0, free: 0, unnamed: 0, stackDiffers: 0, arcs: 0, emptyPads: 0 });
+interface Stats { approximated: number; free: number; unnamed: number; stackDiffers: number; arcs: number; emptyPads: number; innerComponents: number; innerComponentPads: number; innerPads: number; nonCopperPads: number; holeOnlyPads: number; sizelessPads: number }
+const newStats = (): Stats => ({ approximated: 0, free: 0, unnamed: 0, stackDiffers: 0, arcs: 0, emptyPads: 0, innerComponents: 0, innerComponentPads: 0, innerPads: 0, nonCopperPads: 0, holeOnlyPads: 0, sizelessPads: 0 });
+
+/**
+ * A pad with no copper size (both dimensions zero) is a bare plated hole: the hole diameter is the only extent it has, so it is drawn as a
+ * round pad of that diameter. Without a hole it has no extent at all and is left out. A negative or one-sided zero size stays an error.
+ */
+function padSize(width: number, height: number, hole: () => number, label: string, format: string): { width: number; height: number; holeOnly: boolean } | undefined {
+  if (width < 0 || height < 0 || (width === 0) !== (height === 0)) return fail(format, `Altium ${label} has non-positive dimensions.`);
+  if (width > 0) return { width, height, holeOnly: false };
+  const diameter = hole();
+  return diameter > 0 ? { width: diameter, height: diameter, holeOnly: true } : undefined;
+}
 
 /** Board outline vertices VXn/VYn (KINDn nonzero marks an arc to the next vertex); arcs are replaced by chords because arc direction is not publicly documented. */
 function outlineFromProps(props: Props, format: string, stats: Stats): Point[] {
@@ -145,12 +178,14 @@ function outlineFromProps(props: Props, format: string, stats: Stats): Point[] {
   return vertices.length >= 3 ? vertices : [];
 }
 
-function componentPart(index: number, props: Props, format: string, stats: Stats): RawPart {
+/** undefined: the component sits on an inner layer (a net tie, for instance), so it has no place in a top/bottom view; its index stays reserved because pads refer to components by record index. */
+function componentPart(index: number, props: Props, format: string, stats: Stats): RawPart | undefined {
   const ref = props.get('SOURCEDESIGNATOR')?.trim() ?? '';
+  const label = `component ${ref || index + 1}`, use = textLayerUse(props.get('LAYER'), label, format, false);
+  const position = { x: coordMm(props.get('X'), `${label} X`, format), y: coordMm(props.get('Y'), `${label} Y`, format) }, rotation = degrees(props.get('ROTATION'), label, format);
+  if (use === 'inner') { stats.innerComponents++; return undefined; }
   if (!ref) stats.unnamed++;
-  const label = `component ${ref || index + 1}`;
-  return { key: String(index), ref: ref || `#${index + 1}`, value: '', package: props.get('PATTERN')?.trim() ?? '', side: textLayerSide(props.get('LAYER'), label, format, false),
-    position: { x: coordMm(props.get('X'), `${label} X`, format), y: coordMm(props.get('Y'), `${label} Y`, format) }, rotation: degrees(props.get('ROTATION'), label, format) };
+  return { key: String(index), ref: ref || `#${index + 1}`, ...(ref ? {} : { refGenerated: true }), value: '', package: props.get('PATTERN')?.trim() ?? '', side: use as BoardSide, position, rotation };
 }
 function assemble(input: ParseInput, format: string, parts: RawPart[], pins: RawPin[], outline: Point[], stats: Stats): Board {
   const warnings: ParseIssue[] = [note('Altium import reads components, pads, nets and the board outline only; tracks, vias, copper pours, board cutouts, text and component bodies are not imported (bodies are estimated from pad extents).')];
@@ -159,6 +194,11 @@ function assemble(input: ParseInput, format: string, parts: RawPart[], pins: Raw
   for (const part of parts) if (part.ref && !part.ref.startsWith('#')) { if (seen.has(part.ref)) repeated.add(part.ref); seen.add(part.ref); }
   if (repeated.size) warnings.push(note(`${repeated.size} component designators occur more than once (${[...repeated].slice(0, 5).join(', ')}${repeated.size > 5 ? ', …' : ''}); they stay separate components.`));
   if (stats.free) warnings.push(note(`${stats.free} free pads that belong to no component were not imported.`));
+  if (stats.innerComponents) warnings.push(note(`${stats.innerComponents} components sit on an inner layer (net ties, for instance), which a top/bottom view cannot show; they and their ${stats.innerComponentPads} pads were not imported.`));
+  if (stats.innerPads) warnings.push(note(`${stats.innerPads} pads on inner copper layers were not imported (only top, bottom and through-hole pads are shown).`));
+  if (stats.nonCopperPads) warnings.push(note(`${stats.nonCopperPads} pads on layers without copper (paste, solder mask, overlay, mechanical) were not imported.`));
+  if (stats.holeOnlyPads) warnings.push(note(`${stats.holeOnlyPads} pads have no copper size, only a hole; the hole diameter is drawn as a round pad.`));
+  if (stats.sizelessPads) warnings.push(note(`${stats.sizelessPads} pads have neither a copper size nor a hole and were not imported.`));
   if (stats.emptyPads) warnings.push(note(`${stats.emptyPads} pads have an empty designator; placeholder pin numbers (#n) are shown.`));
   if (stats.stackDiffers) warnings.push(note(`${stats.stackDiffers} multi-layer pads have different top and bottom sizes; the top size is drawn on both sides.`));
   if (stats.arcs) warnings.push(note(`${stats.arcs} board-outline arcs are drawn as straight chords between their vertices; the true curved edge is not rendered.`));
@@ -168,7 +208,7 @@ function assemble(input: ParseInput, format: string, parts: RawPart[], pins: Raw
 }
 function padNumbers(pins: RawPin[]) {
   const ordinal = new Map<string, number>();
-  for (const pin of pins) { const next = (ordinal.get(pin.part) ?? 0) + 1; ordinal.set(pin.part, next); if (!pin.number) pin.number = `#${next}`; }
+  for (const pin of pins) { const next = (ordinal.get(pin.part) ?? 0) + 1; ordinal.set(pin.part, next); if (!pin.number) { pin.number = `#${next}`; pin.numberGenerated = true; } }
 }
 
 // --- ASCII variant -----------------------------------------------------------------------------------------------------------
@@ -188,7 +228,10 @@ function parseAscii(input: ParseInput): Board {
       if (/schematic/i.test(line)) fail('Altium SchDoc', 'This is an Altium schematic document (SchDoc); open it as a schematic document.', 'WRONG_KIND');
       continue;
     }
-    const match = /^\s*\|RECORD=([^|]*)/i.exec(line);
+    // Real exports write some record kinds (Region, ComponentBody) without the leading bar, and a Text value may run over several lines:
+    // the lines up to the next record belong to that Text record, which this adapter does not read, so they are dropped. After any other kind a stray line is still an error.
+    const match = /^\s*\|?RECORD=([^|]*)/i.exec(line);
+    if (!match && records.at(-1)?.kind === 'TEXT') continue;
     if (!match) fail(format, `Altium ASCII line ${index + 1} is not a |RECORD= record.`);
     if (records.length >= MAX_ASCII_RECORDS) fail(format, 'Altium ASCII record count exceeds the import limit.', 'LIMIT_EXCEEDED');
     records.push({ kind: match![1].trim().toUpperCase(), line, at: index + 1 });
@@ -216,22 +259,30 @@ function parseAscii(input: ParseInput): Board {
       padLines.push(record);
     }
   }
-  componentProps.forEach((props, index) => parts.push(componentPart(index, props, format, stats)));
+  const placed = componentProps.map((props, index) => componentPart(index, props, format, stats));
+  for (const part of placed) if (part) parts.push(part);
   for (const { line, at } of padLines) {
     const props = new Props(line, key => ASCII_PAD_KEYS.has(key), format);
-    const component = asciiIndex(props.get('COMPONENT'), parts.length, 'COMPONENT', format);
+    const component = asciiIndex(props.get('COMPONENT'), placed.length, 'COMPONENT', format);
     const net = asciiIndex(props.get('NET'), nets.length, 'NET', format);
     if (component === undefined) { stats.free++; continue; }
-    const name = (props.get('NAME') ?? '').trim(), label = `pad ${parts[component].ref}.${name || `(line ${at})`}`;
+    if (!placed[component]) { stats.innerComponentPads++; continue; }
+    const name = (props.get('NAME') ?? '').trim(), label = `pad ${placed[component]!.ref}.${name || `(line ${at})`}`;
     const missing = ['X', 'Y', 'XSIZE', 'YSIZE', 'LAYER'].filter(key => !props.has(key));
     if (missing.length) fail(format, `Altium ASCII ${label} lacks ${missing.join(', ')}; this pad record layout is not understood.`, 'UNSUPPORTED_VARIANT');
-    const width = coordMm(props.get('XSIZE'), `${label} XSIZE`, format), height = coordMm(props.get('YSIZE'), `${label} YSIZE`, format);
-    if (width <= 0 || height <= 0) fail(format, `Altium ${label} has non-positive dimensions.`);
+    const use = textLayerUse(props.get('LAYER'), label, format, true);
+    if (use === 'inner') { stats.innerPads++; continue; }
+    if (use === 'other') { stats.nonCopperPads++; continue; }
+    const size = padSize(coordMm(props.get('XSIZE'), `${label} XSIZE`, format), coordMm(props.get('YSIZE'), `${label} YSIZE`, format),
+      () => props.has('HOLESIZE') ? coordMm(props.get('HOLESIZE'), `${label} HOLESIZE`, format) : 0, label, format);
+    if (!size) { stats.sizelessPads++; continue; }
+    const { width, height } = size;
     const shapeText = (props.get('SHAPE') ?? '').trim().toUpperCase(), shape = padShape(ASCII_SHAPES[shapeText], width, height, label, format);
+    if (size.holeOnly) { stats.holeOnlyPads++; shape.shape = 'round'; shape.approximated = false; }
     if (shape.approximated) stats.approximated++;
     if (net !== undefined && !nets[net]) fail(format, `Altium ${label} references net ${net}, which has no name.`);
     if (!name) stats.emptyPads++;
-    pins.push({ part: String(component), number: name, name, net: net === undefined ? '' : nets[net], side: textLayerSide(props.get('LAYER'), label, format, true),
+    pins.push({ part: String(component), number: name, name, net: net === undefined ? '' : nets[net], side: use,
       x: coordMm(props.get('X'), `${label} X`, format), y: coordMm(props.get('Y'), `${label} Y`, format), width, height, radius: Math.min(width, height) / 2, shape: shape.shape,
       rotation: degrees(props.get('ROTATION'), label, format) });
   }
@@ -239,136 +290,8 @@ function parseAscii(input: ParseInput): Board {
   return assemble(input, format, parts, pins, outlineFromProps(board, format, stats), stats);
 }
 
-// --- OLE compound file reader (bounded; the `cfb` package follows FAT chains without cycle detection) ----------------------------
-interface Compound { paths: string[]; stream(path: string): Uint8Array | undefined }
-interface DirEntry { name: string; type: number; left: number; right: number; child: number; start: number; size: number }
-const MAXREGSECT = 0xfffffffa, ENDOFCHAIN = 0xfffffffe, NOSTREAM = 0xffffffff;
-
-function readCompound(data: Uint8Array, format: string): Compound {
-  const bad = (message: string): never => fail(format, `Altium compound file ${message}.`);
-  if (data.length < 512) bad('is shorter than its 512-byte header');
-  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-  const u16 = (at: number) => view.getUint16(at, true), u32 = (at: number) => view.getUint32(at, true);
-  const version = u16(26), shift = u16(30);
-  if (u16(28) !== 0xfffe) bad('has an invalid byte-order mark');
-  if (version === 4 && shift === 12) fail(format, 'Altium compound file uses 4096-byte sectors (version 4), which is untested and not supported.', 'UNSUPPORTED_VARIANT');
-  if (version !== 3 || shift !== 9 || u16(32) !== 6 || u32(56) !== 4096) bad(`uses an unsupported layout (version ${version}, sector shift ${shift})`);
-  const sectorSize = 1 << shift, sectorCount = Math.floor(data.length / sectorSize) - 1, perSector = sectorSize / 4;
-  const sector = (index: number): Uint8Array => {
-    if (index >= sectorCount) bad(`references sector ${index > MAXREGSECT ? 'with a reserved id' : index} outside the file (${sectorCount} sectors)`);
-    return data.subarray((index + 1) * sectorSize, (index + 2) * sectorSize);
-  };
-  const dataView = (bytes: Uint8Array) => new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const fatCount = u32(44), difatCount = u32(72);
-  if (fatCount < 1 || fatCount > sectorCount || difatCount > sectorCount) bad(`declares ${fatCount} FAT and ${difatCount} DIFAT sectors for a file of ${sectorCount} sectors`);
-  const fatSectors: number[] = [];
-  for (let i = 0; i < 109 && fatSectors.length < fatCount; i++) fatSectors.push(u32(76 + i * 4));
-  for (let next = u32(68), used = 0; fatSectors.length < fatCount; used++) {
-    if (used >= difatCount) bad('lists fewer FAT sectors than it declares');
-    const content = dataView(sector(next));
-    for (let i = 0; i < perSector - 1 && fatSectors.length < fatCount; i++) fatSectors.push(content.getUint32(i * 4, true));
-    next = content.getUint32((perSector - 1) * 4, true);
-  }
-  const fatViews = fatSectors.map(index => dataView(sector(index)));
-  const fat = (index: number): number => {
-    const owner = fatViews[Math.floor(index / perSector)];
-    if (!owner) bad(`references allocation entry ${index} outside the FAT`);
-    return owner.getUint32((index % perSector) * 4, true);
-  };
-  /** The first `count` sectors of a chain; ending early or revisiting a sector is corruption. */
-  const chain = (start: number, count: number, label: string): number[] => {
-    if (count > sectorCount) bad(`${label} needs ${count} sectors but the file has ${sectorCount}`);
-    const out: number[] = [], seen = new Set<number>();
-    for (let at = start; out.length < count;) {
-      if (at >= sectorCount) bad(`${label} ends after ${out.length} of ${count} sectors`);
-      if (seen.has(at)) bad(`${label} loops back to sector ${at}`);
-      seen.add(at); out.push(at);
-      if (out.length < count) at = fat(at);
-    }
-    return out;
-  };
-  let spent = 0;
-  const spend = (size: number, label: string) => {
-    spent += size;
-    if (spent > data.length * 2) fail(format, `Altium compound file ${label} exceeds the extraction budget.`, 'LIMIT_EXCEEDED');
-  };
-  const readChain = (start: number, size: number, label: string): Uint8Array => {
-    spend(size, label);
-    if (size > sectorCount * sectorSize) bad(`${label} claims ${size} bytes in a file of ${data.length}`);
-    const out = new Uint8Array(size);
-    chain(start, Math.ceil(size / sectorSize), label).forEach((index, order) => out.set(sector(index).subarray(0, Math.min(sectorSize, size - order * sectorSize)), order * sectorSize));
-    return out;
-  };
-
-  const directory: number[] = [];
-  for (let at = u32(48), seen = new Set<number>(); at !== ENDOFCHAIN; at = fat(at)) {
-    if (at >= sectorCount) bad('has a directory chain that leaves the file');
-    if (seen.has(at)) bad('has a looping directory chain');
-    seen.add(at); directory.push(at);
-    if (directory.length * (sectorSize / 128) > MAX_DIRECTORY_ENTRIES) fail(format, `Altium compound file has more than ${MAX_DIRECTORY_ENTRIES} directory entries.`, 'LIMIT_EXCEEDED');
-  }
-  if (!directory.length) bad('has no directory');
-  const entries: DirEntry[] = [];
-  for (const index of directory) {
-    const content = dataView(sector(index));
-    for (let offset = 0; offset < sectorSize; offset += 128) {
-      const type = content.getUint8(offset + 66), nameBytes = content.getUint16(offset + 64, true);
-      if (type !== 0 && ![1, 2, 5].includes(type)) bad(`has directory entry ${entries.length} with unknown type ${type}`);
-      if (type !== 0 && (nameBytes < 2 || nameBytes > 64 || nameBytes % 2)) bad(`has directory entry ${entries.length} with an invalid name length`);
-      let name = '';
-      if (type !== 0) for (let unit = 0; unit < nameBytes / 2 - 1; unit++) name += String.fromCharCode(content.getUint16(offset + unit * 2, true));
-      entries.push({ name, type, left: content.getUint32(offset + 68, true), right: content.getUint32(offset + 72, true), child: content.getUint32(offset + 76, true),
-        start: content.getUint32(offset + 116, true), size: content.getUint32(offset + 120, true) }); // Version 3 uses only the low 32 bits of the size.
-    }
-  }
-  if (entries[0].type !== 5) bad('has no root entry');
-  const byPath = new Map<string, DirEntry>(), paths: string[] = [], visited = new Uint8Array(entries.length);
-  visited[0] = 1;
-  const pending: Array<{ node: number; prefix: string; depth: number }> = [{ node: entries[0].child, prefix: '', depth: 1 }];
-  while (pending.length) {
-    const { node, prefix, depth } = pending.pop()!;
-    if (node === NOSTREAM) continue;
-    if (node >= entries.length) bad('has a directory link outside the directory');
-    if (visited[node]) bad('has a directory entry that is linked twice');
-    visited[node] = 1;
-    const entry = entries[node];
-    if (entry.type !== 1 && entry.type !== 2) bad(`has a directory link to an entry of type ${entry.type}`);
-    if (depth > MAX_STORAGE_DEPTH) fail(format, `Altium compound file nests storages deeper than ${MAX_STORAGE_DEPTH} levels.`, 'LIMIT_EXCEEDED');
-    const path = `${prefix}/${entry.name}`;
-    if (byPath.has(path.toUpperCase())) bad(`has two entries named ${path.slice(0, 80)}`);
-    byPath.set(path.toUpperCase(), entry); paths.push(path);
-    pending.push({ node: entry.left, prefix, depth }, { node: entry.right, prefix, depth });
-    if (entry.type === 1) pending.push({ node: entry.child, prefix: path, depth: depth + 1 });
-  }
-
-  let mini: { container: Uint8Array; table: DataView } | undefined;
-  const miniStore = () => mini ??= {
-    container: readChain(entries[0].start, entries[0].size, 'mini-stream container'),
-    table: dataView(u32(64) ? readChain(u32(60), u32(64) * sectorSize, 'mini FAT') : new Uint8Array(0)),
-  };
-  const readMini = (entry: DirEntry, label: string): Uint8Array => {
-    const { container, table } = miniStore(), count = Math.ceil(entry.size / 64);
-    spend(entry.size, label);
-    if (count * 64 > container.length + 63) bad(`${label} is larger than the mini-stream`);
-    const out = new Uint8Array(entry.size), seen = new Set<number>();
-    for (let at = entry.start, done = 0; done < count; done++) {
-      if (at >= container.length / 64 || seen.has(at)) bad(`${label} has an invalid mini-sector chain`);
-      seen.add(at);
-      out.set(container.subarray(at * 64, at * 64 + Math.min(64, entry.size - done * 64)), done * 64);
-      if (done + 1 < count) { if ((at + 1) * 4 > table.byteLength) bad(`${label} leaves the mini FAT`); at = table.getUint32(at * 4, true); }
-    }
-    return out;
-  };
-  return {
-    paths,
-    stream(path) {
-      const entry = byPath.get(path.toUpperCase());
-      if (!entry || entry.type !== 2) return undefined;
-      if (!entry.size) return new Uint8Array(0);
-      return entry.size < 4096 ? readMini(entry, `stream ${path}`) : readChain(entry.start, entry.size, `stream ${path}`);
-    },
-  };
-}
+// --- OLE compound file reader: shared with the SchDoc adapter, see altium-cfb.ts ----------------------------------------------
+const readCompound = (data: Uint8Array, format: string): Compound => readCompoundWith(data, (message, code) => fail(format, message, code));
 
 // --- Binary record framing -------------------------------------------------------------------------------------------------
 class Reader {
@@ -436,7 +359,7 @@ function parseBinary(input: ParseInput): Board {
   });
   const componentRecords = propRecords(container.stream('/Components6/Data')!, 'Components6', format, key => COMPONENT_KEYS.has(key));
   checkHeader(container.stream('/Components6/Header'), componentRecords.length, 'Components6', format);
-  const parts = componentRecords.map((record, index) => componentPart(index, record, format, stats));
+  const placed = componentRecords.map((record, index) => componentPart(index, record, format, stats)), parts = placed.filter((part): part is RawPart => part !== undefined);
 
   const pins: RawPin[] = [], reader = new Reader(container.stream('/Pads6/Data')!, 'Pads6', format);
   let padCount = 0;
@@ -455,16 +378,23 @@ function parseBinary(input: ParseInput): Board {
     const layer = fields.getUint8(0), netIndex = fields.getUint16(3, true), componentIndex = fields.getUint16(7, true);
     if (netIndex !== ABSENT && netIndex >= nets.length) fail(format, `Altium pad "${designator}" references net ${netIndex} of ${nets.length}.`);
     if (componentIndex === ABSENT) { stats.free++; continue; }
-    if (componentIndex >= parts.length) fail(format, `Altium pad "${designator}" references component ${componentIndex} of ${parts.length}.`);
-    const label = `pad ${parts[componentIndex].ref}.${designator || `#${padCount}`}`, side = idLayerSide(layer, label, format);
-    const mode = fields.getUint8(62);
+    if (componentIndex >= placed.length) fail(format, `Altium pad "${designator}" references component ${componentIndex} of ${placed.length}.`);
+    if (!placed[componentIndex]) { stats.innerComponentPads++; continue; }
+    const label = `pad ${placed[componentIndex]!.ref}.${designator || `#${padCount}`}`, use = idLayerUse(layer, label, format);
+    if (use === 'inner') { stats.innerPads++; continue; }
+    if (use === 'other') { stats.nonCopperPads++; continue; }
+    const side = use, mode = fields.getUint8(62);
     if (mode > 2) fail(format, `Altium ${label} has pad mode ${mode}, which is not documented.`, 'UNSUPPORTED_VARIANT');
     const topW = fields.getInt32(21, true), topH = fields.getInt32(25, true), botW = fields.getInt32(37, true), botH = fields.getInt32(41, true);
     const useBottom = layer === 32 && mode !== 0;
-    const width = (useBottom ? botW : topW) * INTERNAL_UNIT_MM, height = (useBottom ? botH : topH) * INTERNAL_UNIT_MM;
-    if (width <= 0 || height <= 0) fail(format, `Altium ${label} has non-positive dimensions.`);
+    const size = padSize((useBottom ? botW : topW) * INTERNAL_UNIT_MM, (useBottom ? botH : topH) * INTERNAL_UNIT_MM,
+      () => finite(Math.max(0, fields.getInt32(45, true)) * INTERNAL_UNIT_MM, `${label} hole`, format), label, format);
+    if (!size) { stats.sizelessPads++; continue; }
+    const { width, height } = size;
     if (layer === 74 && mode !== 0 && (topW !== botW || topH !== botH || fields.getUint8(49) !== fields.getUint8(51))) stats.stackDiffers++;
-    const shape = padShape(fields.getUint8(useBottom ? 51 : 49), width, height, label, format); if (shape.approximated) stats.approximated++;
+    const shape = padShape(fields.getUint8(useBottom ? 51 : 49), width, height, label, format);
+    if (size.holeOnly) { stats.holeOnlyPads++; shape.shape = 'round'; shape.approximated = false; }
+    if (shape.approximated) stats.approximated++;
     const rotation = fields.getFloat64(52, true);
     if (!Number.isFinite(rotation)) fail(format, `Altium ${label} has an invalid rotation.`);
     if (netIndex !== ABSENT && !nets[netIndex]) fail(format, `Altium ${label} references net ${netIndex}, which has no name.`);
@@ -481,7 +411,7 @@ function parseBinary(input: ParseInput): Board {
 }
 
 /** ASCII PcbDoc starts with a |HEADER= or |RECORD= line; sniffed on a short prefix so unrelated 64 MiB inputs are not decoded. */
-function looksAscii(data: Uint8Array): boolean {
+export function looksAscii(data: Uint8Array): boolean {
   const slice = data.subarray(0, 256);
   const head = startsWithBytes(slice, [0xff, 0xfe]) ? new TextDecoder('utf-16le').decode(slice) : startsWithBytes(slice, [0xfe, 0xff]) ? new TextDecoder('utf-16be').decode(slice) : asciiPrefix(slice, 256);
   return /^(?:﻿|\xEF\xBB\xBF)?\s*\|(?:RECORD|HEADER)=/i.test(head);
@@ -498,3 +428,5 @@ export function parseAltium(input: ParseInput): Board | null {
     wrapped.cause = error; throw wrapped;
   }
 }
+
+export { CFB_MAGIC } from "./altium-cfb";

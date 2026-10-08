@@ -1,0 +1,126 @@
+[
+ {
+  "id": "dea1ce77",
+  "kind": "valid",
+  "name": "main.kicad_sch",
+  "text": "(kicad_sch (version 20231120) (generator \"synthetic\") (generator_version \"8.0\") (uuid \"00000000-0000-4000-8000-000000000001\") (paper A5)  (lib_symbols )  )"
+ },
+ {
+  "id": "932f59c1",
+  "kind": "valid",
+  "name": "main.kicad_sch",
+  "text": "(kicad_sch (version 20231120) (generator \"synthetic\") (generator_version \"8.0\") (uuid \"00000000-0000-4000-8000-000000000001\") (paper \"Z9\")  (lib_symbols )  )"
+ },
+ {
+  "id": "100cc7bc",
+  "kind": "valid",
+  "name": "main.kicad_sch",
+  "text": "(kicad_sch (version 20231120) (generator \"synthetic\") (generator_version \"8.0\") (uuid \"00000000-0000-4000-8000-000000000001\") (paper \"A4\")  (lib_symbols ) (label \"\" (at 1 1 0) (uuid \"e\")) )"
+ },
+ {
+  "id": "388caa37",
+  "kind": "valid",
+  "name": "main.kicad_sch",
+  "text": "(kicad_sch (version 20231120) (generator \"synthetic\") (generator_version \"8.0\") (uuid \"00000000-0000-4000-8000-000000000001\") (paper \"A4\")  (lib_symbols ) (wire (pts (xy 0 0) (xy 1 0)) (uuid \"a/b\")) )"
+ },
+ {
+  "id": "88883720",
+  "kind": "valid",
+  "name": "main.kicad_sch",
+  "text": "(kicad_sch (version 20231120) (generator \"synthetic\") (generator_version \"8.0\") (uuid \"00000000-0000-4000-8000-000000000001\") (paper \"A4\")  (lib_symbols ) (wire (pts (xy -1000000 0) (xy 1000000 0)) (stroke (width 0) (type default)) (uuid \"w\")) )"
+ },
+ {
+  "id": "6c1a7526",
+  "kind": "valid",
+  "name": "main.kicad_sch",
+  "text": "(kicad_sch (version 20231120) (generator \"synthetic\") (generator_version \"8.0\") (uuid \"00000000-0000-4000-8000-000000000001\") (paper \"A4\")  (lib_symbols ) (wire (pts (xy 0 0) (xy 1 0)) (stroke (width 0) (type default)))\n      (wire (pts (xy 1 0) (xy 2 0)) (stroke (width 0) (type default)))\n      (wire (pts (xy 2 0) (xy 3 0)) (stroke (width 0) (type default)) (uuid \"dup\"))\n      (wire (pts (xy 3 0) (xy 4 0)) (stroke (width 0) (type default)) (uuid \"dup\"))\n      (junction (at 1 0)) )"
+ },
+ {
+  "id": "befd008b",
+  "kind": "valid",
+  "name": "main.kicad_sch",
+  "text": "(kicad_sch (version 20231120) (generator \"synthetic\") (generator_version \"8.0\") (uuid \"00000000-0000-4000-8000-000000000001\") (paper \"A4\")  (lib_symbols ) \n      (image (at 10 10) (scale 1) (uuid \"00000000-0000-4000-8000-000000000080\") (data \"AAAA\"))\n      (image (at 20 10) (scale 1) (uuid \"00000000-0000-4000-8000-000000000081\") (data \"BBBB\"))\n      (rule_area (polyline (pts (xy 0 0) (xy 1 1))))\n      (frobnicate 1 2 3)\n      (bus_alias \"DATA\" (members \"D0\" \"D1\"))\n      (embedded_fonts no) )"
+ },
+ {
+  "id": "884c1cb0",
+  "kind": "valid",
+  "name": "main.kicad_sch",
+  "text": "(kicad_sch (version 20231120) (generator \"x\") (uuid \"00000000-0000-4000-8000-000000000001\") (symbol (lib_id \"Device:R\") (at 100 50 0)  (unit 1)  (exclude_from_sim no) (in_bom yes) (on_board yes) (dnp no) (uuid \"00000000-0000-4000-8000-000000000021\")\n  (property \"Reference\" \"R1\" (at 102 50 90) (effects (font (size 1.27 1.27)))) (property \"Value\" \"10k\" (at 98 50 90) (effects (font (size 1.27 1.27))))\n  (property \"Footprint\" \"Resistor_SMD:R_0603_1608Metric\" (at 98 50 90) (effects (font (size 1.27 1.27)) (hide yes))) (property \"Datasheet\" \"~\" (at 100 50 0) (effects (font (size 1.27 1.27)) (hide yes)))\n   ))"
+ },
+ {
+  "id": "1cef70d7",
+  "kind": "valid",
+  "name": "main.kicad_sch",
+  "text": "(kicad_sch (version 20231120) (generator \"synthetic\") (generator_version \"8.0\") (uuid \"00000000-0000-4000-8000-000000000001\") (paper \"A4\")  (lib_symbols ) (sheet (at 50 50) (size 30 20) (fields_autoplaced yes) (stroke (width 0.1524) (type solid)) (fill (color 0 0 0 0)) (uuid \"00000000-0000-4000-8000-000000000011\")\n  (property \"Sheetname\" \"A\" (at 50 49 0) (effects (font (size 1.27 1.27)))) (property \"Sheetfile\" \"a.kicad_sch\" (at 50 71 0) (effects (font (size 1.27 1.27))))\n   )(sheet (at 50 90) (size 30 20) (fields_autoplaced yes) (stroke (width 0.1524) (type solid)) (fill (color 0 0 0 0)) (uuid \"00000000-0000-4000-8000-000000000012\")\n  (property \"Sheetname\" \"B\" (at 50 49 0) (effects (font (size 1.27 1.27)))) (property \"Sheetfile\" \"b.kicad_sch\" (at 50 71 0) (effects (font (size 1.27 1.27))))\n   ) )",
+  "companions": {
+   "a.kicad_sch": {
+    "text": "(kicad_sch (version 20231120) (generator \"synthetic\") (generator_version \"8.0\") (uuid \"00000000-0000-4000-8000-000000000003\") (paper \"A4\")  (lib_symbols ) (sheet (at 50 50) (size 30 20) (fields_autoplaced yes) (stroke (width 0.1524) (type solid)) (fill (color 0 0 0 0)) (uuid \"00000000-0000-4000-8000-000000000013\")\n  (property \"Sheetname\" \"L\" (at 50 49 0) (effects (font (size 1.27 1.27)))) (property \"Sheetfile\" \"leaf.kicad_sch\" (at 50 71 0) (effects (font (size 1.27 1.27))))\n   ) )"
+   },
+   "b.kicad_sch": {
+    "text": "(kicad_sch (version 20231120) (generator \"synthetic\") (generator_version \"8.0\") (uuid \"00000000-0000-4000-8000-000000000004\") (paper \"A4\")  (lib_symbols ) (sheet (at 50 50) (size 30 20) (fields_autoplaced yes) (stroke (width 0.1524) (type solid)) (fill (color 0 0 0 0)) (uuid \"00000000-0000-4000-8000-000000000014\")\n  (property \"Sheetname\" \"L\" (at 50 49 0) (effects (font (size 1.27 1.27)))) (property \"Sheetfile\" \"leaf.kicad_sch\" (at 50 71 0) (effects (font (size 1.27 1.27))))\n   ) )"
+   },
+   "leaf.kicad_sch": {
+    "text": "(kicad_sch (version 20231120) (generator \"synthetic\") (generator_version \"8.0\") (uuid \"00000000-0000-4000-8000-000000000005\") (paper \"A4\")  (lib_symbols )  )"
+   }
+  }
+ },
+ {
+  "id": "00cd0b19",
+  "kind": "valid",
+  "name": "main.kicad_sch",
+  "text": "(kicad_sch (version 20231120) (generator \"synthetic\") (generator_version \"8.0\") (uuid \"00000000-0000-4000-8000-000000000001\") (paper \"A4\")  (lib_symbols ) (sheet (at 50 50) (size 30 20) (fields_autoplaced yes) (stroke (width 0.1524) (type solid)) (fill (color 0 0 0 0)) (uuid \"00000000-0000-4000-8000-000000000011\")\n  (property \"Sheetname\" \"A\" (at 50 49 0) (effects (font (size 1.27 1.27)))) (property \"Sheetfile\" \"c.kicad_sch\" (at 50 71 0) (effects (font (size 1.27 1.27))))\n   )(sheet (at 50 90) (size 30 20) (fields_autoplaced yes) (stroke (width 0.1524) (type solid)) (fill (color 0 0 0 0)) (uuid \"00000000-0000-4000-8000-000000000012\")\n  (property \"Sheetname\" \"B\" (at 50 49 0) (effects (font (size 1.27 1.27)))) (property \"Sheetfile\" \"c.kicad_sch\" (at 50 71 0) (effects (font (size 1.27 1.27))))\n   ) )",
+  "companions": {
+   "c.kicad_sch": {
+    "text": "(kicad_sch (version 20231120) (generator \"synthetic\") (generator_version \"8.0\") (uuid \"00000000-0000-4000-8000-000000000002\") (paper \"A4\")  (lib_symbols (symbol \"Device:R\" (pin_numbers hide) (pin_names (offset 0)) (exclude_from_sim no) (in_bom yes) (on_board yes)\n  (property \"Reference\" \"R\" (at 0 6 0) (effects (font (size 1.27 1.27)))) (property \"Value\" \"R\" (at 0 -6 0) (effects (font (size 1.27 1.27)))) (property \"Footprint\" \"\" (at 0 0 0) (effects (font (size 1.27 1.27)) (hide yes))) (property \"Datasheet\" \"~\" (at 0 0 0) (effects (font (size 1.27 1.27)) (hide yes)))\n  (symbol \"R_0_1\" (rectangle (start -1.016 -2.54) (end 1.016 2.54) (stroke (width 0.254) (type default)) (fill (type none))))\n  (symbol \"R_1_1\" (pin passive line (at 0 3.81 270) (length 1.27)  (name \"~\" (effects (font (size 1.27 1.27)))) (number \"1\" (effects (font (size 1.27 1.27))))) (pin passive line (at 0 -3.81 90) (length 1.27)  (name \"~\" (effects (font (size 1.27 1.27)))) (number \"2\" (effects (font (size 1.27 1.27)))))))) (symbol (lib_id \"Device:R\") (at 100 50 0)  (unit 1)  (exclude_from_sim no) (in_bom yes) (on_board yes) (dnp no) (uuid \"00000000-0000-4000-8000-000000000021\")\n  (property \"Reference\" \"R5\" (at 102 50 90) (effects (font (size 1.27 1.27)))) (property \"Value\" \"10k\" (at 98 50 90) (effects (font (size 1.27 1.27))))\n  (property \"Footprint\" \"Resistor_SMD:R_0603_1608Metric\" (at 98 50 90) (effects (font (size 1.27 1.27)) (hide yes))) (property \"Datasheet\" \"~\" (at 100 50 0) (effects (font (size 1.27 1.27)) (hide yes)))\n   ) )"
+   }
+  }
+ },
+ {
+  "id": "d0ec8268",
+  "kind": "valid",
+  "name": "main.kicad_sch",
+  "text": "(kicad_sch (version 20231120) (generator \"synthetic\") (generator_version \"8.0\") (uuid \"00000000-0000-4000-8000-000000000001\") (paper \"A4\")  (lib_symbols (symbol \"Test:Dual\" (property \"Reference\" \"U\" (at 0 6 0) (effects (font (size 1.27 1.27)))) (property \"Value\" \"Dual\" (at 0 -6 0) (effects (font (size 1.27 1.27)))) (property \"Footprint\" \"\" (at 0 0 0) (effects (font (size 1.27 1.27)) (hide yes))) (property \"Datasheet\" \"~\" (at 0 0 0) (effects (font (size 1.27 1.27)) (hide yes)))\n      (symbol \"Dual_0_1\" (pin power_in line (at 0 7.62 270) (length 2.54)  (name \"V+\" (effects (font (size 1.27 1.27)))) (number \"9\" (effects (font (size 1.27 1.27))))) (rectangle (start -2 -2) (end 2 2) (stroke (width 0) (type default)) (fill (type none))))\n      (symbol \"Dual_1_1\" (pin input line (at -5.08 0 0) (length 2.54)  (name \"IN1\" (effects (font (size 1.27 1.27)))) (number \"1\" (effects (font (size 1.27 1.27))))) (pin output line (at 5.08 0 180) (length 2.54)  (name \"OUT1\" (effects (font (size 1.27 1.27)))) (number \"2\" (effects (font (size 1.27 1.27))))) (circle (center 0 0) (radius 1) (stroke (width 0) (type default)) (fill (type outline))))\n      (symbol \"Dual_2_1\" (pin input line (at -5.08 0 0) (length 2.54)  (name \"IN2\" (effects (font (size 1.27 1.27)))) (number \"3\" (effects (font (size 1.27 1.27))))) (pin output line (at 5.08 0 180) (length 2.54)  (name \"OUT2\" (effects (font (size 1.27 1.27)))) (number \"4\" (effects (font (size 1.27 1.27))))) (polyline (pts (xy -1 -1) (xy 1 1)) (stroke (width 0.2) (type default)) (fill (type none)))))) (symbol (lib_id \"Test:Dual\") (at 100 50 0)  (unit 1)  (exclude_from_sim no) (in_bom yes) (on_board yes) (dnp no) (uuid \"00000000-0000-4000-8000-000000000031\")\n  (property \"Reference\" \"U1\" (at 102 50 90) (effects (font (size 1.27 1.27)))) (property \"Value\" \"10k\" (at 98 50 90) (effects (font (size 1.27 1.27))))\n  (property \"Footprint\" \"Resistor_SMD:R_0603_1608Metric\" (at 98 50 90) (effects (font (size 1.27 1.27)) (hide yes))) (property \"Datasheet\" \"~\" (at 100 50 0) (effects (font (size 1.27 1.27)) (hide yes)))\n   (instances (project \"demo\" (path \"/00000000-0000-4000-8000-000000000001\" (reference \"U1\") (unit 1)))))(symbol (lib_id \"Test:Dual\") (at 100 80 0)  (unit 2)  (exclude_from_sim no) (in_bom yes) (on_board yes) (dnp no) (uuid \"00000000-0000-4000-8000-000000000032\")\n  (property \"Reference\" \"U1\" (at 102 50 90) (effects (font (size 1.27 1.27)))) (property \"Value\" \"10k\" (at 98 50 90) (effects (font (size 1.27 1.27))))\n  (property \"Footprint\" \"Resistor_SMD:R_0603_1608Metric\" (at 98 50 90) (effects (font (size 1.27 1.27)) (hide yes))) (property \"Datasheet\" \"~\" (at 100 50 0) (effects (font (size 1.27 1.27)) (hide yes)))\n   (instances (project \"demo\" (path \"/00000000-0000-4000-8000-000000000001\" (reference \"U1\") (unit 2))))) )"
+ },
+ {
+  "id": "acc5a25f",
+  "kind": "error",
+  "name": "main.kicad_sch",
+  "text": "(kicad_sch"
+ },
+ {
+  "id": "7caa0c49",
+  "kind": "error",
+  "name": "main.kicad_sch",
+  "text": "(kicad_sch (generator \"x\") (uuid \"a\"))"
+ },
+ {
+  "id": "10ed824e",
+  "kind": "error",
+  "name": "main.kicad_sch",
+  "text": "(kicad_sch (version 20211122) (generator \"synthetic\") (generator_version \"8.0\") (uuid \"00000000-0000-4000-8000-000000000001\") (paper \"A4\")  (lib_symbols )  )"
+ },
+ {
+  "id": "d60d25fc",
+  "kind": "error",
+  "name": "main.kicad_sch",
+  "text": "(kicad_sch (version 20231120) (generator \"synthetic\") (generator_version \"8.0\") (uuid \"00000000-0000-4000-8000-000000000001\") (paper \"A4\")  (lib_symbols ) (wire (uuid \"a\")) )"
+ },
+ {
+  "id": "d44b898d",
+  "kind": "error",
+  "name": "main.kicad_sch",
+  "text": "(kicad_sch (version 20231120) (generator \"synthetic\") (generator_version \"8.0\") (uuid \"00000000-0000-4000-8000-000000000001\") (paper \"A4\")  (lib_symbols ) (label (at 1 1 0)) )"
+ },
+ {
+  "id": "5a8c59c9",
+  "kind": "error",
+  "name": "main.kicad_sch",
+  "text": "(kicad_sch (version 20231120) (generator \"synthetic\") (generator_version \"8.0\") (uuid \"00000000-0000-4000-8000-000000000001\") (paper \"A4\")  (lib_symbols ) (no_connect (at 1)) )"
+ },
+ {
+  "id": "34fe946d",
+  "kind": "null",
+  "name": "x.kicad_sch",
+  "b64": "//4oAA=="
+ }
+]

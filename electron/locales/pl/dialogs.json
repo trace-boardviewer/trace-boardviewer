@@ -1,0 +1,26 @@
+{
+  "help.title": "Skróty pod ręką",
+  "help.open": "Otwórz plik",
+  "help.search": "Szukaj elementów",
+  "help.fit": "Pokaż całą płytkę",
+  "help.rotate": "Obróć",
+  "help.measure": "Zmierz odległość",
+  "help.labels": "Etykiety",
+  "help.note": "Notatka",
+  "help.zoom": "Powiększ / pomniejsz",
+  "help.layout": "Warsztat / Skupienie",
+  "help.escape": "Wyczyść podświetlenie / zakończ pomiar",
+  "help.footer": "Kółko myszy: powiększanie w miejscu kursora. Przeciąganie: przesuwanie płytki. Kliknięcie: wybór elementu lub pinu.",
+  "help.diagnosticReport": "Raport diagnostyczny formatu…",
+  "help.diagnosticHint": "Opisuje plik, który się nie otwiera, bez jego zawartości.",
+
+  "recents.title": "Ostatnie płytki",
+  "recents.empty": "Nie otwarto jeszcze żadnego pliku.",
+  "recents.openOther": "Otwórz inny plik",
+
+  "info.title": "Informacje o płytce",
+  "info.format": "Format",
+  "info.size": "Rozmiar płytki",
+  "info.counts": "Elementy / piny / sieci",
+  "info.footer": "Linie pomocnicze pokazują łączność sieci. Nie zastępują geometrii ścieżek miedzianych zapisanej w pliku."
+}

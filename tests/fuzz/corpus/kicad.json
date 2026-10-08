@@ -1,0 +1,110 @@
+[
+ {
+  "id": "953dcf19",
+  "kind": "valid",
+  "name": "synthetic-board.kicad_pcb",
+  "text": "(kicad_pcb (version 20240108) (net 0 \"\") (net 1 \"GND\") (footprint \"X\" (layer \"F.Cu\") (at 0 0) (property \"Reference\" \"U1\") (pad \"1\" smd rect (at 0 0) (size 20 10) (layers \"F.Cu\") (net 1 \"GND\"))))"
+ },
+ {
+  "id": "2e6f29b1",
+  "kind": "valid",
+  "name": "synthetic-board.kicad_pcb",
+  "text": "(kicad_pcb (version 20240108) (net 0 \"\") (net 1 \"GND\") (footprint \"X\" (layer \"F.Cu\") (at 0 0) (property \"Reference\" \"U1\") (pad \"1\" thru_hole circle (at 0 0) (size 10 10) (drill 4) (layers \"*.Cu\") (net 1 \"GND\"))))"
+ },
+ {
+  "id": "5e131881",
+  "kind": "valid",
+  "name": "synthetic-board.kicad_pcb",
+  "text": "(kicad_pcb (version 20240108) (net 0 \"\") (net 1 \"GND\") (footprint \"P\" (layer \"F.Cu\") (at 1 2) (property \"Reference\" \"R1\") (pad \"1\" smd rect (at 0 0) (size 1 1) (layers \"F.Cu\") (net 1 \"GND\"))) (gr_rect (start 0 0) (end 10 5) (layer \"Edge.Cuts\")))"
+ },
+ {
+  "id": "00145310",
+  "kind": "valid",
+  "name": "synthetic-board.kicad_pcb",
+  "text": "(kicad_pcb (version 20240108) (generator \"synthetic-audit\") (net 0 \"\") (net 1 \"GND\")\n (footprint \"X\" (layer \"F.Cu\") (at 0 0) (property \"Reference\" \"U1\") (pad \"1\" smd rect (at 0 0) (size 2 1) (layers \"F.Cu\") (net 1 \"GND\"))) (gr_rect (start 0 0) (end 40 30) (layer \"Edge.Cuts\")) )"
+ },
+ {
+  "id": "f91be3fd",
+  "kind": "valid",
+  "name": "synthetic-board.kicad_pcb",
+  "text": "(kicad_pcb (version 20240108) (generator \"synthetic-audit\") (net 0 \"\") (net 1 \"GND\")\n (footprint \"X\" (layer \"F.Cu\") (at 0 0) (property \"Reference\" \"U1\") (pad \"1\" smd oval (at 0 0) (size 2 1) (layers \"F.Cu\") (net 1 \"GND\"))) (gr_rect (start 0 0) (end 40 30) (layer \"Edge.Cuts\")) )"
+ },
+ {
+  "id": "a41bed45",
+  "kind": "valid",
+  "name": "synthetic-board.kicad_pcb",
+  "text": "(kicad_pcb (version 20240108) (generator \"synthetic-audit\") (net 0 \"\") (net 1 \"GND\")\n (footprint \"X\" (layer \"F.Cu\") (at 0 0) (property \"Reference\" \"U1\") (pad \"1\" smd circle (at 0 0) (size 1 1) (layers \"F.Cu\") (net 1 \"GND\"))) (gr_rect (start 0 0) (end 40 30) (layer \"Edge.Cuts\")) )"
+ },
+ {
+  "id": "02b587aa",
+  "kind": "valid",
+  "name": "synthetic-board.kicad_pcb",
+  "text": "(kicad_pcb (version 20240108) (net 0 \"\") (net 1 \"GND\") (footprint \"Test:R\" (layer \"F.Cu\") (at 0 0) (property \"Reference\" \"R1\") (pad \"1\" smd rect (at 0 0) (size 1 1) (layers \"F.Cu\"))) (footprint \"Test:R\" (layer \"F.Cu\") (at 5 0) (pad \"1\" smd rect (at 5 0) (size 1 1) (layers \"F.Cu\"))) )"
+ },
+ {
+  "id": "3c2109b9",
+  "kind": "valid",
+  "name": "demo.kicad_pcb",
+  "text": "(kicad_pcb (version 20240108) (generator \"synthetic\") (net 0 \"\") (net 1 \"GND\")\n (footprint \"Test:Package\" (layer \"F.Cu\") (at 10 20 90) (property \"Reference\" \"U1\") (property \"Value\" \"v\")\n  (fp_rect (start -3 -2) (end 3 2) (layer \"F.Fab\"))\n  (pad \"1\" smd rect (at 2 3 90) (size 2 1) (layers \"F.Cu\") (net 1 \"GND\")))\n (gr_rect (start 0 0) (end 40 30) (layer \"Edge.Cuts\")))"
+ },
+ {
+  "id": "b5288db3",
+  "kind": "valid",
+  "name": "synthetic-board.kicad_pcb",
+  "text": "(kicad_pcb (version 20240108) (generator \"synthetic-audit\") (net 0 \"\") (net 1 \"GND\")\n (footprint \"Test:Package\" (layer \"F.Cu\") (at 10 20 90)\n (property \"Reference\" \"U1\") (property \"Value\" \"α quoted \\\"value\\\"\")\n (fp_rect (start -3 -2) (end 3 2) (layer \"F.Fab\"))\n (pad \"1\" smd rect (at 2 3 90) (size 2 1) (layers \"F.Cu\") (net 1 \"GND\") (pinfunction \"IN\"))\n (pad \"2\" thru_hole circle (at -2 0 0) (size 1.5 1.5) (drill 0.7) (layers \"*.Cu\" \"*.Mask\"))) (gr_rect (start 0 0) (end 40 30) (layer \"Edge.Cuts\")) (gr_arc (start 0 0) (mid 20 1e-9) (end 40 0) (layer \"Edge.Cuts\")))"
+ },
+ {
+  "id": "34b94229",
+  "kind": "valid",
+  "name": "synthetic-board.kicad_pcb",
+  "text": "(kicad_pcb (version 20240108) (net 0 \"\") (net 2 \"unconnected-(U1-Pad5)\") (net 3 \"unconnected-(U1-Pad5)_1\") (net 4 \"unconnected-(U1-Pad6)_1\") (footprint \"Test:Dup\" (layer \"F.Cu\") (at 0 0) (property \"Reference\" \"U1\")\n     (pad \"5\" smd rect (at 0 0) (size 1 1) (layers \"F.Cu\") (net 2 \"unconnected-(U1-Pad5)\"))\n     (pad \"5\" smd rect (at 3 0) (size 1 1) (layers \"F.Cu\") (net 3 \"unconnected-(U1-Pad5)_1\"))\n     (pad \"6\" smd rect (at 6 0) (size 1 1) (layers \"F.Cu\") (net 4 \"unconnected-(U1-Pad6)_1\"))\n     (pad \"7\" smd rect (at 9 0) (size 1 1) (layers \"F.Cu\") (net 4 \"unconnected-(U1-Pad6)_1\"))) )"
+ },
+ {
+  "id": "15ad24e1",
+  "kind": "valid",
+  "name": "synthetic-board.kicad_pcb",
+  "text": "(kicad_pcb (version 20171130) (host pcbnew 5.1.12)\n (general (thickness 1.6)) (page A4) (layers (0 F.Cu signal) (31 B.Cu signal) (44 Edge.Cuts user))\n (net 0 \"\") (net 1 GND) (net 2 +3V3)\n (module Resistor_SMD:R_0603 (layer F.Cu) (tedit 5B301BBD) (tstamp 5E123456) (at 10 20 90)\n  (fp_text reference R1 (at 0 -1.43 90) (layer F.SilkS) (effects (font (size 1 1) (thickness 0.15))))\n  (fp_text value 10k (at 0 1.43 90) (layer F.Fab) (effects (font (size 1 1) (thickness 0.15))))\n  (fp_line (start -1.5 -0.8) (end 1.5 -0.8) (layer F.CrtYd) (width 0.05)) (fp_line (start 1.5 -0.8) (end 1.5 0.8) (layer F.CrtYd) (width 0.05))\n  (fp_line (start 1.5 0.8) (end -1.5 0.8) (layer F.CrtYd) (width 0.05)) (fp_line (start -1.5 0.8) (end -1.5 -0.8) (layer F.CrtYd) (width 0.05))\n  (pad 1 smd roundrect (at -0.8 0 90) (size 0.8 0.9) (layers F.Cu F.Paste F.Mask) (roundrect_rratio 0.25) (net 1 GND))\n  (pad 2 smd roundrect (at 0.8 0 90) (size 0.8 0.9) (layers F.Cu F.Paste F.Mask) (roundrect_rratio 0.25) (net 2 +3V3)))\n (module Connector:Hole (layer B.Cu) (at 30 10)\n  (fp_text reference J1 (at 0 0) (layer B.SilkS)) (fp_text value Hole (at 0 1) (layer B.Fab))\n  (pad 1 thru_hole oval (at 0 0) (size 2 1) (drill oval 1.2 0.6) (layers *.Cu *.Mask) (net 1 GND)))\n (gr_line (start 0 0) (end 40 0) (layer Edge.Cuts)) (gr_line (start 40 0) (end 40 30) (layer Edge.Cuts)) (gr_line (start 40 30) (end 0 30) (layer Edge.Cuts)) (gr_line (start 0 30) (end 0 0) (layer Edge.Cuts)))"
+ },
+ {
+  "id": "56e043e7",
+  "kind": "error",
+  "name": "board.cad",
+  "b64": "//4A2EEAANw="
+ },
+ {
+  "id": "5ee02693",
+  "kind": "error",
+  "name": "synthetic-board.kicad_pcb",
+  "text": "(kicad_pcb (net 1 \"a\\"
+ },
+ {
+  "id": "5ae4c6a5",
+  "kind": "error",
+  "name": "synthetic-board.kicad_pcb",
+  "text": "(kicad_pcb (((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((()))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))"
+ },
+ {
+  "id": "21e4b818",
+  "kind": "error",
+  "name": "synthetic-board.kicad_pcb",
+  "text": "(kicad_pcb (version 20240108) (generator \"synthetic-audit\") (net 0 \"\") (net 1 \"GND\")\n (footprint \"Test:Package\" (layer \"F.Cu\") (at 10 20 90)\n (property \"Reference\" \"U1\") (property \"Value\" \"α quoted \\\"value\\\"\")\n (fp_rect (start -3 -2) (end 3 2) (layer \"F.Fab\"))\n (pad \"1\" smd rect (at 2 3 90)  (layers \"F.Cu\") (net 1 \"GND\") (pinfunction \"IN\"))\n (pad \"2\" thru_hole circle (at -2 0 0) (size 1.5 1.5) (drill 0.7) (layers \"*.Cu\" \"*.Mask\"))) (gr_rect (start 0 0) (end 40 30) (layer \"Edge.Cuts\")) )"
+ },
+ {
+  "id": "65203daa",
+  "kind": "error",
+  "name": "synthetic-board.kicad_pcb",
+  "text": "(kicad_pcb (version 20240108) (generator \"synthetic-audit\") \n (footprint \"Test:Package\" (layer \"F.Cu\") (at 10 20 90)\n (property \"Reference\" \"U1\") (property \"Value\" \"α quoted \\\"value\\\"\")\n (fp_rect (start -3 -2) (end 3 2) (layer \"F.Fab\"))\n (pad \"1\" smd rect (at 2 3 90) (size 2 1) (layers \"F.Cu\") (net 1 \"GND\") (pinfunction \"IN\"))\n (pad \"2\" thru_hole circle (at -2 0 0) (size 1.5 1.5) (drill 0.7) (layers \"*.Cu\" \"*.Mask\") (net 2 \"GND\"))) (gr_rect (start 0 0) (end 40 30) (layer \"Edge.Cuts\")) )"
+ },
+ {
+  "id": "6da2dd29",
+  "kind": "error",
+  "name": "synthetic-board.kicad_pcb",
+  "text": "(kicad_pcb (version 20240108) (generator \"synthetic-audit\") \n (footprint \"Test:Package\" (layer \"F.Cu\") (at 10 20 90)\n (property \"Reference\" \"U1\") (property \"Value\" \"α quoted \\\"value\\\"\")\n (fp_rect (start -3 -2) (end 3 2) (layer \"F.Fab\"))\n (pad \"1\" smd rect (at 2 3 90) (size 2 1) (layers \"F.Cu\") (net 1 \"GND\") (pinfunction \"IN\"))\n (pad \"2\" thru_hole circle (at -2 0 0) (size 1.5 1.5) (drill 0.7) (layers \"*.Cu\" \"*.Mask\") (net 1 \"VCC\"))) (gr_rect (start 0 0) (end 40 30) (layer \"Edge.Cuts\")) )"
+ },
+ {
+  "id": "77f1910c",
+  "kind": "null",
+  "name": "C:\\boards\\mystery.XYZ",
+  "b64": "AAEC/xAgMHp6"
+ }
+]

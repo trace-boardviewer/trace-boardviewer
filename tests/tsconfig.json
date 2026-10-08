@@ -1,0 +1,5 @@
+{
+  "extends": "../tsconfig.json",
+  "include": ["property/**/*.ts", "fuzz/**/*.ts", "../vite.config.ts"],
+  "exclude": []
+}

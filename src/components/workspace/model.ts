@@ -1,5 +1,8 @@
-import type { BoardSelectionState } from '../../app/api';
+import type { BoardSelectionState, WorkspaceState } from '../../app/api';
+import { boardIndexOf } from '../../lib/board-index';
+import type { BoardIndex } from '../../lib/board-index';
 import type { WorkspaceTab } from '../../lib/documents';
+import { noteForSubject } from '../../lib/note-keys';
 import type { Board, BoardNote, ViewSide } from '../../lib/types';
 
 /**
@@ -8,16 +11,21 @@ import type { Board, BoardNote, ViewSide } from '../../lib/types';
  */
 export function deriveSide(board: Board | null, selection: BoardSelectionState, current: ViewSide): ViewSide {
   if (!board) return current;
+  const index = boardIndexOf(board);
   if (selection.pinId) {
-    const pin = board.pins.find(candidate => candidate.id === selection.pinId);
+    const pin = index.pinById.get(selection.pinId);
     if (pin) return pin.side === 'both' ? current : pin.side;
   }
   if (selection.componentId) {
-    const component = board.components.find(candidate => candidate.id === selection.componentId);
+    const component = index.componentById.get(selection.componentId);
     if (component && component.side !== 'both') return component.side;
   }
   return current;
 }
+
+/** The shared index of the open board: the one the core publishes, or, for a state assembled by hand (mocks, tests), the same shared index of `board`. */
+export const indexOfState = (state: Pick<WorkspaceState, 'board'> & { boardIndex?: BoardIndex | null }): BoardIndex | null =>
+  state.boardIndex ?? (state.board ? boardIndexOf(state.board) : null);
 
 /** Window width (CSS px) below which a document-centric view cannot afford both side panels (W-win-viewers-02). */
 export const PANEL_AUTO_COLLAPSE_BELOW = 1120;
@@ -61,4 +69,6 @@ export function noteMatches(note: BoardNote | undefined, submitted: { text: stri
   return MEASUREMENT_FIELDS.every(name => stored?.[name] === measurements?.[name]);
 }
 
-export const noteOf = (notes: readonly BoardNote[], componentId: string, pinId?: string) => notes.find(note => note.componentId === componentId && note.pinId === pinId);
+/** The note of exactly this part or pin of `board` (found by key, never by the session's ids); a part note never answers for one of its pins. */
+export const noteOf = (board: Board | null, notes: readonly BoardNote[], componentId: string, pinId?: string) =>
+  noteForSubject(board, notes, pinId === undefined ? { componentId } : { componentId, pinId });

@@ -1,7 +1,8 @@
 import { gzipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 import { BoardFormatError } from './common';
-import { detectUnsupported, explainUnsupported, RECOGNIZER_IDS, recognizeUnsupported, UNVERIFIED_FAMILIES, type RecognizerId } from './recognizers';
+import { expectBoundedWork, expectScaling } from '../../test-support/timing';
+import { detectUnsupported, ipc2581, explainUnsupported, RECOGNIZER_IDS, recognizeUnsupported, UNVERIFIED_FAMILIES, type RecognizerId } from './recognizers';
 
 // --- Original synthetic samples ------------------------------------------------------------------------------------------------
 const enc = new TextEncoder();
@@ -43,7 +44,7 @@ const ODB_TGZ = () => tgz(tarEntry('odb/'), tarEntry('odb/matrix/'), tarEntry('o
 function prng(seed: number) { let state = seed >>> 0 || 1; return () => (state = (state ^ state << 13) >>> 0, state = (state ^ state >>> 17) >>> 0, state = (state ^ state << 5) >>> 0, state / 2 ** 32); }
 
 const POSITIVE: Array<[RecognizerId, string, Uint8Array]> = [
-  ['allegro-brd', 'Allegro header', allegro()], ['odbpp', 'ODB++ tgz', ODB_TGZ()], ['ipc2581', 'IPC-2581', enc.encode(IPC)],
+  ['allegro-brd', 'Allegro header', allegro()],
   ['gerber', 'Gerber', enc.encode(GERBER)], ['mentor-neutral', 'Mentor neutral', enc.encode(MENTOR)],
 ];
 const random = prng(0x5eed);
@@ -63,8 +64,8 @@ const NEGATIVE: Array<[string, Uint8Array]> = [
 
 describe('recognizeUnsupported', () => {
   it('exposes the detected families and names the family without a verifiable signature', () => {
-    expect([...RECOGNIZER_IDS].sort()).toEqual(['allegro-brd', 'gerber', 'ipc2581', 'mentor-neutral', 'odbpp']);
-    expect(UNVERIFIED_FAMILIES).toEqual(['tvw']);
+    expect([...RECOGNIZER_IDS].sort()).toEqual(['allegro-brd', 'gerber', 'mentor-neutral']);
+    expect(UNVERIFIED_FAMILIES).toEqual([]);
   });
 
   it.each(POSITIVE)('%s: %s throws UNSUPPORTED_VARIANT with its capability id and never returns a board', (id, _label, data) => {
@@ -81,8 +82,8 @@ describe('recognizeUnsupported', () => {
     const message = (data: Uint8Array) => explainUnsupported(detectUnsupported(data)!);
     expect(message(allegro(0x00141500))).toMatch(/Allegro native board database \(\.brd, format 17\.5\).*GenCAD/);
     expect(message(allegro(0x00150037))).toMatch(/format 18\.0 or newer/);
-    expect(message(ODB_TGZ())).toMatch(/ODB\+\+ job archive.*matrix\/steps.*not implemented/);
-    expect(message(enc.encode(IPC))).toMatch(/IPC-2581 XML \(revision C\)/);
+    expect(detectUnsupported(ODB_TGZ())).toBeNull(); // registered reader owns this family
+    expect(detectUnsupported(enc.encode(IPC))).toBeNull(); // registered reader owns this family
     expect(message(enc.encode(GERBER))).toMatch(/Gerber RS-274X layer detected \(units: inches\).*no components, pins or nets/);
     expect(message(enc.encode(GERBER.replace('%MOIN*%', '%MOMM*%')))).toMatch(/units: millimeters/);
     expect(message(enc.encode(MENTOR))).toMatch(/Mentor Graphics neutral file/);
@@ -106,15 +107,10 @@ describe('recognizeUnsupported', () => {
   });
 
   it('screens a head of blank lines in linear time, and a GenCAD keyword that starts a line (after blanks) still vetoes the Mentor rule', () => {
-    const timed = <T>(work: () => T): { value: T; ms: number } => { const started = performance.now(); const value = work(); return { value, ms: performance.now() - started }; };
-    // The scanned head is at most 64 KiB. Ascending sizes: a guard whose blank run crosses line breaks needs about 0.4 s for 16 KiB and 6 s for 64 KiB, so a regression fails at the second size.
-    for (const size of [4096, 16_384, 65_536]) {
-      for (const [label, text] of [['blank lines', '\n'.repeat(size)], ['lines of one space', ' \n'.repeat(size / 2)], ['CRLF blank lines', '\r\n'.repeat(size / 2)], ['indented blank lines', '  \t\n'.repeat(size / 4)]] as const) {
-        const result = timed(() => detectUnsupported(enc.encode(text)));
-        expect(result.value, `${size}: ${label}`).toBeNull();
-        expect(result.ms, `${size}: ${label}`).toBeLessThan(250);
-      }
-    }
+    // The scanned head is at most 64 KiB. Ascending sizes: a guard whose blank run crosses line breaks needs about 0.4 s for 16 KiB and 6 s for 64 KiB, so a regression fails at the first pair.
+    const heads: Array<[string, (size: number) => string]> = [['blank lines', size => '\n'.repeat(size)], ['lines of one space', size => ' \n'.repeat(size / 2)], ['CRLF blank lines', size => '\r\n'.repeat(size / 2)], ['indented blank lines', size => '  \t\n'.repeat(size / 4)]];
+    for (const [label, head] of heads) expectScaling(label, [4096, 16_384, 65_536], size => { const data = enc.encode(head(size)); return () => detectUnsupported(data); });
+    for (const size of [4096, 16_384, 65_536]) for (const [label, head] of heads) expect(detectUnsupported(enc.encode(head(size))), `${size}: ${label}`).toBeNull();
     const mentor = '# file : a\n# date : b\n';
     expect(detectUnsupported(enc.encode(mentor))?.id).toBe('mentor-neutral');
     for (const veto of ['$HEADER\n', '  \t$HEADER\n', '\n\n   \n$header\n', 'GENCAD 1.4\n', '\n \n\t gencad\t1.4\n', '$HEADER']) expect(detectUnsupported(enc.encode(mentor + veto)), JSON.stringify(veto)).toBeNull();
@@ -123,12 +119,12 @@ describe('recognizeUnsupported', () => {
 
   it('accepts harmless variations: CRLF, BOM, optional XML declaration, comments and DOCTYPE before the IPC root', () => {
     const asBytes = (text: string) => enc.encode(text);
-    expect(detectUnsupported(asBytes(IPC.replace(/\n/g, '\r\n')))).toMatchObject({ id: 'ipc2581', detail: 'C' });
-    expect(detectUnsupported(asBytes('﻿' + IPC))?.id).toBe('ipc2581');
-    expect(detectUnsupported(asBytes('<IPC-2581 revision="B"/>'))).toMatchObject({ id: 'ipc2581', detail: 'B' });
-    expect(detectUnsupported(asBytes('<IPC-2581>\n</IPC-2581>'))).toMatchObject({ id: 'ipc2581' });
-    expect(detectUnsupported(asBytes('  \n<!-- exported -->\n<!DOCTYPE IPC-2581>\n<IPC-2581 revision="C">'))?.id).toBe('ipc2581');
-    expect(detectUnsupported(asBytes(IPC.replace('revision="C"', 'revision="<script>"')))).toMatchObject({ id: 'ipc2581', detail: undefined });
+    expect(ipc2581(IPC.replace(/\n/g, '\r\n'))).toMatchObject({ id: 'ipc2581', detail: 'C' });
+    expect(ipc2581('﻿' + IPC)?.id).toBe('ipc2581');
+    expect(ipc2581('<IPC-2581 revision="B"/>')).toMatchObject({ id: 'ipc2581', detail: 'B' });
+    expect(ipc2581('<IPC-2581>\n</IPC-2581>')).toMatchObject({ id: 'ipc2581' });
+    expect(ipc2581('  \n<!-- exported -->\n<!DOCTYPE IPC-2581>\n<IPC-2581 revision="C">')?.id).toBe('ipc2581');
+    expect(ipc2581(IPC.replace('revision="C"', 'revision="<script>"'))).toMatchObject({ id: 'ipc2581', detail: undefined });
     expect(detectUnsupported(asBytes(GERBER.replace(/\n/g, '\r\n')))?.id).toBe('gerber');
     expect(detectUnsupported(asBytes('%TF.GenerationSoftware,Synthetic,Test,1*%\n%FSLAX36Y36*%\n%MOMM*%\nG04 x*\n'))).toMatchObject({ id: 'gerber', detail: 'MM' });
     expect(detectUnsupported(asBytes('G04 leading comment*\n%FSTIX25Y25*%\n%ADD11R,0.5X0.5*%\nM02*'))?.id).toBe('gerber');
@@ -148,37 +144,13 @@ describe('recognizeUnsupported', () => {
     expect(detectUnsupported(allegro(0x00130500))).toBeNull(); // a mask on the lower byte only: 0x0500 is not a documented value
   });
 
-  it('odbpp: finds matrix and steps entries below an optional job directory and in the ustar prefix field', () => {
-    const detect = (...entries: Uint8Array[]) => detectUnsupported(tgz(...entries))?.id;
-    expect(detect(tarEntry('myjob/matrix/matrix', enc.encode('x')))).toBe('odbpp');
-    expect(detect(tarEntry('./odb/matrix/'))).toBe('odbpp');
-    expect(detect(tarEntry('matrix/matrix', enc.encode('x')))).toBe('odbpp');
-    expect(detect(tarEntry('fonts/'), tarEntry('fonts/standard', enc.encode('x'.repeat(2000))), tarEntry('odb/steps/pcb/stephdr', enc.encode('x')))).toBe('odbpp');
-    expect(detect(tarEntry('matrix/matrix', enc.encode('x'), { prefix: 'job' }))).toBe('odbpp');
-    expect(detect(tarEntry('matrix', enc.encode('x'), { prefix: 'jobs/synthetic' }))).toBeUndefined();
-    // Damage after the headers that matter does not hide the family.
-    const full = ODB_TGZ();
-    expect(detectUnsupported(full.subarray(0, full.length - 8))?.id).toBe('odbpp');
-  });
-
-  it('odbpp: inspects only a bounded gunzipped prefix and survives decompression bombs', () => {
-    const zeros = new Uint8Array(64 * 1024 * 1024);
-    const beyondCap = tgz(tarEntry('payload.bin', zeros.subarray(0, 12 * 1024 * 1024)), tarEntry('odb/matrix/matrix', enc.encode('x')));
-    const bomb = gzipSync(zeros), withinCap = tgz(tarEntry('odb/matrix/matrix', enc.encode('x')), tarEntry('payload.bin', zeros.subarray(0, 16 * 1024 * 1024)));
-    const started = Date.now();
-    expect(detectUnsupported(beyondCap)).toBeNull(); // the matrix entry lies beyond the 8 MiB cap
-    expect(detectUnsupported(bomb)).toBeNull();
-    expect(detectUnsupported(withinCap)?.id).toBe('odbpp');
-    expect(Date.now() - started).toBeLessThan(3000);
-  });
-
   it('scans a bounded prefix: a marker after 64 KiB is ignored and huge unrelated text is cheap', () => {
     const pad = 'x'.repeat(70 * 1024) + '\n';
     expect(detectUnsupported(enc.encode(pad + IPC))).toBeNull();
     expect(detectUnsupported(enc.encode(pad + MENTOR))).toBeNull();
-    const huge = enc.encode('lorem ipsum dolor sit amet\n'.repeat(1_000_000)), started = Date.now();
-    expect(detectUnsupported(huge)).toBeNull();
-    expect(Date.now() - started).toBeLessThan(1000);
+    // Only the head is read: the time does not grow with the text, whatever its size (1,000,000 lines are 27 MB).
+    expectBoundedWork('unrelated text', [62_500, 250_000, 1_000_000], lines => { const data = enc.encode('lorem ipsum dolor sit amet\n'.repeat(lines)); return () => detectUnsupported(data); });
+    expect(detectUnsupported(enc.encode('lorem ipsum dolor sit amet\n'.repeat(1_000_000)))).toBeNull();
     // A Gerber layer whose only second marker is the M02 end statement in the tail of a large file is still recognized.
     const large = enc.encode('%FSLAX24Y24*%\n' + 'X010000Y010000D01*\n'.repeat(10_000) + 'M02*\n');
     expect(detectUnsupported(large)?.id).toBe('gerber');
@@ -186,41 +158,37 @@ describe('recognizeUnsupported', () => {
 
   it('scans a prolog of many empty XML comments in linear time and keeps the result unchanged', () => {
     const emptyComments = (count: number) => '<!---->'.repeat(count);
-    const detect = (text: string) => detectUnsupported(enc.encode(text));
-    const timed = <T>(work: () => T): { value: T; ms: number } => { const started = performance.now(); const value = work(); return { value, ms: performance.now() - started }; };
-    // Ascending sizes: a backtracking regex needs seconds for the first and never finishes the last, so a regression fails early and loudly.
-    for (const count of [26, 40, 1000, 1170]) {
-      const unclaimed = timed(() => detect(emptyComments(count) + '\n'));
-      expect(unclaimed.value, `${count} comments`).toBeNull();
-      expect(unclaimed.ms, `${count} comments`).toBeLessThan(200);
-    }
-    for (const count of [26, 40, 1000]) {
-      const claimed = timed(() => detect(emptyComments(count) + '<IPC-2581 revision="C">'));
-      expect(claimed.value, `${count} comments before the root`).toMatchObject({ id: 'ipc2581', detail: 'C' });
-      expect(claimed.ms, `${count} comments before the root`).toBeLessThan(200);
-    }
+    const detect = (text: string) => ipc2581(text);
+    // Ascending sizes: a backtracking regex needs seconds for 26 comments and never finishes 40 (the test then ends at its time limit), so a regression fails early and loudly.
+    const sizes = [26, 104, 416, 1170];
+    expectScaling('comments and no root', sizes, count => { const text = emptyComments(count) + '\n'; return () => ipc2581(text); });
+    const claimedSizes = [26, 104, 416, 1000]; // the root must start within the 8 KiB that are read
+    expectScaling('comments before the root', claimedSizes, count => { const text = emptyComments(count) + '<IPC-2581 revision="C">'; return () => ipc2581(text); });
     // The same through the dispatcher entry point, as a board file with an accepted extension would arrive.
-    const viaEntryPoint = timed(() => recognizeUnsupported({ name: 'board.xml', data: enc.encode(emptyComments(1170) + '\n') }));
-    expect(viaEntryPoint.value).toBeNull();
-    expect(viaEntryPoint.ms).toBeLessThan(200);
-    // Comments around a DOCTYPE, and other long runs that have no closing marker, are linear too.
-    const shapes: Array<[string, string, string | null]> = [
-      ['comments around a DOCTYPE', emptyComments(500) + '<!DOCTYPE IPC-2581>' + emptyComments(500) + '<IPC-2581 revision="B">', 'B'],
-      ['alternating DOCTYPE and comments', ('<!DOCTYPE a>' + emptyComments(1)).repeat(300) + '\n', null],
-      ['unterminated comments', '<!-- '.repeat(1600), null],
-      ['dashes without a closing marker', '<!--' + '-'.repeat(8000), null],
-      ['comments separated by whitespace', '<!-- a -->\n  '.repeat(600) + 'x', null],
+    expectScaling('comments through the entry point', sizes, count => { const data = enc.encode(emptyComments(count) + '\n'); return () => recognizeUnsupported({ name: 'board.xml', data }); });
+    for (const count of claimedSizes) expect(detect(emptyComments(count) + '<IPC-2581 revision="C">'), `${count} comments before the root`).toMatchObject({ id: 'ipc2581', detail: 'C' });
+    for (const count of sizes) {
+      expect(detect(emptyComments(count) + '\n'), `${count} comments`).toBeNull();
+      expect(recognizeUnsupported({ name: 'board.xml', data: enc.encode(emptyComments(count) + '\n') }), `${count} comments through the entry point`).toBeNull();
+    }
+    // Comments around a DOCTYPE, and other long runs that have no closing marker, are linear too (the scan reads at most the first 8 KiB, so the largest size fills it).
+    const shapes: Array<[string, (count: number) => string, number[], string | null]> = [
+      ['comments around a DOCTYPE', count => emptyComments(count) + '<!DOCTYPE IPC-2581>' + emptyComments(count) + '<IPC-2581 revision="B">', [31, 125, 500], 'B'],
+      ['alternating DOCTYPE and comments', count => ('<!DOCTYPE a>' + emptyComments(1)).repeat(count) + '\n', [27, 108, 430], null],
+      ['unterminated comments', count => '<!-- '.repeat(count), [100, 400, 1600], null],
+      ['dashes without a closing marker', count => '<!--' + '-'.repeat(count), [500, 2000, 8000], null],
+      ['comments separated by whitespace', count => '<!-- a -->\n  '.repeat(count) + 'x', [37, 150, 600], null],
     ];
-    for (const [label, text, revision] of shapes) {
-      const result = timed(() => detect(text));
-      expect(result.value?.detail ?? null, label).toBe(revision);
-      expect(result.value === null, label).toBe(revision === null);
-      expect(result.ms, label).toBeLessThan(200);
+    for (const [label, text, counts] of shapes) expectScaling(label, counts, count => { const input = text(count); return () => ipc2581(input); });
+    for (const [label, text, counts, revision] of shapes) {
+      const result = detect(text(counts[counts.length - 1]));
+      expect(result?.detail ?? null, label).toBe(revision);
+      expect(result === null, label).toBe(revision === null);
     }
   });
 
   it('keeps the prolog rules: a comment ends at its first closing marker and cannot hide or fake the root', () => {
-    const detect = (text: string) => detectUnsupported(enc.encode(text))?.id ?? null;
+    const detect = (text: string) => ipc2581(text)?.id ?? null;
     expect(detect('<!-- a --- b -->\n<IPC-2581 revision="B">')).toBe('ipc2581');
     expect(detect('<!--a--->\n<IPC-2581 revision="B">')).toBe('ipc2581');
     expect(detect('<!-- a -> b -->\n<IPC-2581 revision="B">')).toBe('ipc2581'); // a single dash before ">" is plain text

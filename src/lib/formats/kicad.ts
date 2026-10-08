@@ -6,6 +6,7 @@
  */
 import type { Board, BoardSide, ParseIssue, Point } from '../types';
 import { BoardFormatError, MAX_MM, buildBoard, decodeText, note, number, stitchOutlines, type ParseInput, type RawBoard, type RawPart, type RawPin } from './common';
+import { reportParseProgress } from '../parse-progress';
 
 type Expr = string | Expr[];
 type Node = Expr[];
@@ -33,7 +34,18 @@ function bounded(value: string | undefined, label: string): number {
 const MAX_ELEMENT_EXPRESSIONS = 2_000_000;
 const MAX_NESTING = 128;
 /** Top-level elements the adapter reads; every other one (segment, via, zone, gr_text, setup, ...) is validated but never built. */
-const KEPT_TOP = new Set(['footprint', 'module', 'net', 'gr_line', 'gr_rect', 'gr_poly', 'gr_arc', 'gr_circle', 'gr_curve']);
+const KEPT_TOP = new Set(['layers', 'footprint', 'module', 'net', 'gr_line', 'gr_rect', 'gr_poly', 'gr_arc', 'gr_circle', 'gr_curve']);
+/**
+ * A real board (a 3.6 MB KiCad 9 demo) has `(curved_edges no)filter_ratio 0.9)` written 349 times in its pad `(teardrops ...)` lists: the "("
+ * of the last setting is missing, so every list has one ")" too many and the document does not balance. KiCad 9.0.9 opens and exports that
+ * board, which makes the missing parenthesis part of what KiCad accepts in such a list. A bare symbol directly inside `teardrops` is
+ * therefore the head of an element that lost its "(": the element is opened there, and its ")" closes it. Nowhere else is anything
+ * repaired. Counted in `Repairs` so the board can say so.
+ */
+const TEARDROPS = 'teardrops';
+interface Repairs { teardropElements: number }
+/** True when the list whose "(" ends just before text[at] is `(teardrops ...`: the head follows the parenthesis directly, as every KiCad writer places it. */
+const opensTeardrops = (text: string, at: number): boolean => text.charCodeAt(at) === 116 && text.startsWith(TEARDROPS, at) && isDelimiter(text.charCodeAt(at + TEARDROPS.length));
 const nestingError = () => new BoardFormatError('KiCad nesting exceeds the import limit.', 'LIMIT_EXCEEDED');
 const malformedError = () => new BoardFormatError('Malformed KiCad PCB document.');
 /** Same set as the regular expression \s, without allocating a one-character string per input character. */
@@ -67,16 +79,26 @@ function skipString(text: string, at: number): number {
   throw new BoardFormatError('KiCad has an unterminated quoted string.');
 }
 /** Index after the list that opens at text[start], with the same tokenization, nesting bound and string checks as a built list. */
-function skipList(text: string, start: number, outerDepth: number): number {
-  let depth = 0, i = start;
+function skipList(text: string, start: number, outerDepth: number, repairs: Repairs): number {
+  let depth = 0, i = start, teardrops = -1; // teardrops: the depth of the open (teardrops ...) list, -1 outside one
   while (i < text.length) {
     const c = text.charCodeAt(i);
-    if (c === 40) { if (outerDepth + depth >= MAX_NESTING) throw nestingError(); depth++; i++; }
-    else if (c === 41) { i++; if (--depth === 0) return i; }
+    if (c === 40) {
+      if (outerDepth + depth >= MAX_NESTING) throw nestingError();
+      depth++; i++;
+      if (opensTeardrops(text, i)) { teardrops = depth; i += TEARDROPS.length; }
+    }
+    else if (c === 41) { i++; if (--depth === 0) return i; if (depth < teardrops) teardrops = -1; }
     else if (c === 34) i = skipString(text, i);
     else if (c === 59) { while (i < text.length && text.charCodeAt(i) !== 10) i++; }
     else if (isSpace(c)) i++;
-    else { i++; while (i < text.length && !isDelimiter(text.charCodeAt(i))) i++; } // an atom: a quote inside it does not end it
+    else { // an atom: a quote inside it does not end it
+      i++; while (i < text.length && !isDelimiter(text.charCodeAt(i))) i++;
+      if (depth === teardrops) { // an element of (teardrops ...) that lost its "(": it is open until the next ")"
+        if (outerDepth + depth >= MAX_NESTING) throw nestingError();
+        depth++; repairs.teardropElements++;
+      }
+    }
   }
   throw malformedError();
 }
@@ -97,9 +119,9 @@ function headOf(text: string, open: number): string | undefined {
  * in document order, without retaining it. Syntax (parentheses, strings, escapes, nesting) of the WHOLE document is
  * still validated; everything that is skipped is skipped with the same tokenization.
  */
-function scanPcb(text: string, onElement: (element: Node) => void): void {
+function scanPcb(text: string, onElement: (element: Node) => void, repairs: Repairs): void {
   const stack: Node[] = [];
-  let rootSeen = false, rootHead: Expr | undefined, count = 0;
+  let rootSeen = false, rootHead: Expr | undefined, count = 0, teardrops = -1; // teardrops: the stack depth of the open (teardrops ...) list, -1 outside one
   const append = (value: Expr) => {
     if (stack.length === 0) throw malformedError(); // anything outside the one root list
     if (stack.length === 1) { rootHead ??= value; return; } // atoms of the root list itself are not needed
@@ -117,24 +139,32 @@ function scanPcb(text: string, onElement: (element: Node) => void): void {
         rootSeen = true; stack.push([]); i++; continue;
       }
       if (stack.length === 1) {
+        reportParseProgress(i, n);
         const head = headOf(text, i);
-        if (head !== undefined && !KEPT_TOP.has(head)) { i = skipList(text, i, stack.length); continue; }
+        if (head !== undefined && !KEPT_TOP.has(head)) { i = skipList(text, i, stack.length, repairs); continue; }
         count = 1; // the element itself
       }
       if (stack.length >= MAX_NESTING) throw nestingError();
       const node: Node = [];
       if (stack.length > 1) append(node);
-      stack.push(node); i++; continue;
+      stack.push(node); i++;
+      if (opensTeardrops(text, i)) { append(TEARDROPS); teardrops = stack.length; i += TEARDROPS.length; }
+      continue;
     }
     if (c === 41) {
       const closed = stack.pop();
       if (!closed) throw new BoardFormatError('KiCad has an unmatched closing parenthesis.');
+      if (stack.length < teardrops) teardrops = -1;
       if (stack.length === 1) onElement(closed); // a top-level element is complete
       i++; continue;
     }
     if (c === 34) { const { value, next } = readString(text, i); append(value); i = next; continue; }
     const start = i++;
     while (i < n && !isDelimiter(text.charCodeAt(i))) i++;
+    if (stack.length === teardrops) { // an element of (teardrops ...) that lost its "(": it is open until the next ")"
+      if (stack.length >= MAX_NESTING) throw nestingError();
+      const element: Node = []; append(element); stack.push(element); repairs.teardropElements++;
+    }
     append(text.slice(start, i));
   }
   if (stack.length || !rootSeen || rootHead !== 'kicad_pcb') throw malformedError();
@@ -209,8 +239,64 @@ const MAX_PARTS = 250_000, MAX_PINS = 1_000_000;
  */
 const OUTLINE_CLOSURE_MM = 0.01;
 
+/**
+ * Which copper layer a name stands for. KiCad 5 lets a design rename its copper layers ("top_copper", "Dessus", "Top_layer"), so the name
+ * says nothing: the layer's number and type in the `(layers ...)` table do. A copper layer has the type signal, power, mixed or jumper
+ * (every other layer is "user"); the one numbered 0 is the front. The back layer is numbered 31 up to KiCad 8 (inner layers are 1 to 30)
+ * and 2 from KiCad 9 on (inner layers 4, 6, ... 62); number 31 is a copper layer only in the first numbering, so its presence tells them apart.
+ * A name that is not the standard name of its layer stays the layer's label: messages quote it and the board says which names were read by number.
+ */
+type CopperRole = 'front' | 'back' | 'inner';
+const COPPER_TYPES = new Set(['signal', 'power', 'mixed', 'jumper']);
+/** KiCad has at most 64 layers; a table beyond this is not a layer table. */
+const MAX_LAYERS = 512;
+const LABEL_LIMIT = 40, LABELS_SHOWN = 8;
+/** A name from the file as it is quoted in a message: control characters out, length bounded. */
+const quoted = (name: string): string => name.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').slice(0, LABEL_LIMIT);
+interface LayerTable {
+  /** The copper role of each name the table gives a copper layer. The file's own name stays the label of the layer (messages, the renamed-layers note). */
+  roles: ReadonlyMap<string, CopperRole>;
+  /** One line per copper layer whose name is not the standard name of its role: the name, the role the number and type gave it, the number. */
+  renamed: string[];
+  /** The front or the back layer is among them. Only then does the reading depend on the numbers, so only then does the board say so (inner layers are never shown). */
+  outerRenamed: boolean;
+}
+const NO_LAYER_TABLE: LayerTable = { roles: new Map(), renamed: [], outerRenamed: false };
+function readLayerTable(table: Node): LayerTable {
+  const numbers = new Set<number>(), names = new Set<string>(), typed: Array<{ number: number; name: string }> = [];
+  for (const entry of table.slice(1)) {
+    if (!Array.isArray(entry)) throw new BoardFormatError('KiCad layer table has an entry that is not a layer.');
+    if (numbers.size >= MAX_LAYERS) throw new BoardFormatError('KiCad layer table exceeds the import limit.', 'LIMIT_EXCEEDED');
+    const [index, name, type] = entry;
+    if (typeof index !== 'string' || !/^\d{1,4}$/.test(index) || typeof name !== 'string' || !name || typeof type !== 'string') throw new BoardFormatError('KiCad layer table has a malformed layer entry.');
+    if (numbers.has(Number(index))) throw new BoardFormatError(`KiCad layer table gives layer number ${index} twice.`);
+    if (names.has(name)) throw new BoardFormatError(`KiCad layer table gives the layer name "${quoted(name)}" twice.`);
+    numbers.add(Number(index)); names.add(name);
+    if (COPPER_TYPES.has(type)) typed.push({ number: Number(index), name });
+  }
+  // A real board has user layers whose type says "signal" ((39 "User.1" signal)): in the second numbering copper layers are the even numbers up to 62.
+  const firstNumbering = typed.some(layer => layer.number === 31), backNumber = firstNumbering ? 31 : 2;
+  const copper = typed.filter(layer => firstNumbering ? layer.number <= 31 : layer.number <= 62 && layer.number % 2 === 0);
+  const roles = new Map<string, CopperRole>(), renamed: string[] = [];
+  let outerRenamed = false;
+  for (const { number, name } of copper) {
+    const role: CopperRole = number === 0 ? 'front' : number === backNumber ? 'back' : 'inner';
+    roles.set(name, role);
+    const standard = role === 'front' ? 'F.Cu' : role === 'back' ? 'B.Cu' : `In${firstNumbering ? number : (number - 2) / 2}.Cu`;
+    if (name !== standard) { renamed.push(`${quoted(name)} is the ${role} copper layer (${number})`); if (role !== 'inner') outerRenamed = true; }
+  }
+  return { roles, renamed, outerRenamed };
+}
+/** `front`, `back` or `inner` for a copper layer, `all` for the copper wildcards, undefined for everything else (mask, paste, silkscreen, ...). */
+function copperRole(layers: LayerTable, name: Expr | undefined): CopperRole | 'all' | undefined {
+  if (typeof name !== 'string') return undefined;
+  if (name === '*.Cu' || name === 'F&B.Cu') return 'all';
+  // The standard names stay valid next to the file's own names, as KiCad reads them.
+  return layers.roles.get(name) ?? (name === 'F.Cu' ? 'front' : name === 'B.Cu' ? 'back' : /^In\d+\.Cu$/.test(name) ? 'inner' : undefined);
+}
+
 /** One pad as read from its footprint; the net is resolved later, once the whole net table is known. */
-interface PadRead { number: string; name: string; at: Point; width: number; height: number; side: BoardSide; shape: string; netNode: Node | undefined; angleText: string }
+interface PadRead { number: string; /** Made up by the reader for a pad that has no number. */ numberGenerated?: boolean; name: string; at: Point; width: number; height: number; side: BoardSide; shape: string; netNode: Node | undefined; angleText: string }
 /**
  * A footprint reduced to what the board needs, so the (very large) footprint expression can be discarded as soon as it is
  * read. A failure while reading is kept in `error` and thrown later, at the position where whole-tree processing used to throw it
@@ -218,13 +304,14 @@ interface PadRead { number: string; name: string; at: Point; width: number; heig
  */
 interface FootprintRead { name: string; ref: string; value: string; side: BoardSide; position: Point; rotation: number; outline?: Point[]; edgeCuts: boolean; pads: PadRead[]; error?: unknown }
 
-function readFootprint(footprint: Node): FootprintRead {
+function readFootprint(footprint: Node, layers: LayerTable): FootprintRead {
   const read: FootprintRead = { name: atom(footprint), ref: '', value: '', side: 'top', position: { x: 0, y: 0 }, rotation: 0, edgeCuts: false, pads: [] };
   try {
     const at = child(footprint, 'at'), position = at ? xy(at) : { x: 0, y: 0 }, rotation = number(atom(at, 3, '0'), 'KiCad footprint rotation');
-    const layer = atom(child(footprint, 'layer')); if (!['F.Cu', 'B.Cu'].includes(layer)) throw new BoardFormatError(`KiCad footprint has unsupported layer ${layer}.`);
-    // B.Cu footprints are serialized already mirrored (board view from the top); no second reflection here.
-    const side: BoardSide = layer === 'B.Cu' ? 'bottom' : 'top';
+    const layer = atom(child(footprint, 'layer')), role = copperRole(layers, layer);
+    if (role !== 'front' && role !== 'back') throw new BoardFormatError(`KiCad footprint has unsupported layer ${quoted(layer)}.`);
+    // Back-side footprints are serialized already mirrored (board view from the top); no second reflection here.
+    const side: BoardSide = role === 'back' ? 'bottom' : 'top';
     const property = (name: string) => atom(children(footprint, 'property').find(node => atom(node).toLowerCase() === name.toLowerCase()), 2);
     const textField = (name: string) => atom(children(footprint, 'fp_text').find(node => atom(node) === name), 2);
     read.ref = property('Reference') || textField('reference'); read.value = property('Value') || textField('value');
@@ -249,8 +336,8 @@ function readFootprint(footprint: Node): FootprintRead {
       const local = localAt ? xy(localAt) : { x: 0, y: 0 }, at = canonical(rotateSource(local, position, rotation));
       const width = bounded(atom(size), 'pad width'), height = bounded(atom(size, 2), 'pad height');
       if (width <= 0 || height <= 0) throw new BoardFormatError('KiCad pad has non-positive dimensions.');
-      const layers = child(pad, 'layers')?.slice(1) ?? [], front = layers.includes('F.Cu'), back = layers.includes('B.Cu');
-      const both = layers.includes('*.Cu') || layers.includes('F&B.Cu') || front && back;
+      const padLayers = (child(pad, 'layers')?.slice(1) ?? []).map(name => copperRole(layers, name)), front = padLayers.includes('front'), back = padLayers.includes('back');
+      const both = padLayers.includes('all') || front && back;
       if (!both && !front && !back) continue; // Mask/paste-only objects are not electrical pads.
       read.pads.push({ number: atom(pad), name: atom(child(pad, 'pinfunction')) || atom(pad), at, width, height, side: both ? 'both' : back ? 'bottom' : 'top',
         shape: atom(pad, 3), netNode: child(pad, 'net'), angleText: atom(localAt, 3, '0') });
@@ -264,7 +351,7 @@ function readFootprint(footprint: Node): FootprintRead {
       if (pad.number !== '') continue;
       let candidate: string;
       do candidate = `~${++spare}`; while (taken.has(candidate));
-      taken.add(candidate); pad.number = candidate;
+      taken.add(candidate); pad.number = candidate; pad.numberGenerated = true;
     }
   } catch (error) { read.error = error; }
   return read;
@@ -274,17 +361,21 @@ export function parseKicad(input: ParseInput): Board | null {
   const text = decodeText(input.data);
   if (!/^\s*(?:;[^\n]*\n\s*)*\(kicad_pcb(?:\s|\))/.test(text)) return null;
   const netNodes: Node[] = [], edgeNodes: Node[] = [], footprintReads: FootprintRead[] = [], moduleReads: FootprintRead[] = [], warnings: ParseIssue[] = [];
-  let padCount = 0;
+  const repairs: Repairs = { teardropElements: 0 };
+  let padCount = 0, layers: LayerTable | undefined;
   scanPcb(text, element => {
     const key = String(element[0]);
     if (key === 'net') netNodes.push(element);
-    else if (key === 'footprint' || key === 'module') {
-      const read = readFootprint(element);
+    else if (key === 'layers') {
+      if (layers) throw new BoardFormatError('KiCad has more than one layer table.');
+      layers = readLayerTable(element);
+    } else if (key === 'footprint' || key === 'module') {
+      const read = readFootprint(element, layers ?? NO_LAYER_TABLE);
       padCount += read.pads.length;
       if (footprintReads.length + moduleReads.length >= MAX_PARTS || padCount > MAX_PINS) throw new BoardFormatError('Board record count exceeds the import limit.', 'LIMIT_EXCEEDED');
       (key === 'footprint' ? footprintReads : moduleReads).push(read);
     } else if (atom(child(element, 'layer')) === 'Edge.Cuts') edgeNodes.push(element); // other graphics are not board geometry
-  });
+  }, repairs);
   const parts: RawPart[] = [], pins: RawPin[] = [];
   const nets = new Map<string, string>(), declaredNames = new Map<string, string>(); let approximated = 0, footprintEdgeCuts = false;
   for (const net of netNodes) {
@@ -321,17 +412,22 @@ export function parseKicad(input: ParseInput): Board | null {
       const round = pad.shape === 'circle' && Math.abs(pad.width - pad.height) < 1e-9;
       if (!round && pad.shape !== 'rect') approximated++;
       const netName = pad.netNode ? resolveNet(pad.netNode) : '';
-      pins.push({ part: key, number: pad.number, name: pad.name, net: netName, ...pad.at, side: pad.side, width: pad.width, height: pad.height,
+      pins.push({ part: key, number: pad.number, ...(pad.numberGenerated ? { numberGenerated: true } : {}), name: pad.name, net: netName, ...pad.at, side: pad.side, width: pad.width, height: pad.height,
         radius: Math.min(pad.width, pad.height) / 2, shape: round ? 'round' : pad.width === pad.height ? 'square' : 'rect', rotation: angle(number(pad.angleText, 'KiCad pad rotation')) });
     }
     if (read.error) throw read.error;
-    parts.push({ key, ref: read.ref || `FP${index + 1}`, value: read.value, package: read.name, side: read.side, position: read.position, rotation: read.rotation, outline: read.outline });
+    parts.push({ key, ref: read.ref || `FP${index + 1}`, ...(read.ref ? {} : { refGenerated: true }), value: read.value, package: read.name, side: read.side, position: read.position, rotation: read.rotation, outline: read.outline });
   }
   const members = new Map<string, number>();
   for (const pin of pins) if (pin.net) members.set(pin.net, (members.get(pin.net) ?? 0) + 1);
   let placeholders = 0;
   for (const pin of pins) if (pin.net && PLACEHOLDER_NET.test(pin.net) && members.get(pin.net) === 1) { pin.net = ''; placeholders++; }
   if (placeholders) warnings.push(note(`${placeholders} KiCad "unconnected-(…)" single-pad placeholder nets were treated as no-connects.`));
+  if (layers?.outerRenamed) {
+    const shown = layers.renamed.slice(0, LABELS_SHOWN).join('; '), more = layers.renamed.length - LABELS_SHOWN;
+    warnings.push(note(`This KiCad design names its copper layers itself; they were identified by layer number and type, not by name: ${shown}${more > 0 ? `; and ${more} more` : ''}.`));
+  }
+  if (repairs.teardropElements) warnings.push(note(`${repairs.teardropElements} KiCad teardrop settings lack their opening parenthesis; they were read as KiCad reads them.`));
   const paths = edgeNodes.map(graphic);
   const segments: [Point, Point][] = paths.flatMap(path => path.slice(1).map((point, i): [Point, Point] => [path[i], point]));
   const { loops: canonicalLoops, openChains } = stitchOutlines(segments, OUTLINE_CLOSURE_MM), loops = canonicalLoops.map(loop => loop.map(canonical));

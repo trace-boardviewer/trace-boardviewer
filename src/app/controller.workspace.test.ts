@@ -438,7 +438,7 @@ describe('selection and cross-probe', () => {
     const { selectSchematicSymbol, selectSchematicPin, selectSchematicNet } = h.controller.actions;
     selectSchematicSymbol({ documentId: 'doc-sch', instancePath: '', symbolId: 'R2', ref: 'R2' });
     expect(h.state().selection).toEqual({ componentId: 'r2', pinId: null, net: null });
-    expect(h.state().probe).toMatchObject({ origin: 'schematic', nonce: 1, documentRef: 'R2', boardMapping: { status: 'unique' }, schematicMapping: null, schematic: { selection: { symbolKey: symbolKey('', 'R2') } } });
+    expect(h.state().probe).toMatchObject({ origin: 'schematic', nonce: 1, documentRef: 'R2', boardMapping: { status: 'unique' }, schematicMapping: { status: 'unique' }, schematic: { selection: { symbolKey: symbolKey('', 'R2') } } });
     selectSchematicPin({ documentId: 'doc-sch', instancePath: '', symbolId: 'R2', pinId: 'R2#2', ref: 'R2', pinNumber: '2' });
     expect(h.state().selection).toEqual({ componentId: 'r2', pinId: pinOf(h, 'r2', '2').id, net: 'GND' });
     expect(h.state().probe.schematic?.selection).toMatchObject({ symbolKey: symbolKey('', 'R2'), pinKey: pinKey('', 'R2', 'R2#2') });
@@ -452,6 +452,65 @@ describe('selection and cross-probe', () => {
     expect(h.state().probe.schematic?.selection).toEqual({});
     selectSchematicSymbol({ documentId: 'ghost', instancePath: '', symbolId: 'R2', ref: 'R2' });
     expect(h.state().probe.nonce).toBe(3);
+  });
+
+  describe('the schematic counterpart the inspector reports follows the board selection, whoever made it', () => {
+    it('"Show in schematic" on a part keeps the unique counterpart (it is never reported as not resolved)', async () => {
+      const h = await withSchematic();
+      const { selectComponent, selectSchematicSymbol } = h.controller.actions;
+      selectComponent('r1');
+      const resolved = h.state().probe.schematicMapping;
+      expect(resolved?.status).toBe('unique');
+      const target = resolved!.candidates[0], unit = target.units[0];
+      // What the inspector button does with the candidate it shows.
+      selectSchematicSymbol({ documentId: target.documentId, instancePath: unit.instancePath, symbolId: unit.symbolId, ref: target.ref });
+      expect(h.state().selection).toEqual({ componentId: 'r1', pinId: null, net: null });
+      expect(h.state().probe.origin).toBe('schematic');
+      expect(h.state().probe.schematic?.selection.symbolKey).toBe(symbolKey('', 'R1'));
+      expect(h.state().probe.schematicMapping).toMatchObject({ status: 'unique', candidates: [{ documentId: 'doc-sch', ref: 'R1' }] });
+    });
+
+    it('"Show in schematic" on a pad keeps the unique counterpart, with its pin', async () => {
+      const h = await withSchematic();
+      const { selectPin, selectSchematicPin } = h.controller.actions;
+      selectPin(pinOf(h, 'r1', '1').id);
+      const target = h.state().probe.schematicMapping!.candidates[0], placement = target.pin!.placements[0];
+      selectSchematicPin({ documentId: target.documentId, instancePath: placement.instancePath, symbolId: placement.symbolId, pinId: placement.pinId, ref: target.ref, pinNumber: target.pin!.number });
+      expect(h.state().selection).toMatchObject({ componentId: 'r1', pinId: pinOf(h, 'r1', '1').id });
+      expect(h.state().probe.schematicMapping).toMatchObject({ status: 'unique', candidates: [{ ref: 'R1', pin: { number: '1' } }] });
+    });
+
+    it('a part picked in the schematic reports its own counterpart, and a pick that selects no board part reports none', async () => {
+      const h = await withSchematic();
+      const { selectSchematicSymbol, selectSchematicNet } = h.controller.actions;
+      selectSchematicSymbol({ documentId: 'doc-sch', instancePath: '', symbolId: 'R2', ref: 'R2' });
+      expect(h.state().selection.componentId).toBe('r2');
+      expect(h.state().probe.schematicMapping).toMatchObject({ status: 'unique', candidates: [{ ref: 'R2' }] });
+      selectSchematicNet('doc-sch', h.state().documents[0].design!.connectivity.nets.find(n => n.name === 'OUT')!.id);
+      expect(h.state().selection).toEqual({ componentId: null, pinId: null, net: 'OUT' });
+      expect(h.state().probe.schematicMapping).toBeNull();
+    });
+
+    it('choosing one of several board parts reports the counterpart of the chosen part, not the previous one', async () => {
+      const board = makeBoard('a.cad', [{ ref: 'R1', id: 'r1', pins: [['1', 'VCC'], ['2', 'OUT']] }, { ref: 'R2', id: 'r2a', pins: [['1', 'OUT'], ['2', 'GND']] }, { ref: 'R2', id: 'r2b', pins: [['1', 'OUT'], ['2', 'GND']] }]);
+      const h = await withSchematic(dividerDesign(), board);
+      h.controller.actions.selectComponent('r1');
+      expect(h.state().probe.schematicMapping?.candidates[0].ref).toBe('R1');
+      h.controller.actions.selectSchematicSymbol({ documentId: 'doc-sch', instancePath: '', symbolId: 'R2', ref: 'R2' });
+      expect(h.state().selection.componentId).toBeNull();
+      h.controller.actions.chooseBoardTarget(1);
+      expect(h.state().selection.componentId).toBe('r2b');
+      // The part's reference is carried by two board parts, so the honest answer is the explicit-choice one, for R2 and not for R1.
+      expect(h.state().probe.schematicMapping).toMatchObject({ status: 'ambiguous', reasons: ['several-board-parts'], candidates: [{ ref: 'R2' }] });
+    });
+
+    it('an alias added while the schematic drives the selection updates the counterpart as well', async () => {
+      const h = await withSchematic();
+      h.controller.actions.selectSchematicSymbol({ documentId: 'doc-sch', instancePath: '', symbolId: 'R2', ref: 'R2' });
+      expect(h.state().probe.schematicMapping?.status).toBe('unique');
+      h.controller.actions.setAlias('refs', 'R2', 'R7');
+      expect(h.state().probe.schematicMapping).toMatchObject({ status: 'missing' });
+    });
   });
 
   it('a duplicated board reference is never picked automatically (chooseBoardTarget); a part missing on the board links nothing', async () => {
@@ -605,6 +664,33 @@ describe('PDF cross-reference', () => {
     expect(late.pdf.sessions[0].scans).toHaveLength(1);
     late.pdf.sessions[0].update({ index: { state: 'done', indexedPages: 3, pageCount: 3, items: 9 } });
     expect(late.pdf.sessions[0].scans).toHaveLength(1);
+  });
+
+  it('recognized text (OCR) makes a scan-only PDF scanned and searched; each new revision scans and searches once more', async () => {
+    const h = await withPdf(dividerBoard('a.cad'), harness => { harness.pdf.defaults.searchable = false; });
+    const [session] = h.pdf.sessions;
+    h.controller.actions.setSearchQuery('R1');
+    await h.controller.idle();
+    expect(session.scans).toHaveLength(0);
+    expect(session.searches).toEqual([]);
+    const recognized = (revision: number, words: number) => ({ ...session.getSnapshot().ocr, state: 'running' as const, revision, words, recognizedPages: 1 });
+    session.update({ ocr: recognized(1, 5) });
+    await h.controller.idle();
+    expect(session.scans).toHaveLength(1);
+    expect(session.searches).toEqual(['R1']);
+    expect(Object.keys(h.state().pdfLinks)).toEqual(['doc-pdf']);
+    session.update({ ocr: { ...recognized(1, 5), processedPages: 2 } }); // progress without new words: nothing runs again
+    await h.controller.idle();
+    expect(session.scans).toHaveLength(1);
+    session.candidates = [{ kind: 'ref', name: 'R1', hits: [hit(1, 5, 'R1', { source: 'ocr', confidence: 77 })] }];
+    session.update({ ocr: recognized(2, 9) });
+    await h.controller.idle();
+    expect(session.scans).toHaveLength(2);
+    expect(session.searches).toEqual(['R1', 'R1']);
+    // a link that comes from recognized text keeps its confidence up to the viewer (region and selection highlight)
+    expect(h.state().overlays['doc-pdf'].probeRegions).toEqual([expect.objectContaining({ label: 'R1', confidence: 77 })]);
+    h.controller.actions.selectComponent('r1');
+    expect(h.state().overlays['doc-pdf'].highlights).toEqual([expect.objectContaining({ kind: 'selection', confidence: 77 })]);
   });
 });
 

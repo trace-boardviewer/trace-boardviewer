@@ -1,0 +1,17 @@
+{
+  "settings.title": "Ihr Arbeitsbereich",
+  "settings.appearance": "Darstellung",
+  "settings.themeDark": "Dunkel",
+  "settings.themeLight": "Hell",
+  "settings.themeSystem": "System",
+  "settings.layout": "Layout",
+  "settings.language": "Sprache",
+  "settings.languageHint": "Die Oberfläche wechselt sofort; Platinendaten, Netznamen und persönliche Notizen bleiben unverändert.",
+  "settings.motion": "Dezente Animationen",
+  "settings.motionHint": "Rückmeldung für Auswahl und Bedienfelder",
+  "settings.labels": "Bauteilbeschriftungen",
+  "settings.labelsHint": "Bezeichner, die mit dem Zoom skalieren",
+  "settings.connections": "Hilfslinien für Verbindungen",
+  "settings.connectionsHint": "Gerade Linien zwischen dem gewählten Pin und den Pads seines Netzes",
+  "settings.autosave": "Einstellungen werden automatisch gespeichert."
+}

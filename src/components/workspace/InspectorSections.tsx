@@ -3,8 +3,10 @@ import { useMemo, type ReactNode } from 'react';
 import type { DocumentRuntime, WorkspaceApi } from '../../app/api';
 import type { BoardNetTarget, BoardTarget, Mapping, MappingReason, PdfLinkHit, PdfRefLink, PinLinkRow, PinStatus, RefLinkRow, SchematicNetTarget, SchematicTarget } from '../../lib/crossprobe';
 import type { BoardNote } from '../../lib/types';
-import type { NoteTarget } from '../../lib/workspace';
+import { noteKeyIndex } from '../../lib/note-keys';
+import type { NoteSubject, NoteTargetResult } from '../../lib/note-keys';
 import { MEASUREMENT_FIELDS, noteOf } from './model';
+import { FALLBACK_TEXT, REFUSAL_TEXT } from './note-text';
 import { usePdfSnapshot } from './ui';
 import { useUi } from './ui-context';
 
@@ -148,26 +150,35 @@ export function DocumentsSection({ api, refName, onOpen }: { api: WorkspaceApi; 
   </Section>;
 }
 
-function NoteCard({ note, label, onEdit }: { note: BoardNote | undefined; label: string; onEdit(): void }) {
+/** A note card. When the file does not name the part or pin uniquely the note is bound by position, and the card says so; when even position cannot tell it from another one, nothing can be added. */
+function NoteCard({ note, label, target, onEdit }: { note: BoardNote | undefined; label: string; target: NoteTargetResult | null; onEdit(): void }) {
+  const { t } = useUi();
   const measurements = note?.measurements;
   const names: Record<(typeof MEASUREMENT_FIELDS)[number], string> = { voltage: T.voltage, resistance: T.resistance, other: T.other };
-  if (!note) return <button type="button" className="outline-button wsp-add-note" data-testid="add-note" onClick={onEdit}><Plus size={14} />{T.addNote(label)}</button>;
+  const fallbacks = target?.ok ? target.fallbacks.map(fallback => <p key={fallback} className="wsp-fallback-note" data-testid="note-fallback">{t(FALLBACK_TEXT[fallback])}</p>) : null;
+  const refusal = target && !target.ok ? REFUSAL_TEXT[target.reason] : undefined;
+  if (!note) return <>{refusal ? <p className="wsp-status warn" role="note" data-testid="note-refused"><AlertTriangle size={13} />{t(refusal)}</p>
+    : <button type="button" className="outline-button wsp-add-note" data-testid="add-note" onClick={onEdit}><Plus size={14} />{T.addNote(label)}</button>}{fallbacks}</>;
   return <div className="wsp-note" data-testid="note-card">
     <div className="wsp-note-head"><StickyNote size={13} /><span>{T.noteFor(label)}</span><button type="button" className="tool-button" aria-label={`${T.edit}: ${label}`} onClick={onEdit}><Pencil size={13} /></button></div>
     {note.text && <p className="wsp-note-text">{note.text}</p>}
     {measurements && <dl className="wsp-measures">{MEASUREMENT_FIELDS.filter(name => measurements[name]).map(name => <div key={name}><dt>{names[name]}</dt><dd className="mono">{measurements[name]}</dd></div>)}</dl>}
     <p className="wsp-note-foot">{T.technician}</p>
+    {fallbacks}
   </div>;
 }
 
-export function NotesSection({ api, componentRef, componentId, pinId, pinNumber, onEdit }: { api: WorkspaceApi; componentRef: string; componentId: string; pinId: string | null; pinNumber: string | null; onEdit(target: NoteTarget): void }) {
+export function NotesSection({ api, componentRef, componentId, pinId, pinNumber, onEdit }: { api: WorkspaceApi; componentRef: string; componentId: string; pinId: string | null; pinNumber: string | null; onEdit(target: NoteSubject): void }) {
   const { state, actions } = api;
   const { text } = useUi();
+  const board = state.board;
+  const part = useMemo(() => board ? noteKeyIndex(board).target(componentId) : null, [board, componentId]);
+  const pin = useMemo(() => board && pinId ? noteKeyIndex(board).target(componentId, pinId) : null, [board, componentId, pinId]);
   return <Section title={T.notes} testId="inspector-notes" icon={<StickyNote size={12} />}>
     {state.notesBlocked && <div className="wsp-card" role="alert"><p className="wsp-status bad"><AlertTriangle size={13} />{T.blocked}</p><p className="wsp-reason">{text(state.notesBlocked)}</p>
       <button type="button" className="outline-button" data-testid="retry-notes" onClick={() => void actions.retryNotes()}><RotateCw size={14} />{T.retry}</button></div>}
-    <NoteCard note={noteOf(state.notes, componentId)} label={`${componentRef} (${T.component})`} onEdit={() => onEdit({ componentId })} />
-    {pinId && pinNumber !== null && <NoteCard note={noteOf(state.notes, componentId, pinId)} label={`${componentRef} ${T.pinWord(pinNumber)}`} onEdit={() => onEdit({ componentId, pinId })} />}
+    <NoteCard note={noteOf(board, state.notes, componentId)} target={part} label={`${componentRef} (${T.component})`} onEdit={() => onEdit({ componentId })} />
+    {pinId && pinNumber !== null && <NoteCard note={noteOf(board, state.notes, componentId, pinId)} target={pin} label={`${componentRef} ${T.pinWord(pinNumber)}`} onEdit={() => onEdit({ componentId, pinId })} />}
   </Section>;
 }
 

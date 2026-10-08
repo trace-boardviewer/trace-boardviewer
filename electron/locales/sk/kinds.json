@@ -1,0 +1,19 @@
+{
+  "kind.ic": "Integrovaný obvod",
+  "kind.capacitor": "Kondenzátor",
+  "kind.resistor": "Rezistor",
+  "kind.inductor": "Cievka",
+  "kind.connector": "Konektor",
+  "kind.diode": "Dióda",
+  "kind.transistor": "Tranzistor",
+  "kind.crystal": "Kryštál",
+  "kind.fuse": "Poistka",
+  "kind.resistorArray": "Rezistorová sieť",
+  "kind.ferrite": "Feritová perla",
+  "kind.led": "LED dióda",
+  "kind.testpoint": "Testovací bod",
+  "kind.switch": "Spínač",
+  "kind.jumper": "Prepojka",
+  "kind.mechanical": "Mechanická súčiastka",
+  "kind.part": "Súčiastka"
+}

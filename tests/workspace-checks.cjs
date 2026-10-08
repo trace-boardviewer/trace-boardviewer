@@ -280,6 +280,52 @@ test('workspace.cjs: manifest aliases, board mismatch and notes validation', asy
     for (const garbage of [null, {}, 'x', 5, [null], [5], ['x']]) assert.throws(() => workspace.validateNotes(garbage), (error) => /NOTES_INVALID|TOO_MANY/.test(error.code));
     assert.equal(one({ text: 'a'.repeat(8000) })[0].text.length, 8000);
   });
+
+  await t0.test('keyed notes: one list with positional and unresolved notes, canonical keys, one note per key', () => {
+    const keyed = (patch = {}) => ({ id: 'k1', target: { ref: 'U1' }, text: 'a', updatedAt: NOW, ...patch });
+    const marked = { id: 'n9', componentId: 'part:9', pinId: 'pin:41', text: 'lost', updatedAt: NOW, unresolved: { reason: 'legacy-id-missing', at: NOW } };
+    const list = [
+      keyed(), keyed({ id: 'k2', target: { ref: 'U1', pin: '3' }, measurements: { voltage: '1.8 V' } }), { id: 'n1', componentId: 'part:1', text: 'old', updatedAt: NOW }, marked,
+      keyed({ id: 'k3', target: { at: { side: 'top', x: 1, y: 2 }, pinAt: { side: 'bottom', x: 3, y: 4 } } }),
+    ];
+    assert.deepEqual(workspace.validateNotes(structuredClone(list)), list);
+    // canonical form: names normalized (NFKC, trim), positions rounded to 1 um (never -0), unknown fields dropped
+    const [canonical] = workspace.validateNotes([keyed({ target: { ref: ' Ｕ１ ', pin: ' 3 ', extra: 1 } })]);
+    assert.deepEqual(canonical.target, { ref: 'U1', pin: '3' });
+    const [placed] = workspace.validateNotes([keyed({ target: { at: { side: 'top', x: 1.23456, y: -0.0004, extra: 1 }, pinAt: { side: 'both', x: 2.0006, y: 3 } } })]);
+    assert.deepEqual(placed.target, { at: { side: 'top', x: 1.235, y: 0 }, pinAt: { side: 'both', x: 2.001, y: 3 } });
+    assert.equal(Object.is(placed.target.at.y, 0), true);
+    // one note per key, found after normalization; positional and keyed notes never collide
+    assert.throws(() => workspace.validateNotes([keyed(), keyed({ id: 'k2', target: { ref: ' Ｕ１' } })]), { code: 'NOTES_INVALID', message: /notes\[1\]\.target \(duplicate note for this target\)/ });
+    assert.throws(() => workspace.validateNotes([keyed({ target: { ref: 'R1', at: { side: 'top', x: 1, y: 2 } } }), keyed({ id: 'k2', target: { ref: 'R1', at: { side: 'top', x: 1.0004, y: 2 } } })]), { code: 'NOTES_INVALID' });
+    assert.equal(workspace.validateNotes([keyed(), keyed({ id: 'k2', target: { ref: 'u1' } }), keyed({ id: 'k3', target: { ref: 'U1', pin: '1' } }), { id: 'n1', componentId: 'U1', text: 'a', updatedAt: NOW }]).length, 4);
+    for (const target of [{}, { pin: '3' }, { ref: '' }, { ref: '   ' }, { ref: 'x'.repeat(257) }, { ref: 'U1', pin: '' }, { ref: 'U1', pin: '1', pinAt: { side: 'top', x: 0, y: 0 } },
+      { at: { side: 'middle', x: 0, y: 0 } }, { at: { side: 'top', x: 'a', y: 0 } }, { at: { side: 'top', x: NaN, y: 0 } }, { at: { side: 'top', x: 2e9, y: 0 } }, null, 'U1', []]) {
+      assert.throws(() => workspace.validateNotes([keyed({ target })]), { code: 'NOTES_INVALID' }, JSON.stringify(target));
+    }
+    for (const extra of [{ componentId: 'U1' }, { pinId: 'x' }, { unresolved: { reason: 'legacy-id-missing', at: NOW } }]) assert.throws(() => workspace.validateNotes([keyed(extra)]), { code: 'NOTES_INVALID' });
+    for (const unresolved of [{}, { reason: 'because', at: NOW }, { reason: 'legacy-id-missing' }, { reason: 'legacy-id-missing', at: 'later' }, 'x', []]) {
+      assert.throws(() => workspace.validateNotes([{ ...marked, unresolved }]), { code: 'NOTES_INVALID' }, JSON.stringify(unresolved));
+    }
+    for (const reason of workspace.NOTE_PROBLEMS) assert.doesNotThrow(() => workspace.validateNotes([{ ...marked, unresolved: { reason, at: NOW } }]), reason);
+    assert.equal(workspace.NOTE_PROBLEMS.length, 7);
+    assert.equal(workspace.LIMITS.anchor, 1e9);
+  });
+
+  await t0.test('the text form of a key: documented examples, exact escaping of the reserved characters, one text per key', () => {
+    const text = workspace.noteKeyText;
+    assert.equal(text({ ref: 'U7' }), 'U7');
+    assert.equal(text({ ref: 'U7', pin: '3' }), 'U7/3');
+    assert.equal(text({ ref: 'R1', at: { side: 'top', x: 12.5, y: -8.25 } }), 'R1@t12500,-8250');
+    assert.equal(text({ at: { side: 'bottom', x: 0, y: 9 }, pinAt: { side: 'bottom', x: 0.1, y: 9.05 } }), '@b0,9000/@b100,9050');
+    assert.equal(text({ ref: 'U7', pin: 'A@1' }), 'U7/A%00401');
+    assert.equal(text({ ref: 'R/1' }), 'R%002F1');
+    assert.equal(workspace.escapeKeyName('a%b/c@d\u0000\u001f\u007f😀'), 'a%0025b%002Fc%0040d%0000%001F%007F%D83D%DE00');
+    assert.equal(workspace.escapeKeyName(' ~\u0080é漢,:#'), ' ~\u0080é漢,:#', 'only the reserved characters, controls and surrogates are escaped');
+    assert.equal(workspace.normalizeName(' Ｕ１ '), 'U1');
+    assert.notEqual(text({ ref: 'U1@t1000,2000' }), text({ ref: 'U1', at: { side: 'top', x: 1, y: 2 } }), 'an escaped name never reads as an anchor');
+    assert.notEqual(text({ ref: 'U/1' }), text({ ref: 'U', pin: '1' }), 'an escaped name never reads as a pin');
+  });
 });
 
 test('workspace.cjs LIMITS stay equal to WORKSPACE_LIMITS of src/lib/documents.ts', async () => {
@@ -641,7 +687,7 @@ test('documents.cjs: locateDocuments finds remembered documents by path, then by
   });
 
   await t0.test('the board path is validated; results keep the request order', async () => {
-    for (const bad of ['relative/Board.cad', '', 5, undefined, '\\\\server\\share\\Board.cad', path.join(boardDir, 'Board.txt'), `${boardFile}\0`]) {
+    for (const bad of ['relative/Board.cad', '', 5, undefined, '\\\\server\\share\\Board.cad', path.join(boardDir, 'Board.unsupported'), `${boardFile}\0`]) {
       await assert.rejects(documents.locateDocuments(bad, [request('x')]), (error) => /^DOCUMENT_INVALID_PATH$/.test(error.code), String(bad));
     }
     const results = await locate([request('b', { path: path.join(boardDir, 'nowhere.pdf') }), request('a'), request('c', { key: sha256('other') })]);
@@ -1116,4 +1162,18 @@ test('CI portability: fixtures are created under the canonical temp root, so pat
     for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
     await fs.rm(linkRoot, { force: true }); await fs.rm(realRoot, { recursive: true, force: true });
   }
+});
+
+
+test('SchDoc selection gathers schematic and project companions with lowercase names', async t0 => {
+  const root = await sandbox(t0, 'schdoc');
+  const header = '|HEADER=Protel for Windows - Schematic Capture Ascii File Version 5.0|Weight=0\n|RECORD=31|\n';
+  const file = path.join(root, 'Top.SchDoc');
+  await fs.writeFile(file, header);
+  await fs.writeFile(path.join(root, 'Child.SchDoc'), header);
+  await fs.writeFile(path.join(root, 'Design.PrjPcb'), '[Design]\nHierarchyMode=2\n');
+  const [payload] = await documents.readSelection([file]);
+  assert.equal(payload.kind, 'schematic');
+  assert.equal(payload.format, 'altium-sch');
+  assert.deepEqual(Object.keys(payload.companions).sort(), ['child.schdoc', 'design.prjpcb']);
 });

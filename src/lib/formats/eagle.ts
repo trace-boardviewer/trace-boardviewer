@@ -149,38 +149,47 @@ function readPackage(node: Xml, context: string): Package {
   return { pads, body };
 }
 
-interface Prolog { root: string; entities: boolean }
+interface Prolog { root: string; entities: boolean; /** Index just after the root element name. */ rootEnd: number }
 /**
  * Walks the XML declaration, comments, processing instructions and DOCTYPE up to the first start tag, so recognition
  * does not depend on a declaration being present and a non-EAGLE document is rejected without being parsed. Reports
- * whether the DOCTYPE declares entities (never expanded: such a document is refused).
+ * whether the DOCTYPE declares entities (never expanded: such a document is refused). 'open' means the text ended inside
+ * the prologue, so a longer text may still reach a root element (the sniff of a truncated head needs that); undefined
+ * means the text is not XML.
  */
-function prolog(text: string): Prolog | undefined {
+export function prologWalk(text: string): Prolog | 'open' | undefined {
   let at = 0, entities = false;
   const end = text.length;
   for (;;) {
     while (at < end && (text.charCodeAt(at) <= 0x20 || text.charCodeAt(at) === 0xfeff)) at++;
+    if (at >= end) return 'open';
     if (text[at] !== '<') return undefined;
-    if (text.startsWith('<?', at)) { const close = text.indexOf('?>', at + 2); if (close < 0) return undefined; at = close + 2; continue; }
-    if (text.startsWith('<!--', at)) { const close = text.indexOf('-->', at + 4); if (close < 0) return undefined; at = close + 3; continue; }
+    if (text.startsWith('<?', at)) { const close = text.indexOf('?>', at + 2); if (close < 0) return 'open'; at = close + 2; continue; }
+    if (text.startsWith('<!--', at)) { const close = text.indexOf('-->', at + 4); if (close < 0) return 'open'; at = close + 3; continue; }
     if (text.startsWith('<!DOCTYPE', at)) {
       let depth = 0, quote = '', index = at + 9;
       for (; index < end; index++) {
         const c = text[index];
         if (quote) { if (c === quote) quote = ''; continue; }
-        if (text.startsWith('<!--', index)) { const close = text.indexOf('-->', index + 4); if (close < 0) return undefined; index = close + 2; continue; }
+        if (text.startsWith('<!--', index)) { const close = text.indexOf('-->', index + 4); if (close < 0) return 'open'; index = close + 2; continue; }
         if (c === '"' || c === "'") quote = c;
         else if (c === '[') depth++;
         else if (c === ']') depth--;
         else if (c === '>' && depth <= 0) break;
       }
-      if (index >= end) return undefined;
+      if (index >= end) return 'open';
       if (text.slice(at, index).includes('<!ENTITY')) entities = true;
       at = index + 1; continue;
     }
-    const root = /^<([A-Za-z_][\w.:-]*)/.exec(text.slice(at, at + 256));
-    return root ? { root: root[1], entities } : undefined;
+    const rest = text.slice(at, at + 256);
+    if (rest.length < 9 && ('<!DOCTYPE'.startsWith(rest) || '<!--'.startsWith(rest))) return 'open';
+    const root = /^<([A-Za-z_][\w.:-]*)/.exec(rest);
+    return root ? { root: root[1], entities, rootEnd: at + 1 + root[1].length } : undefined;
   }
+}
+function prolog(text: string): Prolog | undefined {
+  const walk = prologWalk(text);
+  return typeof walk === 'object' ? walk : undefined;
 }
 
 export function parseEagle(input: ParseInput): Board | null {

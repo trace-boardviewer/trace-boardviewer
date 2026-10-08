@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { computeConnectivity, naturalCompare, parseBusLabel } from './connectivity';
 import { pinKey, SchematicError } from './model';
+import { expectScaling } from '../../test-support/timing';
 import type { SchConnectivity, SchNet, SchSheetInstance } from './model';
 import {
   buildSchematic, fixtureBus, fixtureDeclared, fixtureDivider, fixtureRepeatedSheet, fixtureStress, memberLabels, netByName, netOfPin,
@@ -812,16 +813,13 @@ describe('output contract', () => {
 });
 
 describe('performance', () => {
-  it('connects >= 100k wires and >= 20k symbols in a few seconds', () => {
+  it('connects >= 100k wires and >= 20k symbols in linear time', () => {
+    // The time over the number of symbols is compared with the time over a smaller sheet: a pass per wire over all wires or per net over all nets is quadratic.
+    expectScaling('connectivity of the stress sheet', [5000, 20_000], symbols => { const sheet = fixtureStress({ symbols }); return () => computeConnectivity(sheet); });
     const schematic = fixtureStress({ symbols: 20_000 });
     const wires = schematic.defs[0].wires.length;
     expect(wires).toBeGreaterThanOrEqual(100_000 - 1000);
-    const started = performance.now();
     const c = computeConnectivity(schematic);
-    const elapsed = performance.now() - started;
-    // eslint-disable-next-line no-console
-    console.log(`connectivity: ${wires} wires, ${schematic.defs[0].symbols.length} symbols, ${c.nets.length} nets in ${elapsed.toFixed(0)} ms`);
-    expect(elapsed).toBeLessThan(6000);
     // 99 wired pairs per 100-part row (T stubs join, decoys do not); the first pin of each row and the last pin are floating
     expect(c.nets).toHaveLength(200 * 99);
     expect(c.floatingPins).toHaveLength(200 * 2);
@@ -834,19 +832,19 @@ describe('performance', () => {
   }, 60_000);
 
   it('expands a deep repeated hierarchy without re-solving the geometry per instance', () => {
-    const leaf = new SheetBuilder('leaf');
-    leaf.hier('A', 0, 0).wire(0, 0, 10, 0);
-    R(leaf, 'R?', [10, 0], [10, 20]);
-    const root = new SheetBuilder('root');
-    for (let i = 0; i < 400; i++) root.sheet(`s${i}`, 'leaf', `s${i}`, [{ name: 'A', x: 0, y: i * 20 }]);
-    const started = performance.now();
-    const c = computeConnectivity(buildSchematic([root, leaf]));
-    const elapsed = performance.now() - started;
-    // eslint-disable-next-line no-console
-    console.log(`hierarchy: 400 instances, ${c.nets.length} nets in ${elapsed.toFixed(0)} ms`);
+    const hierarchy = (instances: number) => {
+      const leaf = new SheetBuilder('leaf');
+      leaf.hier('A', 0, 0).wire(0, 0, 10, 0);
+      R(leaf, 'R?', [10, 0], [10, 20]);
+      const root = new SheetBuilder('root');
+      for (let i = 0; i < instances; i++) root.sheet(`s${i}`, 'leaf', `s${i}`, [{ name: 'A', x: 0, y: i * 20 }]);
+      return buildSchematic([root, leaf]);
+    };
+    // Expanding an instance must cost the same for the first and for the last one: the time grows with the number of instances and not faster.
+    expectScaling('hierarchy expansion', [100, 400, 1600, 4000], instances => { const schematic = hierarchy(instances); return () => computeConnectivity(schematic); });
+    const c = computeConnectivity(hierarchy(400));
     expect(c.nets).toHaveLength(400);
     expect(new Set(c.nets.map(n => n.id)).size).toBe(400);
-    expect(elapsed).toBeLessThan(3000);
   });
 });
 
@@ -861,18 +859,14 @@ describe('real-file findings: KiCad escape tokens and virtual power-input symbol
   });
 
   it('reads a group label with a long run of "~{...}" spans and escape tokens in linear time, with the same results', () => {
-    const timed = <T>(work: () => T): { value: T; ms: number } => { const started = performance.now(); const value = work(); return { value, ms: performance.now() - started }; };
-    // Ascending sizes: a regex that reads every "~{slash}" two ways needs about 0.5 s for the first and never finishes the last, so a regression fails early.
-    for (const count of [24, 40, 1500]) {
+    const sizes = [8, 24, 100, 1500];
+    const rejected: Array<[string, (run: string) => string]> = [['rejected at the end', run => `${run} {`], ['rejected after the opening brace', run => `${run}{ `], ['rejected in the member list', run => `${run}{${run} `], ['unterminated member list', run => `${run}{A ${run}`]];
+    // Ascending sizes: a regex that reads every "~{slash}" two ways needs about 0.5 s for 24 spans and never finishes 40, so a regression fails at the first pair.
+    for (const [label, text] of [...rejected, ['accepted', (run: string) => `${run}{A ${run}}`] as const]) expectScaling(label, sizes, count => { const input = text('~{slash}'.repeat(count)); return () => parseBusLabel(input); });
+    for (const count of sizes) {
       const run = '~{slash}'.repeat(count);
-      for (const [label, text] of [['rejected at the end', `${run} {`], ['rejected after the opening brace', `${run}{ `], ['rejected in the member list', `${run}{${run} `], ['unterminated member list', `${run}{A ${run}`]] as const) {
-        const result = timed(() => parseBusLabel(text));
-        expect(result.value, `${count}: ${label}`).toEqual({ kind: 'invalid', reason: 'malformed group bus label' });
-        expect(result.ms, `${count}: ${label}`).toBeLessThan(200);
-      }
-      const accepted = timed(() => parseBusLabel(`${run}{A ${run}}`));
-      expect(accepted.value, `${count}: accepted`).toEqual({ kind: 'bus', members: [`${run}.A`, `${run}.${run}`] });
-      expect(accepted.ms, `${count}: accepted`).toBeLessThan(200);
+      for (const [label, text] of rejected) expect(parseBusLabel(text(run)), `${count}: ${label}`).toEqual({ kind: 'invalid', reason: 'malformed group bus label' });
+      expect(parseBusLabel(`${run}{A ${run}}`), `${count}: accepted`).toEqual({ kind: 'bus', members: [`${run}.A`, `${run}.${run}`] });
     }
     // The prefix may hold "~{...}" spans and escape tokens in any mixture; so may the members.
     expect(parseBusLabel('X~{slash}Y{A B}')).toEqual({ kind: 'bus', members: ['X~{slash}Y.A', 'X~{slash}Y.B'] });

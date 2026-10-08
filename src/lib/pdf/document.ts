@@ -1,6 +1,8 @@
-import { getDocument, PasswordResponses, PDFWorker } from 'pdfjs-dist';
+import { getDocument, OPS, PasswordResponses, PDFWorker } from 'pdfjs-dist';
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
 import { resolvePdfResources } from './worker';
+import { planRaster, rgbaToGray } from '../ocr/raster';
+import type { PageRaster } from '../ocr/pdf-pages';
 
 /**
  * Offline PDF document layer on top of pdf.js.
@@ -39,7 +41,13 @@ export class PdfError extends Error {
   }
 }
 
-export interface TextItem { str: string; x: number; y: number; width: number; height: number; page: number }
+export interface TextItem {
+  str: string; x: number; y: number; width: number; height: number; page: number;
+  /** Absent for the PDF's own text layer; 'ocr' for a word recognized from the page image (src/lib/ocr). */
+  source?: 'ocr';
+  /** Recognition confidence 0-100 (recognized words only). */
+  confidence?: number;
+}
 export interface PageSize { width: number; height: number; rotation: number }
 export interface OutlineEntry { title: string; page: number; depth: number }
 export interface RenderPageOptions {
@@ -62,6 +70,14 @@ export interface PdfHandle {
   getTextItems(page: number): Promise<TextItem[]>;
   /** Flattened PDF bookmarks (depth-first) that resolve to a page; bounded to MAX_OUTLINE_ENTRIES. */
   getOutline(): Promise<OutlineEntry[]>;
+  /** Image painting operations of the page (raster images, inline images, image masks); 0 for a vector or empty page. Cached. */
+  getPageImageCount(page: number): Promise<number>;
+  /**
+   * The page, UNROTATED (the convention of TextItem), on white as 8-bit grey at `dpi` (lowered so the raster stays within
+   * `maxPixels`): the input of text recognition. `scale` is pixels per point; `rotation` is the page's own /Rotate.
+   * Rejects with PdfError('ABORTED') when `signal` fires.
+   */
+  renderPageGray(page: number, options: { dpi: number; maxPixels: number; signal?: AbortSignal }): Promise<PageRaster>;
   destroy(): Promise<void>;
 }
 export interface OpenPdfOptions { maxPages?: number; password?: string; signal?: AbortSignal }
@@ -137,6 +153,12 @@ class Lru<K, V> {
   clear(): void { this.#map.clear(); }
 }
 
+/** Operators that paint raster data (pdf.js OPS); a page with none of them has nothing to recognize. */
+const IMAGE_OPS: ReadonlySet<number> = new Set([
+  OPS.paintImageXObject, OPS.paintInlineImageXObject, OPS.paintInlineImageXObjectGroup, OPS.paintImageXObjectRepeat,
+  OPS.paintImageMaskXObject, OPS.paintImageMaskXObjectGroup, OPS.paintImageMaskXObjectRepeat,
+]);
+
 type RawTextItem = { str: string; transform: number[]; width: number; height: number; fontName: string };
 const isTextItem = (item: unknown): item is RawTextItem => typeof item === 'object' && item !== null && typeof (item as { str?: unknown }).str === 'string';
 const isRef = (value: unknown): value is { num: number; gen: number } =>
@@ -149,6 +171,7 @@ class Handle implements PdfHandle {
   readonly #pages = new Map<number, Promise<PDFPageProxy>>();
   readonly #text = new Lru<number, TextItem[]>(TEXT_CACHE_PAGES);
   readonly #textPending = new Map<number, Promise<TextItem[]>>();
+  readonly #imageCounts = new Map<number, Promise<number>>();
   #destroyed = false;
   #destroying: Promise<void> | null = null;
 
@@ -248,6 +271,61 @@ class Handle implements PdfHandle {
     return items;
   }
 
+  getPageImageCount(page: number): Promise<number> {
+    let pending = this.#imageCounts.get(page);
+    if (!pending) {
+      pending = this.#guard(async () => {
+        const proxy = await this.#page(page);
+        const list = await proxy.getOperatorList();
+        let count = 0;
+        for (const op of list.fnArray) if (IMAGE_OPS.has(op)) count++;
+        return count;
+      });
+      this.#imageCounts.set(page, pending);
+      pending.catch(() => this.#imageCounts.delete(page));
+    }
+    return pending;
+  }
+
+  renderPageGray(page: number, options: { dpi: number; maxPixels: number; signal?: AbortSignal }): Promise<PageRaster> {
+    return this.#guard(async () => {
+      const cancelled = () => new PdfError('ABORTED', 'Rendering the page was cancelled.');
+      if (options.signal?.aborted) throw cancelled();
+      const proxy = await this.#page(page);
+      const base = proxy.getViewport({ scale: 1, rotation: 0 });
+      const plan = planRaster(base.width, base.height, options.dpi, options.maxPixels);
+      const viewport = proxy.getViewport({ scale: plan.scale, rotation: 0 });
+      if (options.signal?.aborted) throw cancelled();
+      const { width, height } = plan;
+      // OffscreenCanvas in the renderer (no DOM needed, so a background job can call this too); pdf.js' own factory in Node.
+      const target = typeof OffscreenCanvas !== 'undefined'
+        ? { canvas: new OffscreenCanvas(width, height), context: null as null | CanvasRenderingContext2D }
+        : (this.#doc.canvasFactory as { create(w: number, h: number): { canvas: OffscreenCanvas; context: CanvasRenderingContext2D } }).create(width, height);
+      const canvas = target.canvas;
+      try {
+        const task = proxy.render({ canvas: canvas as unknown as HTMLCanvasElement, ...(target.context ? { canvasContext: target.context } : {}), viewport, background: '#ffffff' });
+        const cancel = () => task.cancel();
+        options.signal?.addEventListener('abort', cancel, { once: true });
+        if (options.signal?.aborted) cancel();
+        try {
+          await task.promise;
+        } catch (error) {
+          if (hasName(error, 'RenderingCancelledException') || options.signal?.aborted) throw cancelled();
+          throw error;
+        } finally {
+          options.signal?.removeEventListener('abort', cancel);
+        }
+        if (options.signal?.aborted) throw cancelled();
+        const context = (target.context ?? canvas.getContext('2d')) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+        if (!context) throw new PdfError('INVALID_PDF', 'No 2D canvas is available to render the page.');
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+        return { image: rgbaToGray(pixels.data, canvas.width, canvas.height), scale: canvas.width / base.width, rotation: ((proxy.rotate % 360) + 360) % 360 };
+      } finally {
+        canvas.width = 0; canvas.height = 0; // frees the backing store at once (an A3 page at 300 dpi is 70 MB of RGBA)
+      }
+    });
+  }
+
   getOutline(): Promise<OutlineEntry[]> {
     if (this.#destroyed) return Promise.reject(new PdfError('DESTROYED', 'The PDF document has been closed.'));
     return this.#guard(() => this.#readOutline());
@@ -295,6 +373,7 @@ class Handle implements PdfHandle {
       this.#destroyed = true;
       this.#pages.clear();
       this.#text.clear();
+      this.#imageCounts.clear();
       await this.#lease.release();
     })();
   }

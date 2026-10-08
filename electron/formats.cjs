@@ -1,8 +1,8 @@
 'use strict';
 
 const path = require('node:path');
-// Single source of truth shared with the renderer dispatcher (src/lib/formats/index.ts): the native
-// process only decides which files may travel; recognition happens in the renderer parser.
+// Generated from the renderer's format registry (src/lib/formats/registry.ts; registry.test.ts fails when it drifts): the
+// native process only decides which files may travel; recognition happens in the renderer parser.
 const manifest = require('./formats.json');
 
 function lowercaseName(value, label) {
@@ -42,13 +42,19 @@ function companionNames(filename) {
   return [...(COMPANIONS.get(path.basename(filename).toLowerCase()) ?? [])];
 }
 
-// i18n: pending — English family names for the optional secondary filters of the open dialog.
-const FAMILIES = Object.freeze([
-  ['GenCAD', ['.cad', '.gcd']],
-  ['Boardview', ['.brd', '.bdv', '.bv', '.bvr', '.fz', '.cae', '.asc', '.pcb', '.cst', '.xzz', '.tvw']],
-  ['ECAD design', ['.kicad_pcb', '.pcbdoc', '.cmpcbdoc', '.cspcbdoc', '.neu', '.xml']],
-  ['Gerber', ['.gbr']],
-].map(([name, extensions]) => Object.freeze({ name, extensions: Object.freeze(extensions) })));
+// i18n: pending — English family names for the optional secondary filters of the open dialog (generated with the rest of
+// the manifest from the format registry; every listed extension must be one of the supported ones).
+const familyTable = manifest.families ?? [];
+if (!Array.isArray(familyTable)) throw new TypeError('formats.json: "families" must be an array.');
+const FAMILIES = Object.freeze(familyTable.map((family) => {
+  if (!family || typeof family.name !== 'string' || !/^[\x20-\x7e]{1,40}$/.test(family.name) || !Array.isArray(family.extensions)) {
+    throw new TypeError(`formats.json: invalid family ${JSON.stringify(family)}.`);
+  }
+  for (const extension of family.extensions) {
+    if (!SUPPORTED_EXTENSIONS.includes(extension)) throw new TypeError(`formats.json: family ${family.name} lists an unsupported extension ${JSON.stringify(extension)}.`);
+  }
+  return Object.freeze({ name: family.name, extensions: Object.freeze([...family.extensions]) });
+}));
 
 /** Open-dialog filters: every supported extension under the localized name first, then the English families. */
 function dialogFilters(everyFormatName) {

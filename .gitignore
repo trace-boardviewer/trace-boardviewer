@@ -5,6 +5,7 @@ release-linux/
 release-mac/
 test-results/
 coverage/
+.fuzz/
 playwright-report/
 .pnpm-store/
 user-data/

@@ -1,0 +1,19 @@
+{
+  "kind.ic": "Układ scalony",
+  "kind.capacitor": "Kondensator",
+  "kind.resistor": "Rezystor",
+  "kind.inductor": "Cewka",
+  "kind.connector": "Złącze",
+  "kind.diode": "Dioda",
+  "kind.transistor": "Tranzystor",
+  "kind.crystal": "Kwarc",
+  "kind.fuse": "Bezpiecznik",
+  "kind.resistorArray": "Sieć rezystorowa",
+  "kind.ferrite": "Koralik ferrytowy",
+  "kind.led": "Dioda LED",
+  "kind.testpoint": "Punkt pomiarowy",
+  "kind.switch": "Przełącznik",
+  "kind.jumper": "Zworka",
+  "kind.mechanical": "Element mechaniczny",
+  "kind.part": "Element"
+}

@@ -1,0 +1,23 @@
+{
+  "notes.unresolvedTitle": "Nieprzypisane notatki",
+  "notes.unresolvedIntro": "Te zapisane notatki nie są przypisane do żadnego elementu tej płytki. Nic nie zostało usunięte. Skopiuj tekst, jeśli jest jeszcze potrzebny, a następnie usuń wpis.",
+  "notes.unresolvedEmpty": "Brak nieprzypisanych notatek.",
+  "notes.wasAttachedTo": "Była przypisana do",
+  "notes.targetPart": "Element",
+  "notes.copyText": "Kopiuj tekst notatki",
+  "notes.measureVoltage": "Napięcie",
+  "notes.measureResistance": "Rezystancja",
+  "notes.measureOther": "Inne",
+  "notes.reasonComponentMissing": "Żaden element tej płytki nie ma tego oznaczenia ani tej pozycji.",
+  "notes.reasonComponentAmbiguous": "Pasuje kilka elementów tej płytki, więc żadnego nie wybrano.",
+  "notes.reasonPinMissing": "Element nie ma pinu o tym numerze ani tej pozycji.",
+  "notes.reasonPinAmbiguous": "Pasuje kilka pinów elementu, więc żadnego nie wybrano.",
+  "notes.reasonLegacyIdMissing": "Notatkę zapisano z wewnętrznym identyfikatorem, którego ta płytka nie ma.",
+  "notes.reasonLegacyIndistinguishable": "Elementu lub pinu nie da się odróżnić od innego ani po nazwie, ani po pozycji.",
+  "notes.reasonDuplicateTarget": "Do tego samego elementu lub pinu należy już inna notatka.",
+  "notes.fallbackDuplicateRef": "To oznaczenie ma kilka elementów, więc notatka jest powiązana z pozycją tego elementu na płytce.",
+  "notes.fallbackUnnamedPart": "Plik nie nadaje temu elementowi oznaczenia, więc notatka jest powiązana z jego pozycją na płytce.",
+  "notes.fallbackUnnamedPin": "Plik nie nadaje temu pinowi numeru, więc notatka jest powiązana z jego pozycją na płytce.",
+  "notes.refusePart": "Dla tego elementu nie można zapisać notatki: inny element o tym samym oznaczeniu leży dokładnie w tym samym miejscu, więc nie da się ich odróżnić.",
+  "notes.refusePin": "Dla tego pinu nie można zapisać notatki: inny pin bez numeru leży dokładnie w tym samym miejscu, więc nie da się ich odróżnić."
+}

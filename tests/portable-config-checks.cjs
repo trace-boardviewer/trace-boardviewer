@@ -155,3 +155,99 @@ test('pinned builder source: the bundled option text for unpackDirName is known 
   assert.match(description, /set explicitly to `false`.*PLUGINSDIR/i,
     'The scheme text changed; re-verify the semantics against NsisTarget.js and portable.nsi before changing anything.');
 });
+
+// ---------------------------------------------------------------------------------------------------------
+// Payload hygiene of the Windows package (master plan D25). EVIDENCE CLASS: static config and pinned builder source.
+// Measured before the change on real portable builds (win-unpacked of 1.1.0, same files list): resources/app.asar.unpacked held
+// node_modules/@napi-rs/canvas-win32-x64-msvc (skia.win32-x64-msvc.node, 37 MB) and no app-update.yml was written. What the
+// shipped package really contains is confirmed by the Windows CI job (portable build, payload manifest, packaged smoke test).
+// ---------------------------------------------------------------------------------------------------------
+
+test('payload: the unused @napi-rs/canvas native binary stays out of the Windows package (the exclusion of the macOS and Linux files)', () => {
+  const build = packageJson.build;
+  const exclusion = '!node_modules/@napi-rs/**';
+  assert.ok(build.files.includes(exclusion),
+    'package.json build.files must exclude @napi-rs: only pdfjs-dist\'s Node-only canvas path refers to it (the renderer is sandboxed), and without the line the host\'s prebuilt .node binary is bundled and unpacked into app.asar.unpacked.');
+  assert.deepEqual(build.files.filter((pattern) => pattern.startsWith('!')), [exclusion], 'the exclusion is the only negation of the Windows list');
+  assert.equal(build.files.at(-1), exclusion, 'negations come last, after every positive pattern (the order the macOS and Linux files keep, guarded by their drift checks)');
+  for (const key of ['asarUnpack', 'extraResources', 'extraFiles']) {
+    assert.ok(!(key in build) && !(key in (build.win ?? {})) && !(key in (build.portable ?? {})), `${key} could bring the binary back: no extra payload beyond build.files`);
+  }
+});
+
+// The catalogs are folders of namespace files (electron/locales/<language>/<namespace>.json) that the main process reads at run
+// time (electron/locale-catalogs.cjs); a files pattern that drops one would ship a language without a feature's texts. The macOS and
+// Linux lists are the same positive patterns (their drift guards in mac-config-checks.cjs and linux-config-checks.cjs).
+test('payload: build.files selects every catalog namespace file of all eight languages and the modules that load them', () => {
+  const { Minimatch } = require(require.resolve('minimatch', { paths: [builderLibrary().directory] }));
+  // The builder's own matching options (app-builder-lib fileMatcher.js: { dot: true }); a negation removes what a positive pattern selected.
+  const rules = packageJson.build.files.map((pattern) => ({ negate: pattern.startsWith('!'), matcher: new Minimatch(pattern.replace(/^!/, ''), { dot: true }) }));
+  // ... plus the builder's built-in exclusions of file names and extensions (fileMatcher.js adds them after the configured patterns).
+  const { excludedExts, excludedNames } = require(path.join(builderLibrary().directory, 'out', 'fileMatcher.js'));
+  for (const pattern of [`**/*.{${excludedExts},pdb}`, '**/._*', `**/{${excludedNames}}`]) rules.push({ negate: true, matcher: new Minimatch(pattern, { dot: true }) });
+  const selected = (file) => rules.some((rule) => !rule.negate && rule.matcher.match(file)) && !rules.some((rule) => rule.negate && rule.matcher.match(file));
+  const { LANGUAGES } = require('../electron/i18n.cjs');
+  assert.equal(LANGUAGES.length, 8);
+  const locales = path.join(root, 'electron', 'locales');
+  assert.deepEqual(fs.readdirSync(locales).sort(), [...LANGUAGES].sort(), 'electron/locales holds one folder per language and no flat catalog file');
+  const english = fs.readdirSync(path.join(locales, 'en')).filter((name) => name.endsWith('.json')).sort();
+  assert.ok(english.length >= 10, 'the English namespace files exist');
+  for (const language of LANGUAGES) {
+    const names = fs.readdirSync(path.join(locales, language)).filter((name) => name.endsWith('.json')).sort();
+    assert.deepEqual(names, english, `${language} has the same namespace files as English`);
+    for (const name of names) assert.ok(selected(`electron/locales/${language}/${name}`), `build.files must select electron/locales/${language}/${name}`);
+  }
+  for (const file of ['electron/i18n.cjs', 'electron/locale-catalogs.cjs']) assert.ok(selected(file), `build.files must select ${file}`);
+});
+
+test('payload: package.json publishes nothing, so no app-update.yml with the repository name can be generated (publish: null)', () => {
+  const build = packageJson.build;
+  assert.equal(build.publish, null, 'build.publish must be an explicit null (as in the macOS and Linux files): the builder otherwise derives a GitHub provider from the git remote');
+  // A target-level or platform-level publish would take precedence over the global null (PublishManager.getPublishConfigs).
+  assert.equal(build.win?.publish, undefined);
+  assert.equal(build.portable?.publish, undefined);
+  assert.deepEqual(build.win?.target, ['portable'], 'the Windows build is the portable EXE only');
+});
+
+test('pinned builder source: app-update.yml is written only next to an installer target, and an explicit global publish null resolves to no publish configuration', () => {
+  const library = builderLibrary();
+  const source = normalizeSpace(read(library.directory, 'out', 'publish', 'PublishManager.js'));
+  // The portable target is neither "nsis" nor an electron-updater aware appx, so the hook returns before it writes the file: the
+  // file is absent from portable builds today and `publish: null` is the guard for the day an installer target is added.
+  const suitable = 'function isSuitableWindowsTarget(target) { if (target.name === "appx" && target.options != null && target.options.electronUpdaterAware) { return true; } return target.name === "nsis" || target.name.startsWith("nsis-"); }';
+  assert.ok(source.includes(suitable), `app-builder-lib ${library.version}: isSuitableWindowsTarget changed. Re-check whether the portable target now gets resources/app-update.yml.`);
+  assert.ok(source.includes('else if (packager.platform === index_1.Platform.WINDOWS) { if (!event.targets.some(it => isSuitableWindowsTarget(it))) { return; } }'),
+    `app-builder-lib ${library.version}: the onAfterPack guard for Windows targets changed`);
+  assert.ok(source.includes('publishers = platformPackager.config.publish; if (publishers === null) { return null; }'),
+    `app-builder-lib ${library.version}: a null global publish no longer resolves to "no publish configuration"`);
+  assert.ok(source.includes('"app-update.yml"'), 'the file name the other platforms assert against is still the one the builder writes');
+});
+
+// Text recognition (OCR) payload. EVIDENCE CLASS: static config and source. The engine files reach the package only as files Vite
+// emits into dist/assets (the OCR worker chunk, the two LSTM WebAssembly builds and the gzip English data, about 8.9 MB), which
+// build.files already ships inside app.asar; nothing is executed from the real file system, so no asarUnpack is needed. The npm
+// packages themselves (44 MB and 14 MB with every build and data variant) must never be copied into app.asar/node_modules.
+test('payload: the OCR engine ships inside app.asar through dist/assets; its npm packages are exact development dependencies only', () => {
+  const build = packageJson.build;
+  for (const name of ['tesseract.js-core', '@tesseract.js-data/eng']) {
+    assert.match(packageJson.devDependencies?.[name] ?? '', /^\d+\.\d+\.\d+$/, `${name} is pinned to an exact version as a devDependency`);
+    assert.ok(!(name in (packageJson.dependencies ?? {})), `${name} must not be a production dependency: electron-builder would copy the whole package into app.asar/node_modules`);
+  }
+  for (const wrapper of ['tesseract.js', 'tesseract-wasm']) {
+    assert.ok(!(wrapper in (packageJson.dependencies ?? {})) && !(wrapper in (packageJson.devDependencies ?? {})), `${wrapper} is not used (its worker defaults to a CDN and it runs an install script)`);
+  }
+  assert.ok(build.files.includes('dist/**/*'), 'dist/ (with dist/assets) is shipped inside app.asar');
+  assert.equal(build.asar, true);
+  assert.ok(!('asarUnpack' in build), 'no asarUnpack: the worker, the WebAssembly and the language data are read by the renderer from the archive');
+  const bundled = fs.readFileSync(path.join(root, 'src', 'lib', 'ocr', 'bundled.ts'), 'utf8');
+  for (const asset of ['tesseract.js-core/tesseract-core-simd-lstm.wasm?url', 'tesseract.js-core/tesseract-core-lstm.wasm?url', '@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz?url']) {
+    assert.ok(bundled.includes(`'${asset}'`), `${asset} is a literal import, so Vite emits it into dist/assets`);
+  }
+  assert.match(bundled, /new Worker\(new URL\('\.\/ocr\.worker\.ts', import\.meta\.url\), \{ type: 'module'/, 'the worker is a module worker emitted by Vite (never a blob: worker, which would need wasm-unsafe-eval in the page CSP)');
+  const worker = fs.readFileSync(path.join(root, 'src', 'lib', 'ocr', 'ocr.worker.ts'), 'utf8');
+  for (const build of ['tesseract-core-simd-lstm.js', 'tesseract-core-lstm.js']) assert.ok(worker.includes(`'tesseract.js-core/${build}'`), `the worker bundles ${build}`);
+  for (const file of fs.readdirSync(path.join(root, 'src', 'lib', 'ocr')).filter((name) => !name.endsWith('.test.ts'))) {
+    const text = fs.readFileSync(path.join(root, 'src', 'lib', 'ocr', file), 'utf8');
+    assert.doesNotMatch(text, /https?:\/\/|jsdelivr|unpkg|cdn\./i, `${file}: no remote URL in the OCR code (everything is bundled)`);
+  }
+});

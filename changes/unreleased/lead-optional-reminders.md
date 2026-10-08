@@ -1,0 +1,3 @@
+- Support reminders can appear hourly while TRACE is in use. They wait for other dialogs and ongoing imports, and can always be skipped with Not now, Escape or a click outside the window. Key entry has an explicit Skip button.
+- FZ/CAE format reports follow the same default-key and container-framing rules as opening a board; declared-length failures identify the decompression stage.
+- IPC-2581 and IPC-D-356 support statuses disclose that validation used open tool-written files.

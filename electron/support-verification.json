@@ -1,0 +1,10 @@
+{
+  "endpoint": "https://trace-support.trace-boardviewer.workers.dev",
+  "publicKey": {
+    "kty": "EC",
+    "x": "PiIqdHVLh_VYKf7kL2tdQHl0dU_plJIRsEmntI0Dvck",
+    "y": "V2m7-LdaeQxZKlLaV3MM4Sewqa1kbhXrpyqzjf9BBDc",
+    "crv": "P-256"
+  },
+  "enabled": true
+}

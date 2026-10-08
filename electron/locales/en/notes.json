@@ -1,0 +1,23 @@
+{
+  "notes.unresolvedTitle": "Unresolved notes",
+  "notes.unresolvedIntro": "These saved notes are not attached to any component of this board. Nothing was deleted. Copy the text if you still need it, then delete the entry.",
+  "notes.unresolvedEmpty": "There are no unresolved notes.",
+  "notes.wasAttachedTo": "Was attached to",
+  "notes.targetPart": "Component",
+  "notes.copyText": "Copy note text",
+  "notes.measureVoltage": "Voltage",
+  "notes.measureResistance": "Resistance",
+  "notes.measureOther": "Other",
+  "notes.reasonComponentMissing": "No component of this board has that reference or position.",
+  "notes.reasonComponentAmbiguous": "Several components of this board match, so none was chosen.",
+  "notes.reasonPinMissing": "The component has no pin with that number or position.",
+  "notes.reasonPinAmbiguous": "Several pins of the component match, so none was chosen.",
+  "notes.reasonLegacyIdMissing": "The note was saved with an internal id that this board does not have.",
+  "notes.reasonLegacyIndistinguishable": "The component or pin cannot be told apart from another one by name or position.",
+  "notes.reasonDuplicateTarget": "Another note already belongs to the same component or pin.",
+  "notes.fallbackDuplicateRef": "Several components share this reference, so the note is bound to this component's position on the board.",
+  "notes.fallbackUnnamedPart": "The file gives this component no reference, so the note is bound to its position on the board.",
+  "notes.fallbackUnnamedPin": "The file gives this pin no number, so the note is bound to its position on the board.",
+  "notes.refusePart": "No note can be saved for this component: another component with the same reference lies at exactly the same position, so the two cannot be told apart.",
+  "notes.refusePin": "No note can be saved for this pin: another pin without a number lies at exactly the same position, so the two cannot be told apart."
+}

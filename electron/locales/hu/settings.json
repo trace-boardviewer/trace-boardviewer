@@ -1,0 +1,17 @@
+{
+  "settings.title": "A te munkatered",
+  "settings.appearance": "Megjelenés",
+  "settings.themeDark": "Sötét",
+  "settings.themeLight": "Világos",
+  "settings.themeSystem": "Rendszer",
+  "settings.layout": "Elrendezés",
+  "settings.language": "Nyelv",
+  "settings.languageHint": "A felület azonnal átvált; a panel adatai, a netnevek és a saját jegyzeteid változatlanok maradnak.",
+  "settings.motion": "Finom animációk",
+  "settings.motionHint": "Kijelölések és panelek visszajelzései",
+  "settings.labels": "Alkatrészfeliratok",
+  "settings.labelsHint": "A nagyításhoz igazodó referenciajelölések",
+  "settings.connections": "Kapcsolati segédvonalak",
+  "settings.connectionsHint": "Egyenes vonalak a kiválasztott pin és a net padjai között",
+  "settings.autosave": "A beállítások automatikusan mentődnek."
+}

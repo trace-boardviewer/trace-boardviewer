@@ -142,7 +142,7 @@ export function probeRegionsOf(report: PdfLinkReport): RegionIndex {
     link.hits.forEach((hit, hitIndex) => {
       if (regions.length >= MAX_PROBE_REGIONS) { truncated = true; return; }
       const id = `${linkIndex}:${hitIndex}`;
-      regions.push({ id, page: hit.page, rect: { x: hit.x, y: hit.y, width: hit.width, height: hit.height }, label: link.name });
+      regions.push({ id, page: hit.page, rect: { x: hit.x, y: hit.y, width: hit.width, height: hit.height }, label: link.name, ...(hit.source === 'ocr' ? { confidence: hit.confidence ?? 0 } : {}) });
       targets.set(id, { link, hit });
     });
   });
@@ -160,7 +160,7 @@ export function mappingOfLink(link: PdfRefLink): Mapping<BoardTarget> {
 const EMPTY_HIGHLIGHTS: readonly ViewerHighlight[] = Object.freeze([]);
 const EMPTY_REGIONS: readonly ViewerProbeRegion[] = Object.freeze([]);
 const sameRect = (a: ViewerHighlight['rect'], b: ViewerHighlight['rect']) => a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
-const sameHighlights = (a: readonly ViewerHighlight[], b: readonly ViewerHighlight[]) => a === b || (a.length === b.length && a.every((item, i) => item.id === b[i].id && item.kind === b[i].kind && item.page === b[i].page && item.active === b[i].active && item.label === b[i].label && sameRect(item.rect, b[i].rect)));
+const sameHighlights = (a: readonly ViewerHighlight[], b: readonly ViewerHighlight[]) => a === b || (a.length === b.length && a.every((item, i) => item.id === b[i].id && item.kind === b[i].kind && item.page === b[i].page && item.active === b[i].active && item.label === b[i].label && item.confidence === b[i].confidence && sameRect(item.rect, b[i].rect)));
 
 /** 'selection' highlights of the literal hits of the selected reference (the first one is the navigated hit). */
 export function selectionHighlightsOf(report: PdfLinkReport | undefined, ref: string | null): ViewerHighlight[] {
@@ -169,7 +169,10 @@ export function selectionHighlightsOf(report: PdfLinkReport | undefined, ref: st
   const out: ViewerHighlight[] = [];
   for (const link of report.links) {
     if (normalizeKey(link.name) !== key) continue;
-    link.hits.forEach((hit, i) => out.push({ id: `sel:${link.kind}:${hit.itemIndex}:${i}`, kind: 'selection', page: hit.page, rect: { x: hit.x, y: hit.y, width: hit.width, height: hit.height }, label: link.name, active: out.length === 0 }));
+    link.hits.forEach((hit, i) => out.push({
+      id: `sel:${link.kind}:${hit.itemIndex}:${i}`, kind: 'selection', page: hit.page, rect: { x: hit.x, y: hit.y, width: hit.width, height: hit.height }, label: link.name, active: out.length === 0,
+      ...(hit.source === 'ocr' ? { confidence: hit.confidence ?? 0 } : {}),
+    }));
   }
   return out;
 }

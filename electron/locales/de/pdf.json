@@ -1,0 +1,19 @@
+{
+  "pdf.ocr.recognize": "Text erkennen",
+  "pdf.ocr.recognizeTitle": "Liest den Text der Seiten ohne Textebene auf diesem Computer. Es wird nichts hochgeladen.",
+  "pdf.ocr.stop": "Anhalten",
+  "pdf.ocr.pageOffer": "Diese Seite ist ein Bild ohne Textebene. Erkenne ihren Text, um sie zu durchsuchen und Bezeichner der Platine zu verknüpfen.",
+  "pdf.ocr.documentOffer": "Keine Textebene: Dies ist ein gescanntes oder gerastertes PDF. Erkenne seinen Text, um es zu durchsuchen und Bezeichner der Platine zu verknüpfen.",
+  "pdf.ocr.starting": "Texterkennung wird gestartet…",
+  "pdf.ocr.running": "Texterkennung: Seite {page} ({done} von {total})",
+  "pdf.ocr.summary": "Erkannter Text · Seiten: {pages} · Wörter: {words}",
+  "pdf.ocr.linkRule": "Erkannte Wörter sind markiert. Nur exakte Namen der Platine, die mit einer Sicherheit von mindestens {floor} % erkannt wurden, werden zu Verknüpfungen.",
+  "pdf.ocr.cancelled": "Die Texterkennung wurde nach {done} von {total} Seiten angehalten. Erkannte Seiten bleiben durchsuchbar.",
+  "pdf.ocr.timeouts": "Innerhalb des Zeitlimits nicht erkannte Seiten: {pages}",
+  "pdf.ocr.failed": "Die Texterkennung ist fehlgeschlagen: {message}",
+  "pdf.ocr.unavailable": "Die Texterkennung ist hier nicht verfügbar: {message}",
+  "pdf.ocr.badge": "Erkannter Text",
+  "pdf.ocr.badgeTitle": "Per OCR auf diesem Computer erkannter Text, mittlere Sicherheit {confidence} %",
+  "pdf.ocr.wordTitle": "Erkannter Text, Sicherheit {confidence} %",
+  "pdf.ocr.linkLabel": "{name}, erkannter Text, Sicherheit {confidence} %"
+}

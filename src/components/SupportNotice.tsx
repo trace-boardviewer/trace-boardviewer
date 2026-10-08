@@ -2,39 +2,51 @@ import { Bug } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { Translator } from '../lib/i18n';
 import {
-  SUPPORT_NOTICE_KEYS, claimSupportNotice, closesOnBackdrop, createSupportLinkRequester, resolveSupportLinkOpener, supportNoticeAllowed,
+  SUPPORT_NOTICE_KEYS, claimSupportNotice, closesOnBackdrop, createSupportLinkRequester, postponeSupportNotice, resolveSupportLinkOpener, supportNoticeAllowed,
 } from '../lib/support-notice';
 import type { SupportLinkId, SupportLinkOpener } from '../lib/support-notice';
 import './support-notice.css';
+import SupportVerification from './SupportVerification';
+import type { SupportStatus } from '../lib/types';
 
 /**
- * Support notice: shown once on every start, over the ready UI. It is easy to skip and
+ * Support notice: shown at startup and hourly over the ready UI. It is easy to skip and
  * never gets in the way: "Not now" has the initial focus, so Enter and Esc skip it, and so does a click outside the dialog.
- * There is no "do not show again", no countdown and no delay. Loading a board (command line, drag and drop) is not affected: the
+ * A verified support receipt suppresses the reminder for one calendar year. Loading a board (command line, drag and drop) is not affected: the
  * dialog only covers the UI, the board loads in the background.
  *
  * Opening a link sends an id ('stripe' | 'kofi') to the main process (window.traceDesktop.openSupportLink); the URLs are constants
- * in electron/main.cjs. The pure logic (allow-list, once-per-launch claim, request flow) is in src/lib/support-notice.ts.
+ * in electron/main.cjs. The pure logic (allow-list, hourly claim, request flow) is in src/lib/support-notice.ts.
  */
-export default function SupportNotice({ ready, t, open, onSettled }: { ready: boolean; t: Translator; open?: SupportLinkOpener; onSettled?: () => void }) {
+export default function SupportNotice({ ready, blocked = false, suppressed = false, requested = 0, t, open, onShown, onSettled, onVerified }: { ready: boolean; blocked?: boolean; suppressed?: boolean; requested?: number; t: Translator; open?: SupportLinkOpener; onShown?: () => void; onSettled?: () => void; onVerified?: (value: SupportStatus) => void }) {
   const [visible, setVisible] = useState(false);
-  const decided = useRef(false);
   const settled = useRef(onSettled);
   settled.current = onSettled;
+  const shown = useRef(onShown); shown.current = onShown;
+  const handledRequest = useRef(0);
   useEffect(() => {
-    // The shell stays hidden until its settings are known; the notice appears with it, never before. The claim makes any later mount in the same
-    // launch a no-op (it is shown once per launch), and `decided` makes StrictMode's second effect run one, too.
-    if (!ready || decided.current) return;
-    decided.current = true;
-    if (supportNoticeAllowed() && claimSupportNotice()) setVisible(true);
-    else settled.current?.(); // There is no notice to wait for.
-  }, [ready]);
+    if (suppressed) { setVisible(false); settled.current?.(); return; }
+    if (ready && !blocked && requested > handledRequest.current) { handledRequest.current = requested; shown.current?.(); setVisible(true); }
+  }, [ready, blocked, suppressed, requested]);
+  useEffect(() => {
+    if (!ready || visible || suppressed) return;
+    const tick = () => {
+      // Reminders wait for active work and other dialogs; returning to the app produces at most one reminder, never a backlog.
+      if (supportNoticeAllowed() && !blocked && document.visibilityState === 'visible' && document.hasFocus() && claimSupportNotice()) {
+        shown.current?.(); setVisible(true);
+      } else settled.current?.();
+    };
+    tick();
+    const timer = setInterval(tick, 60_000);
+    return () => clearInterval(timer);
+  }, [ready, blocked, visible, suppressed]);
   // `onSettled` tells the shell that the notice is out of the way (closed, or never shown): the update strip waits for it, so the two never compete.
-  return visible ? <SupportDialog t={t} open={open} onClose={() => { setVisible(false); settled.current?.(); }} /> : null;
+  const close = () => { postponeSupportNotice(); setVisible(false); settled.current?.(); };
+  return visible && !suppressed ? <SupportDialog t={t} open={open} onVerified={value => { onVerified?.(value); close(); }} onClose={close} /> : null;
 }
 
 /** The dialog itself (exported for the markup test). */
-export function SupportDialog({ t, open, onClose }: { t: Translator; open?: SupportLinkOpener; onClose: () => void }) {
+export function SupportDialog({ t, open, onClose, onVerified }: { t: Translator; open?: SupportLinkOpener; onClose: () => void; onVerified?: (value: SupportStatus) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const notNow = useRef<HTMLButtonElement>(null);
   const pressTarget = useRef<EventTarget | null>(null);
@@ -60,7 +72,7 @@ export function SupportDialog({ t, open, onClose }: { t: Translator; open?: Supp
     const opened = await requester.request(id);
     if (!alive.current) return;
     setBusy(false);
-    if (opened) onClose(); // A link that could not be opened leaves the notice up, buttons usable again; "Not now" always works.
+    if (opened && (id === 'bug' || !window.traceDesktop?.checkSupport)) onClose();
   };
 
   return <dialog ref={dialog} className="support-notice" role="dialog" aria-labelledby={titleId} aria-describedby={bodyId} data-testid="support-notice"
@@ -80,6 +92,7 @@ export function SupportDialog({ t, open, onClose }: { t: Translator; open?: Supp
         <button type="button" className="outline-button" data-testid="support-bug" data-support-link="bug" disabled={busy} onClick={() => void activate('bug')}><Bug size={14} />{t(SUPPORT_NOTICE_KEYS.bug)}</button>
         <button type="button" className="outline-button support-notice-skip" ref={notNow} data-testid="support-not-now" onClick={onClose}>{t(SUPPORT_NOTICE_KEYS.notNow)}</button>
       </div>
+      <SupportVerification t={t} onVerified={onVerified} />
     </div>
   </dialog>;
 }

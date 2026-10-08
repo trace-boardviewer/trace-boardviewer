@@ -13,7 +13,9 @@
  *  - Every ordering is natural (numeric) through ONE cached Intl.Collator (P02) with a code-unit tie-break.
  *  - Every list a function returns is bounded; the totals are always exact and `truncated` says when rows were cut.
  */
-import type { Board, BoardComponent, BoardPin, BoardSide } from './types';
+import type { BoardComponent, BoardPin, BoardSide } from './types';
+import type { BoardIndex, BoardNetEntry, BoardPinGroup } from './board-index';
+import { fold, naturalCompare, normalizeKey, normalizeQuery } from './text-keys';
 import type { WorkspaceAliases } from './documents';
 import type { Hit, RefCandidate } from './pdf/search';
 import type { RefCandidateResult } from './pdf/session-contract';
@@ -25,19 +27,7 @@ import type { SchNet, SchNetMember, SchSheetInstance, SchSymbol, SchematicDesign
 // ---------------------------------------------------------------------------------------------------------------
 
 const SEP = '\u0000';
-let collator: Intl.Collator | undefined;
-
-/** Natural order ("R2" < "R10") through one cached collator; 'en' is DATA_LOCALE (board data is ordered alike in every UI language). */
-export function naturalCompare(a: string, b: string): number {
-  collator ??= new Intl.Collator('en', { numeric: true });
-  return collator.compare(a, b) || (a < b ? -1 : a > b ? 1 : 0);
-}
-
-/** The identity key of a reference, pin number or net name: NFKC and trim, case preserved. */
-export const normalizeKey = (value: string): string => value.normalize('NFKC').trim();
-const fold = (value: string): string => value.toLowerCase();
-/** Query/haystack form for search: NFKC, invisible zero-width characters dropped (IME / paste debris), whitespace runs collapsed to one space, trimmed. */
-export const normalizeQuery = (value: string): string => value.normalize('NFKC').replace(/[\u200b-\u200d\u2060\ufeff]/gu, '').replace(/\s+/gu, ' ').trim();
+export { naturalCompare, normalizeKey, normalizeQuery } from './text-keys';
 
 const capped = <T>(list: readonly T[], limit: number): T[] => list.length > limit ? list.slice(0, limit) : list.slice();
 const MAX_LIST = 16;
@@ -83,142 +73,9 @@ const toAliases = (input: AliasInput): CompiledAliases => input && (input as Com
 // Board index
 // ---------------------------------------------------------------------------------------------------------------
 
-/** All pads of one component that share a pin number (thermal / split pads). */
-export interface BoardPinGroup {
-  number: string;
-  pins: readonly BoardPin[];
-  /** Distinct non-empty net names of the pads, natural order. More than one is a board inconsistency (reported as ambiguous). */
-  nets: readonly string[];
-}
-export interface BoardNetEntry {
-  /** Name exactly as the board writes it (what the UI selects by). */
-  name: string;
-  key: string;
-  /** @internal lowercase NFKC search form of the name */
-  folded: string;
-  /** BoardNet.id; null for a net that only exists as `BoardPin.net` text. */
-  id: string | null;
-  /** Natural order: component, then pin number. */
-  pins: readonly BoardPin[];
-}
-interface BoardSearchRecord { key: string; folded: string; value: string; pkg: string; hay: string; nets: readonly string[] }
-export interface BoardIndexStats { components: number; pins: number; nets: number; duplicateRefKeys: number; caseDistinctRefGroups: number; componentsWithoutRef: number; pinsWithoutNumber: number; duplicateComponentIds: number }
-export interface BoardIndex {
-  readonly kind: 'board';
-  /** Natural order (ref, then id). Includes components with an empty reference. */
-  readonly components: readonly BoardComponent[];
-  readonly componentById: ReadonlyMap<string, BoardComponent>;
-  readonly pinById: ReadonlyMap<string, BoardPin>;
-  /** normalized ref → components carrying exactly that ref (several = duplicate refs). R1 and r1 are different keys. */
-  readonly byRef: ReadonlyMap<string, readonly BoardComponent[]>;
-  /** lowercase form → distinct exact ref keys sharing it (more than one = case-distinct refs such as R1/r1). */
-  readonly refsByFold: ReadonlyMap<string, readonly string[]>;
-  /** componentId → (normalized pin number → pads), insertion order = natural pin order. */
-  readonly pinGroups: ReadonlyMap<string, ReadonlyMap<string, BoardPinGroup>>;
-  /** Natural order by name. */
-  readonly nets: readonly BoardNetEntry[];
-  readonly netByName: ReadonlyMap<string, readonly BoardNetEntry[]>;
-  readonly netsByFold: ReadonlyMap<string, readonly string[]>;
-  readonly stats: BoardIndexStats;
-  /** @internal aligned with `components` */
-  readonly search: readonly BoardSearchRecord[];
-}
-
-const distinctNets = (pins: readonly BoardPin[]): string[] => {
-  if (pins.length === 1) { const net = normalizeKey(pins[0].net); return net ? [net] : []; }
-  const nets = new Set<string>();
-  for (const pin of pins) { const net = normalizeKey(pin.net); if (net) nets.add(net); }
-  return [...nets].sort(naturalCompare);
-};
-
-/**
- * ref → components (duplicates and case-distinct refs stay distinct, B18), (component, pin number) → pads and
- * net name → pins. One pass over the board; every sort goes through the cached collator (P02).
- */
-export function buildBoardIndex(board: Board): BoardIndex {
-  const componentById = new Map<string, BoardComponent>();
-  let duplicateComponentIds = 0;
-  for (const component of board.components) { if (componentById.has(component.id)) duplicateComponentIds++; else componentById.set(component.id, component); }
-  const pinById = new Map<string, BoardPin>();
-  for (const pin of board.pins) if (!pinById.has(pin.id)) pinById.set(pin.id, pin);
-  const components = board.components.slice().sort((a, b) => naturalCompare(a.ref, b.ref) || naturalCompare(a.id, b.id));
-  const rank = new Map<string, number>();
-  components.forEach((component, i) => { if (!rank.has(component.id)) rank.set(component.id, i); });
-
-  const byRef = new Map<string, BoardComponent[]>(), foldKeys = new Map<string, string[]>();
-  let componentsWithoutRef = 0;
-  for (const component of components) {
-    const key = normalizeKey(component.ref);
-    if (!key) { componentsWithoutRef++; continue; }
-    const list = byRef.get(key);
-    if (list) list.push(component);
-    else { byRef.set(key, [component]); push(foldKeys, fold(key), key); }
-  }
-  let duplicateRefKeys = 0, caseDistinctRefGroups = 0;
-  for (const list of byRef.values()) if (list.length > 1) duplicateRefKeys++;
-  for (const keys of foldKeys.values()) if (keys.length > 1) caseDistinctRefGroups++;
-
-  const pinGroups = new Map<string, Map<string, BoardPinGroup>>();
-  let pinsWithoutNumber = 0;
-  for (const component of board.components) {
-    if (pinGroups.has(component.id)) continue;
-    const byNumber = new Map<string, BoardPin[]>();
-    for (const id of component.pinIds) {
-      const pin = pinById.get(id);
-      if (!pin) continue;
-      const number = normalizeKey(pin.number);
-      if (!number) { pinsWithoutNumber++; continue; }
-      push(byNumber, number, pin);
-    }
-    const groups = new Map<string, BoardPinGroup>();
-    const numbers = [...byNumber.keys()];
-    if (numbers.length > 1) numbers.sort(naturalCompare);
-    for (const number of numbers) { const pins = byNumber.get(number)!; groups.set(number, { number, pins, nets: distinctNets(pins) }); }
-    pinGroups.set(component.id, groups);
-  }
-
-  interface Builder { name: string; id: string | null; pins: BoardPin[]; seen: Set<string> }
-  const builders: Builder[] = [], builderByKey = new Map<string, Builder[]>();
-  const addBuilder = (name: string, id: string | null): Builder => {
-    const builder: Builder = { name, id, pins: [], seen: new Set() };
-    builders.push(builder); push(builderByKey, normalizeKey(name), builder);
-    return builder;
-  };
-  const attach = (builder: Builder, pin: BoardPin) => { if (!builder.seen.has(pin.id)) { builder.seen.add(pin.id); builder.pins.push(pin); } };
-  for (const net of board.nets) {
-    if (!normalizeKey(net.name)) continue;
-    const builder = addBuilder(net.name, net.id);
-    for (const id of net.pinIds) { const pin = pinById.get(id); if (pin) attach(builder, pin); }
-  }
-  // A pin's own `net` text is authoritative for the pin even when board.nets omits it; with duplicate net names the owner is undecidable.
-  for (const pin of pinById.values()) {
-    const key = normalizeKey(pin.net);
-    if (!key) continue;
-    const list = builderByKey.get(key);
-    if (!list) attach(addBuilder(pin.net, null), pin);
-    else if (list.length === 1) attach(list[0], pin);
-  }
-  const pinOrder = (a: BoardPin, b: BoardPin) => (rank.get(a.componentId) ?? 0) - (rank.get(b.componentId) ?? 0) || naturalCompare(a.number, b.number) || naturalCompare(a.id, b.id);
-  const nets: BoardNetEntry[] = builders
-    .map(b => ({ name: b.name, key: normalizeKey(b.name), folded: fold(normalizeQuery(b.name)), id: b.id, pins: b.pins.sort(pinOrder) }))
-    .sort((a, b) => naturalCompare(a.name, b.name) || naturalCompare(a.id ?? '', b.id ?? ''));
-  const netByName = new Map<string, BoardNetEntry[]>(), netFold = new Map<string, string[]>();
-  for (const net of nets) {
-    const list = netByName.get(net.key);
-    if (list) list.push(net); else { netByName.set(net.key, [net]); push(netFold, fold(net.key), net.key); }
-  }
-
-  const search: BoardSearchRecord[] = components.map(component => {
-    const names = new Set<string>();
-    for (const id of component.pinIds) { const net = pinById.get(id)?.net; if (net) names.add(fold(normalizeQuery(net))); }
-    const value = fold(normalizeQuery(component.value)), pkg = fold(normalizeQuery(component.package));
-    return { key: normalizeKey(component.ref), folded: fold(normalizeQuery(component.ref)), value, pkg, hay: fold(normalizeQuery(`${component.ref} ${component.value} ${component.package}`)), nets: [...names] };
-  });
-  return {
-    kind: 'board', components, componentById, pinById, byRef, refsByFold: foldKeys, pinGroups, nets, netByName, netsByFold: netFold, search,
-    stats: { components: board.components.length, pins: board.pins.length, nets: nets.length, duplicateRefKeys, caseDistinctRefGroups, componentsWithoutRef, pinsWithoutNumber, duplicateComponentIds },
-  };
-}
+// The board index itself lives in board-index.ts (one shared, immutable index per board); these names stay importable from here.
+export { buildBoardIndex } from './board-index';
+export type { BoardIndex, BoardIndexStats, BoardNetEntry, BoardPinGroup } from './board-index';
 
 /** Components that carry exactly this reference (case-sensitive after NFKC/trim). */
 export const boardComponentsByRef = (index: BoardIndex, ref: string): readonly BoardComponent[] => index.byRef.get(normalizeKey(ref)) ?? [];
@@ -1157,10 +1014,14 @@ export const MAX_QUERY_LENGTH = 256;
 export interface SearchInput {
   query: string;
   board?: BoardIndex | null;
+  /** The board groups of this query computed elsewhere (the model worker: `searchBoardGroups`); used instead of searching `board`. */
+  boardGroups?: BoardSearchGroups | null;
   schematic?: SchematicIndex | null;
   documents?: readonly DocumentSearchSource[];
   limits?: Partial<SearchLimits>;
 }
+/** The two board groups of one query (components, nets): what the model worker answers for a search request. */
+export interface BoardSearchGroups { query: string; groups: [SearchGroup<BoardComponentRow>, SearchGroup<BoardNetRow>] }
 export interface SearchResult {
   /** The normalized (NFKC, collapsed, trimmed, length-bounded) query actually searched. */
   query: string;
@@ -1197,31 +1058,24 @@ class TierBuckets {
   }
 }
 const makeGroup = <R extends SearchRow>(source: SearchSource, rows: R[], total: number): SearchGroup<R> => ({ source, rows, total, truncated: total > rows.length });
+/** The searched form of a query: NFKC, collapsed, trimmed and length-bounded (what `SearchResult.query` reports). */
+export const searchQueryOf = (query: string): string => normalizeQuery(query).slice(0, MAX_QUERY_LENGTH).trim();
 
 /**
- * One query over every source, grouped by source with page / sheet identity on each row. Ranking inside a group:
- * literal equal ref BEFORE case-insensitive equal (B18), then prefix, then substring, then value/package/net
- * (the legacy App search matched `ref value package` and the nets of the pins as substrings; nothing regresses),
- * stable natural order inside a tier. Pure and synchronous: callers run it on committed text only (never while an IME
- * composition is in progress). The query is NFKC-normalized with whitespace collapsed; an empty query yields no rows.
+ * The board part of `searchAll` (components and nets), on its own so that it can run where the board index lives (the model worker)
+ * while the schematic and document parts stay with their indexes. Same ranking and bounds as `searchAll`.
  */
-export function searchAll(input: SearchInput): SearchResult {
-  const query = normalizeQuery(input.query).slice(0, MAX_QUERY_LENGTH).trim();
+export function searchBoardGroups(rawQuery: string, board: BoardIndex | null | undefined, limitsInput?: Partial<SearchLimits>): BoardSearchGroups {
+  const query = searchQueryOf(rawQuery);
   const qf = fold(query);
-  const limits = {
-    boardComponents: clampLimit(input.limits?.boardComponents, DEFAULT_SEARCH_LIMITS.boardComponents), boardNets: clampLimit(input.limits?.boardNets, DEFAULT_SEARCH_LIMITS.boardNets),
-    schematicSymbols: clampLimit(input.limits?.schematicSymbols, DEFAULT_SEARCH_LIMITS.schematicSymbols), schematicNets: clampLimit(input.limits?.schematicNets, DEFAULT_SEARCH_LIMITS.schematicNets),
-    documents: clampLimit(input.limits?.documents, DEFAULT_SEARCH_LIMITS.documents), documentsPerDocument: clampLimit(input.limits?.documentsPerDocument, DEFAULT_SEARCH_LIMITS.documentsPerDocument),
-  };
-  const empty = <R extends SearchRow>(source: SearchSource): SearchGroup<R> => makeGroup<R>(source, [], 0);
-  if (!query) return { query, groups: [empty('board-components'), empty('board-nets'), empty('schematic-symbols'), empty('schematic-nets'), empty('documents')], total: 0, truncated: false };
-
-  let boardComponents = empty<BoardComponentRow>('board-components'), boardNets = empty<BoardNetRow>('board-nets');
-  const board = input.board;
-  if (board) {
-    const buckets = new TierBuckets(limits.boardComponents);
-    for (let i = 0; i < board.components.length; i++) {
-      const record = board.search[i];
+  const componentLimit = clampLimit(limitsInput?.boardComponents, DEFAULT_SEARCH_LIMITS.boardComponents);
+  const netLimit = clampLimit(limitsInput?.boardNets, DEFAULT_SEARCH_LIMITS.boardNets);
+  let boardComponents = makeGroup<BoardComponentRow>('board-components', [], 0), boardNets = makeGroup<BoardNetRow>('board-nets', [], 0);
+  if (query && board) {
+    const components = board.components, records = board.search, netList = board.nets;
+    const buckets = new TierBuckets(componentLimit);
+    for (let i = 0; i < components.length; i++) {
+      const record = records[i];
       let tier = nameTier(record.key, record.folded, query, qf), field: SearchMatch['field'] = 'ref';
       if (tier < 0) {
         if (record.hay.includes(qf)) { tier = 5; field = record.value.includes(qf) ? 'value' : record.pkg.includes(qf) ? 'package' : 'fields'; }
@@ -1231,16 +1085,40 @@ export function searchAll(input: SearchInput): SearchResult {
       buckets.add(tier, i, field);
     }
     boardComponents = makeGroup('board-components', buckets.select().map(({ index, tier }) => {
-      const c = board.components[index];
+      const c = components[index];
       return { source: 'board-components' as const, componentId: c.id, ref: c.ref, value: c.value, package: c.package, side: c.side, match: matchOf(tier, buckets.fields.get(index) ?? 'ref') };
     }), buckets.total);
-    const nets = new TierBuckets(limits.boardNets);
-    for (let i = 0; i < board.nets.length; i++) {
-      const tier = nameTier(board.nets[i].key, board.nets[i].folded, query, qf);
+    const nets = new TierBuckets(netLimit);
+    for (let i = 0; i < netList.length; i++) {
+      const tier = nameTier(netList[i].key, netList[i].folded, query, qf);
       if (tier >= 0) nets.add(tier, i);
     }
-    boardNets = makeGroup('board-nets', nets.select().map(({ index, tier }) => { const n = board.nets[index]; return { source: 'board-nets' as const, name: n.name, id: n.id, pinCount: n.pins.length, match: matchOf(tier, 'name') }; }), nets.total);
+    boardNets = makeGroup('board-nets', nets.select().map(({ index, tier }) => { const n = netList[index]; return { source: 'board-nets' as const, name: n.name, id: n.id, pinCount: n.pins.length, match: matchOf(tier, 'name') }; }), nets.total);
   }
+  return { query, groups: [boardComponents, boardNets] };
+}
+
+/**
+ * One query over every source, grouped by source with page / sheet identity on each row. Ranking inside a group:
+ * literal equal ref BEFORE case-insensitive equal (B18), then prefix, then substring, then value/package/net
+ * (the legacy App search matched `ref value package` and the nets of the pins as substrings; nothing regresses),
+ * stable natural order inside a tier. Pure and synchronous: callers run it on committed text only (never while an IME
+ * composition is in progress). The query is NFKC-normalized with whitespace collapsed; an empty query yields no rows.
+ */
+export function searchAll(input: SearchInput): SearchResult {
+  const query = searchQueryOf(input.query);
+  const qf = fold(query);
+  const limits = {
+    boardComponents: clampLimit(input.limits?.boardComponents, DEFAULT_SEARCH_LIMITS.boardComponents), boardNets: clampLimit(input.limits?.boardNets, DEFAULT_SEARCH_LIMITS.boardNets),
+    schematicSymbols: clampLimit(input.limits?.schematicSymbols, DEFAULT_SEARCH_LIMITS.schematicSymbols), schematicNets: clampLimit(input.limits?.schematicNets, DEFAULT_SEARCH_LIMITS.schematicNets),
+    documents: clampLimit(input.limits?.documents, DEFAULT_SEARCH_LIMITS.documents), documentsPerDocument: clampLimit(input.limits?.documentsPerDocument, DEFAULT_SEARCH_LIMITS.documentsPerDocument),
+  };
+  const empty = <R extends SearchRow>(source: SearchSource): SearchGroup<R> => makeGroup<R>(source, [], 0);
+  if (!query) return { query, groups: [empty('board-components'), empty('board-nets'), empty('schematic-symbols'), empty('schematic-nets'), empty('documents')], total: 0, truncated: false };
+
+  // Precomputed board groups are used only when they answer this very query (a reply for an older query is never mixed in).
+  const precomputed = input.boardGroups && input.boardGroups.query === query ? input.boardGroups : null;
+  const [boardComponents, boardNets] = (precomputed ?? searchBoardGroups(query, input.board, input.limits)).groups;
 
   let schematicSymbols = empty<SchematicSymbolRow>('schematic-symbols'), schematicNets = empty<SchematicNetRow>('schematic-nets');
   const schematic = input.schematic;

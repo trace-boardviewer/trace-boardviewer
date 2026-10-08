@@ -2,14 +2,17 @@ import github from '../../electron/repository.json';
 import type { MessageKey } from './i18n';
 
 /**
- * Support notice: a short, skippable notice on every start. This module is the pure part:
- * the link ids, the once-per-launch claim, the copy keys and the way a link request is made. The dialog itself is
+ * Support notice: a short, skippable reminder at startup and once per hour while the app is in use. This module is the pure part:
+ * the link ids, the reminder claim, the copy keys and the way a link request is made. The dialog itself is
  * src/components/SupportNotice.tsx; the links themselves are constants of the MAIN process (electron/main.cjs, channel
  * 'trace:open-support-link'): the renderer sends an id, never a URL.
  */
 
-/** The only three things the renderer may ask the main process to open: the two support pages and the GitHub bug report form. */
-export const SUPPORT_LINK_IDS = ['stripe', 'kofi', 'bug'] as const;
+/**
+ * The only four things the renderer may ask the main process to open: the two donation pages, the GitHub bug report form and the
+ * project's own support page on its website (the top bar's heart button).
+ */
+export const SUPPORT_LINK_IDS = ['stripe', 'kofi', 'bug', 'support'] as const;
 export type SupportLinkId = (typeof SUPPORT_LINK_IDS)[number];
 
 export function isSupportLinkId(value: unknown): value is SupportLinkId {
@@ -24,24 +27,35 @@ export const SUPPORT_NOTICE_KEYS = {
 /** Toast text when the bug report page could not be opened from the top bar button (the label of that button is SUPPORT_NOTICE_KEYS.bug). */
 export const BUG_REPORT_FAILED_KEY = 'support.bugFailed' as const satisfies MessageKey;
 
+/** The top bar's support (heart) button: its accessible label and tooltip, and the toast when the support page could not be opened. */
+export const SUPPORT_BUTTON_KEY = 'support.button' as const satisfies MessageKey;
+export const SUPPORT_BUTTON_FAILED_KEY = 'support.buttonFailed' as const satisfies MessageKey;
+
 // ---------------------------------------------------------------------------------------------------------------
-// Once per launch
+// Hourly reminders
 // ---------------------------------------------------------------------------------------------------------------
 
-// Module state, never persisted: every new launch (a new renderer process) starts unclaimed, so the notice comes back on every start.
-// A React StrictMode remount, or a second mount of the shell in the same page, must not show it twice.
-let claimed = false;
+export const SUPPORT_REMINDER_INTERVAL_MS = 60 * 60 * 1000;
+// A React StrictMode remount or another shell in the same page cannot show a second reminder within the hour.
+let claimedAt: number | null = null;
 
-/** True exactly once per launch: the caller that gets it shows the notice. */
-export function claimSupportNotice(): boolean {
-  if (claimed) return false;
-  claimed = true;
+/** The caller that gets the claim shows the reminder; other callers wait until the next hour. */
+export function claimSupportNotice(now = Date.now()): boolean {
+  if (!Number.isFinite(now)) return false;
+  if (claimedAt !== null && now < claimedAt) { claimedAt = now; return false; }
+  if (claimedAt !== null && now - claimedAt < SUPPORT_REMINDER_INTERVAL_MS) return false;
+  claimedAt = now;
   return true;
+}
+
+/** Dismissing a reminder starts a fresh hour; a dialog left open for an hour must not pop up again immediately. */
+export function postponeSupportNotice(now = Date.now()): void {
+  if (Number.isFinite(now)) claimedAt = now;
 }
 
 /** Forgets the claim. Tests only: a real launch is a fresh page, so the state starts clean by itself. */
 export function resetSupportNoticeLaunch(): void {
-  claimed = false;
+  claimedAt = null;
 }
 
 /**
@@ -85,7 +99,7 @@ export function createSupportLinkRequester(open: SupportLinkOpener): { request(i
 }
 
 /**
- * Browser-only development mode (no Electron bridge): the same three links, duplicated here on purpose because there is no main
+ * Browser-only development mode (no Electron bridge): the same four links, duplicated here on purpose because there is no main
  * process to hold them. The desktop app never uses this table; electron/main.cjs owns the real constants (a test keeps both in step).
  * The bug report form is an address of the repository slug both processes read from electron/repository.json (see electron/updates.cjs).
  */
@@ -93,6 +107,7 @@ export const WEB_SUPPORT_LINKS: Readonly<Record<SupportLinkId, string>> = Object
   stripe: 'https://donate.stripe.com/7sYaEZeET2op8PxaGE5EY00',
   kofi: 'https://ko-fi.com/tracerboardview',
   bug: `https://github.com/${github.repository}/issues/new?template=bug_report.yml`,
+  support: 'https://trace-boardviewer.github.io/support.html',
 });
 
 type OpenWindow = (url: string, target: string, features: string) => unknown;
@@ -113,6 +128,15 @@ export function resolveSupportLinkOpener(desktop: { openSupportLink?: (id: Suppo
     if (typeof desktop.openSupportLink !== 'function') return Promise.reject(new Error('The support link is not available in this version of the desktop bridge.'));
     return desktop.openSupportLink(id);
   };
+}
+
+/**
+ * One click on a top bar link button (the bug report form, the support page): the opener of the moment is asked for exactly this id and
+ * a failure of any kind (a rejection, or a synchronous throw while resolving or calling the opener) is reported through `onFailure` once.
+ * It never rejects, so the click handler can fire and forget it.
+ */
+export function openFixedLink(id: SupportLinkId, opener: () => SupportLinkOpener, onFailure: () => void): Promise<void> {
+  return Promise.resolve().then(() => opener()(id)).then(() => undefined, () => { onFailure(); });
 }
 
 // ---------------------------------------------------------------------------------------------------------------

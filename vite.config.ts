@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { createRequire } from 'node:module';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
@@ -48,4 +49,7 @@ export default defineConfig({
   plugins: [pdfjsAssets(), productionCsp()],
   server: { host: '127.0.0.1', port: 5173, strictPort: true },
   build: { target: 'chrome140', sourcemap: false, assetsInlineLimit: 0 },
+  // A test that parses a large input takes seconds on a busy machine; the default 5 s limit then fails a correct run. Timing is asserted
+  // relative to a reference (src/test-support/timing.ts), so the limit only has to end a test that never returns.
+  test: { testTimeout: 120_000, hookTimeout: 120_000 },
 });

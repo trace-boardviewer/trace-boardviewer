@@ -1,0 +1,19 @@
+{
+  "kind.ic": "Integrated circuit",
+  "kind.capacitor": "Capacitor",
+  "kind.resistor": "Resistor",
+  "kind.inductor": "Inductor",
+  "kind.connector": "Connector",
+  "kind.diode": "Diode",
+  "kind.transistor": "Transistor",
+  "kind.crystal": "Crystal",
+  "kind.fuse": "Fuse",
+  "kind.resistorArray": "Resistor array",
+  "kind.ferrite": "Ferrite bead",
+  "kind.led": "LED",
+  "kind.testpoint": "Test point",
+  "kind.switch": "Switch",
+  "kind.jumper": "Jumper",
+  "kind.mechanical": "Mechanical part",
+  "kind.part": "Component"
+}

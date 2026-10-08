@@ -27,7 +27,8 @@ const WORKFLOW_PATH = process.env.TRACE_LINUX_WORKFLOW_CHECKS_WORKFLOW || rel(WO
 const SMOKE_SOURCE_PATH = process.env.TRACE_LINUX_WORKFLOW_CHECKS_SMOKE_SOURCE || rel(SMOKE_FILE);
 const LINUX_CONFIG_PATH = process.env.TRACE_LINUX_WORKFLOW_CHECKS_CONFIG || rel('config', 'electron-builder.linux.yml');
 const MAIN_PATH = process.env.TRACE_LINUX_WORKFLOW_CHECKS_MAIN || rel('electron', 'main.cjs');
-const LOCALE_EN_PATH = process.env.TRACE_LINUX_WORKFLOW_CHECKS_LOCALE_EN || rel('electron', 'locales', 'en.json');
+// The English catalog is a folder of namespace files (electron/locales/en/<namespace>.json); the override names such a folder.
+const LOCALE_EN_DIRECTORY = process.env.TRACE_LINUX_WORKFLOW_CHECKS_LOCALE_EN || rel('electron', 'locales', 'en');
 
 // The pinned electron-builder resolves its own YAML parser; nothing is added to the project.
 function builderYaml() {
@@ -685,7 +686,7 @@ test('contract: the names the smoke script expects are the names config/electron
 
 test('contract: the consent gate the smoke script drives is the one electron/main.cjs implements', { skip: !/confirmUnsandboxedStart/.test(fs.readFileSync(MAIN_PATH, 'utf8')) && 'the Linux consent gate is not in electron/main.cjs on this branch yet' }, () => {
   const main = fs.readFileSync(MAIN_PATH, 'utf8');
-  const english = JSON.parse(fs.readFileSync(LOCALE_EN_PATH, 'utf8'));
+  const english = Object.assign({}, ...fs.readdirSync(LOCALE_EN_DIRECTORY).filter((name) => name.endsWith('.json')).sort().map((name) => JSON.parse(fs.readFileSync(path.join(LOCALE_EN_DIRECTORY, name), 'utf8'))));
   assert.ok(main.includes(`'${smoke.GATE.stderrLine}'`), 'the exact warning line');
   assert.match(main, new RegExp(`process\\.env\\.${smoke.GATE.acceptEnv}\\b`), 'the environment bypass is read from the environment');
   assert.match(main, /acceptEnvironment === '1'/, 'only the value 1 accepts');

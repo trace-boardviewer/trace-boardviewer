@@ -1,0 +1,9 @@
+Designator	Pin	Net Name	X(mil)	Y(mil)	Layer
+R1	1	GND	1000	2000	Top Layer
+R1	2	VCC	1100	2000	Top Layer
+U7	A1	+3V3	4000	1000	Top Layer
+U7	A2	SDA	4050	1000	Top Layer
+U7	B1	SCL	4000	1050	Top Layer
+U7	B2	N/C	4050	1050	Top Layer
+C9	1	GND	6000	2000	Bottom Layer
+C9	2	+3V3	6100	2000	Bottom Layer

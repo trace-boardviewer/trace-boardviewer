@@ -1,0 +1,24 @@
+{
+  "common.close": "Schließen",
+  "common.done": "Fertig",
+  "common.save": "Speichern",
+  "common.delete": "Löschen",
+  "common.note": "Notiz",
+  "common.skip": "Überspringen",
+
+  "unit.components": { "one": "{count} Bauteil", "other": "{count} Bauteile" },
+  "unit.pins": { "one": "{count} Pin", "other": "{count} Pins" },
+  "unit.nets": { "one": "{count} Netz", "other": "{count} Netze" },
+  "unit.results": { "one": "{count} Ergebnis", "other": "{count} Ergebnisse" },
+  "unit.total": "{count} insgesamt",
+
+  "side.top": "Oben",
+  "side.bottom": "Unten",
+  "side.both": "Beide",
+  "side.topLabel": "Oberseite",
+  "side.bottomLabel": "Unterseite",
+  "side.bothLabel": "Beide Seiten",
+  "side.badgeTop": "O",
+  "side.badgeBottom": "U",
+  "side.badgeBoth": "O/U"
+}

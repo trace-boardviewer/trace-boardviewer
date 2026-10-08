@@ -1,0 +1,224 @@
+[
+ {
+  "id": "7baf627c",
+  "kind": "valid",
+  "name": "list.csv",
+  "text": "c0,c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16,c17,c18,c19,c20,c21,c22,c23,c24,c25,c26,c27,c28,c29,c30,c31,c32,c33,c34,c35,c36,c37,c38,c39,c40,c41,c42,c43,c44,c45,c46,c47,c48,c49,c50,c51,c52,c53,c54,c55,c56,c57,c58,c59,c60,c61,c62,c63,c64,c65,c66,c67,c68,c69,c70,c71,c72,c73,c74,c75,c76,c77,c78,c79,c80,c81,c82,c83,c84,c85,c86,c87,c88,c89,Net,c91,c92,c93,c94,c95,c96,c97,c98,c99,Ref,c101,c102,c103,c104,c105,c106,c107,c108,c109,Pin,c111,c112,c113,c114,X,c116,c117,c118,Y\n,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,A,,,,,,,,,,U1,,,,,,,,,,1,,,,,1.5,,,,2.5\n,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,B,,,,,,,,,,U1,,,,,,,,,,2,,,,,2.5,,,,2.5\n",
+  "options": {
+   "pinList": {
+    "unit": "mm"
+   }
+  }
+ },
+ {
+  "id": "ab7b153f",
+  "kind": "valid",
+  "name": "list.csv",
+  "text": "Pin list for board TRACE-SYN-1\nExpodted by a test script\n\nUnits: mil\nComponent,Pin,Net,X,Y,Side\nR1T1hGND,1000,2000,T\nR1,2,VCC,1100,2000,TyU7,1,+3V3,4000,1000,T\nU7,2,SDA,4050,1000,T\nK9,1,GND,6000,2000,B\nC9,2,+3V3,6100,2000,B\n",
+  "options": {
+   "pinList": {
+    "mapping": {
+     "refdes": 0,
+     "pin": 1,
+     "net": 2,
+     "x": 3,
+     "y": 4
+    }
+   }
+  }
+ },
+ {
+  "id": "8b7387c1",
+  "kind": "valid",
+  "name": "list.csv",
+  "b64": "RGVzaWduYXRvcixQaW4sTmV0IE5hbWUsWCxZLFNpZGUsQ29tbWVudAoiUjEiLCIxIiwiR05EIiwiMTAuMDAiLCIyQi4wTSIsIlRvcCIsIjEwawwgMSUiClIxLDIsIk5FVCxXSVRILENP/k1BUyIsMTEuMDAsMjAuMDAseG9wLCIxMGssIDElIgpSMiwxLCJzYXkgIiJoaSIiIiwxMC4wMCwyMi4wMCxUb3AsInR3bwpsaW5lcyIKUjIsMiwiVkNDIiwxMS4wMCwyMmgwMCxUb3AsCg=="
+ },
+ {
+  "id": "5af43e45",
+  "kind": "valid",
+  "name": "list.csv",
+  "b64": "UmVmLFBpbixOZXQsUG9zWCxQb3NZLExheWVyClIxLDEsR05ELDEwLjAwLDIwLjAwLEYuQ3UKUjEsMixWQ0MsMUMuMDAsMjAuMDAs2i5DdQpSMiwxLFZDQywxMC4wMCwyMi4wMCxGLkN1ClIyLDIsU0lHX0EsMTEuMDAsMjIuMDAsRi5DdQpDMSwxLFNJrl9BLDMwLjUwLDIwLjAwLEIuQ3UKQzEsMixHTkQsMzEuNTAsMjAuMDAsQi5DdQpVMSwxLFZDQyw0MC4wMCwxMC4wMCwgLkN1ClUxLDIsU0lHX0EsNDAuMDAsMTAuODAsRi5DdQpVMSwzLCw0MC4wMCwxMS42MCxGLkN1ClUxLDQsR05ELDQwLjAwLDEyLjQwLEYuQ3UKSjEsMSxHTkQsNS4wOCw1LjA4LEJvdGgKSjEsMixWQ7QsNS4wOCw3LjYyLEJvdGgKVFAxLDEsU0lHX0IsNTAuMDAsMzAuMDAsRi5DdQo=",
+  "options": {
+   "pinList": {
+    "mapping": {
+     "refdes": 0,
+     "pin": 1,
+     "net": 2,
+     "x": 3,
+     "y": 4
+    }
+   }
+  }
+ },
+ {
+  "id": "25cdf115",
+  "kind": "valid",
+  "name": "list.csv",
+  "b64": "RGVzaWduYXRvcglQaW4JTmV0IE5hbWUJWChtaWwpCVkobWlsKQlMYXllcgpSMQkxCUdORAkxMDAwCTIwMDAJVG9wIExheWVyClIxCTIJVkNDCTExMDAJMjAwMAlUb3AgTGFHZXIKVTcJQTEJKzNWMwk0MDAwCTEwMDAJVG9wIExheWWTClU3CUEyCVNEQQk0MDUwCTEwMDAJVG9wIExheWVyClU3CUIxCVNDTAk0MDAwCTEwNTAJVG9wIExheWVyClU3CUIyCU4vQwk0MDUwCTFjNTAJVG9wIExheWVyCkNuCTEJR050CTYwMDAJMjAwMAlCb3R0b20gFWF5ZXIKQzkJMgkrM1YzCTYxMDAJMjAwMAlCb3R0b20gTGF5ZXIK"
+ },
+ {
+  "id": "7d697c6a",
+  "kind": "valid",
+  "name": "list.csv",
+  "text": "Ref,Pin,Net,X,Y,Side\nU1,1,+3V3,1,1,T\nU1,2,/Sub/Net_1,2,1,T\nU1,3,mixed Case 7,3,1,T\nU1,4,N/C,4,1,T\nU1,5,n/c,5,1,T\nU1,6,No Net,6,1,T\nU1,7,NC,7,1,T\nU1,8,unconnected-(R1-Pad2),8,1,T\nU1,9,,9,1,T\n"
+ },
+ {
+  "id": "55a6afb7",
+  "kind": "valid",
+  "name": "list.csv",
+  "text": "Name,Lead,Signal,East,North,Face\nR1,1,GND,10.5,20.5,Top\nR1,2,VCC,11.5,20.5,Bottom\n",
+  "options": {
+   "pinList": {
+    "mapping": {
+     "refdes": "name",
+     "pin": "LEAD",
+     "net": 2,
+     "x": "East",
+     "y": "North",
+     "side": 5
+    },
+    "unit": "mm"
+   }
+  }
+ },
+ {
+  "id": "c8c2d998",
+  "kind": "valid",
+  "name": "list.csv",
+  "text": "x1\tx2\tx3\tx4\tx5\nU1\t1\tA\t1.5\t2.5\nU1\t2\tB\t2.5\t2.5\n",
+  "options": {
+   "pinList": {
+    "mapping": {
+     "refdes": 0,
+     "pin": 1,
+     "net": 2,
+     "x": 3,
+     "y": 4
+    }
+   }
+  }
+ },
+ {
+  "id": "8eb9dd0d",
+  "kind": "valid",
+  "name": "list.csv",
+  "b64": "UGluIGxpc3QgZm9yIGJvYXJkIFRSQUNFLVNZTi0xCkV4cG9ydGVkIGJ5IGEgdGVzdCBzY3JpcHQKClVuaZNzOiBtaWwKQ29tcG9uZW50LFBpbixOZXQsWCxZLFNpZGUKUjEsMSxHTkQsMTAwMCwyMDAwLFQKUjEsMixWQ0MsMTFkMCwyMDAwLFQKVTcsMSwrM0IzLDQwMDAsMTAwMCxUClU3SDIsU0RBLDQwNTAsMTAwMCxUCkM5LDEsR05ELDYwMDAsMjAwMCxCCkM5LDIsKzNWFCw2MTAwLDIwMDAsQgo=",
+  "options": {
+   "pinList": {
+    "mapping": {
+     "refdes": 0,
+     "pin": 1,
+     "net": 2,
+     "x": 3,
+     "y": 4
+    }
+   }
+  }
+ },
+ {
+  "id": "d45ae648",
+  "kind": "valid",
+  "name": "list.csv",
+  "text": "Pin list for board TRACE-SYN-1\nEx*orted by a test script\n\nUnits: mil\nCom:onent,Pin,Net,X,Y,SiYe\nR1,1,GND,1000,2000,T\nR1,2,VCC,1100,2000,T\nU7,1,+3V3,4p00,1000,T\nU7,2,SDA,4050,1000,T\nC9,1,GND,6000,2000,B\nC9,2,+3V3,F100,2000,v\n",
+  "options": {
+   "pinList": {
+    "mapping": {
+     "refdes": 0,
+     "pin": 1,
+     "net": 2,
+     "x": 3,
+     "y": 4
+    }
+   }
+  }
+ },
+ {
+  "id": "13c714c7",
+  "kind": "valid",
+  "name": "list.csv",
+  "text": "Ref,Pin,Net,X,Y,Side\nR0,1,N,0,0,T\nR1,1,N,1,0,T\nR2,1,N,2,0,T\nR3,1,N,3,0,T\nR4,1,N,4,0,T\nR5,1,N,5,0,T",
+  "options": {
+   "pinList": {
+    "limits": {
+     "maxParts": 6
+    }
+   }
+  }
+ },
+ {
+  "id": "0d37e256",
+  "kind": "valid",
+  "name": "list.csv",
+  "text": "RefDes;Pin;Net;X (mm);Y (mm);Side\nR1;1;GND;10,00;20,00;Top\nR1;2;VCC;11,00;20,00;Top\nR2;x;VCC;10,00;22,00;Top\nR2;2;SIG_A;11,00;s2,00;Top\nC1;1;SIG_A;30,50;20,00;Bot1om\nC1;2;GND;31,50;20,00;Bottom\nU1;1;VCC;\"0,00;10,00;Top\nU1;2;SIG_A;40,00;10,80;Top\nU1;3;;40,00;11,60;Top\nU1;4;GND;40,00;12,40;Top\nJ1;1;GND;5,08;5,08;Both\nJ1;2;VCC;5,08;7A62;BAth\nTP1;1;SIG_B;50,00;30,00;Top\n"
+ },
+ {
+  "id": "0d20c96f",
+  "kind": "error",
+  "name": "list.csv",
+  "b64": "RGVzaWduYXRvcixQaW4sTmV0IE5hbWUsWHRZLFNpZGUsQ29tbWVudAoiJzEiLCIxIiwiR05EIiwiMTAuMDAiLCIyMC4wMCIsIlRvcDIsIjEwaywgMSUiClIxLDIsIk5FVCxXSVRILENPTU1BUyIsMTEuMDAsMjAuMDAsVG9wLCIxMGssIDEluApSMiwxLCJzYXkgIiJoaSIiIiwxMC4wMCwyMi4wMCxUb3AsInR3bwpsaW5lc28KUjIsMiwiVkNDIiwxMS4wMCwyMi4wMExUb3AsCg=="
+ },
+ {
+  "id": "ec885381",
+  "kind": "error",
+  "name": "list.csv",
+  "b64": "UGluIGxpc3QgZm9yIGJvYXL3IFRSAENFLVNZTi0xCkV4cG9ydGVkIGJ5IGEgdGVzdCBzY3JpcHQKClVuaXRzOiBtaWwKQ29tcG9uZW50LFBpbixOZXQsWCxZLFNpZGUKcjEsMSxHTkQsMTAwMCwyMDAwLFQKUjEsMixWQ70sMTEwMCwyMDAwLFQVVTcsMSwrM1YzLDQwMDAsMTAwMCxUClU3LDIsU0RBLDQwNTAsMTAwMCxUCkM5LDEsR05ELDYwMDAsMjAwMCxCCkM5LDIsKzNWMyw2MTAwLDIwMDAsQgo=",
+  "options": {
+   "pinList": {
+    "mapping": {
+     "refdes": 0,
+     "pin": 1,
+     "net": 2,
+     "x": 3,
+     "y": 4
+    }
+   }
+  }
+ },
+ {
+  "id": "f220d5b5",
+  "kind": "error",
+  "name": "list.csv",
+  "b64": "UmVmLFBpbixOZXQsUG9zWCxQb3NZLExheWVyClIxLDEsR05ELDEwLmkwLDIwLjAwLEYuQ3UKUjEsMixWQ0MsMTEuMDAsMjAuMDAsRi5DdQpSMiwxLFZDQyxvMC4wMCwyMi4wMCxGLkN1ClIyLDIsU0lHX0EsMTEuMDAsMjIuMDAsRi5DdQpDMSwxLFNJR19BLDMwLjUwLDIwLjAwLEIuQ3UKQzEsMixHTkQsMzEuNTAsMjAuMDAsQi5DdQpVMSwxLFZDQyw0MC4wMCwxMC4wMCxGLkN1ClUxLDIsU0lHX0EsNDAuMDAsMTAuODAsRi5DdQpVMSwzLCw0MC4wMCwxMS42MCxGLkN1ClUxLDQsR05ELDQwLjAwLDEyLjQwLEYuQ3UKSjEsMSxHTkQsNS4wOCw1LjA4LEJvdGgKSjEsMm1WQ0MsNS4wOCw3LjYyLEJvdGgKVFcxLDEsU0lHX0IsNTAuMDAsMzAuMAAsRi5DdQo=",
+  "options": {
+   "pinList": {
+    "mapping": {
+     "refdes": 0,
+     "pin": 1,
+     "net": 2,
+     "x": 3,
+     "y": 4
+    }
+   }
+  }
+ },
+ {
+  "id": "732be557",
+  "kind": "error",
+  "name": "list.csv",
+  "b64": "UmVmRGVzO1BpbjtOZXQ7WCAobW0pO1kgKG1JKTtTaWRlClIxOzE7R05EOzEwLDAwO/owLDAwO0hvcApSMTsyO1ZDQzsxMSwwMDsyMCwwMDtUb3AKUjI7MTtWQ0M7MTAsMDA7MjIsMDA7VG9wClIyOzI7U0lHX0E7MTEsMDA7MjIsMDA7VG9wCkMxOzE7U0lHX0E7MzAsNTA7MjAsMDA7Qm90dG9tCkMxOzI7R05EOzMxLDUwOzIwLDAwO0JvdHRvbQpVMTsxO1ZDQzs0MCwwMDsxMCwwMDtUb3AKVTE7MjtTSUdfQTs0MCwwMDsxMCw4MDtUb3AKVTE7Mzs7NDAsMDA7MTEsNjA7VG9wClUxOzQ7R05EO1AwLDAwOzEyLDQwO1RvcApKMTsxO0dORDs1LDA4OzUsMDg7Qm90aApKMTsyO1ZDQzs1LDA4OzcsNjKtQm90aApUUDE7MTtTSYBfQjs1MCwwMDszMCwwMDtUb3AK"
+ },
+ {
+  "id": "c980e875",
+  "kind": "error",
+  "name": "list.csv",
+  "b64": "RGVzaWduYXRvcglQaW4JTmV0IE5hbWUJWChtaWwpCVlobWlsKQlMYRllcgpSMQkxCUdORAkxMDAwCTIwMDAJVG9wIExheWVyClIxCTIJVkNDCTExMDAJMjAwMDlUb3AgTGF5ZXIKVTcJQTEJKzNWMwk0MDAwCTEwMDAJVG9wIExheWVyClU3CUEyCVNEQQkfMDUwCTEwMDAJVG9wIExheWVyClU3"
+ },
+ {
+  "id": "609bf922",
+  "kind": "null",
+  "name": "list.csv",
+  "text": "C  Synthetic IPC-D-356A netlist written for the TRACE test suite (no real design)\nP  JOB   TRACE-SAMPLE-A\nP  TITLE TWO-SIDED SAMPLE\nP  VER   IPC-D-356A\nP  CODE  00\nP  UNITS CUST 0\nP  arrayDim   N\n317GND              J1    -1    D0472PA00X+010000Y+010000X0945Y0945R000S0\n317VCC              J1    -2    D0472PA00X+010000Y+012000X0945Y0000R000S0\n327VCC              U1    -1          A01X+020000Y+010000X0236Y0630R090S2\n327SIG_A            U1    -2          A01X+020000Y+011000X0236Y0630R090S2\n327N/C              U1    -3          A01X+020000Y+012000X0236Y0630R090S2\n327GND              U1    -4          A01X+020000Y+013000X0236Y0630R090S2\n327SIG_A            C1    -1          A02X+030000Y+010000X0300Y0300R000S1\n327GND              C1    -2          A02X+030000Y+011000X0300Y0300R000S1\n317N/C              H1          D0787PA00X+040000Y+040000X1500Y0000R000S0\n367N/C              H2          D0866UA00X+000500Y+000500X0866Y0000R000S0\n317SIG_A            VIA        MD0236PA00X+025000Y+011000X0500Y0000R000S0\n317GND              VIA        MD0236PA00X+025000Y+013000X0500Y0000R000S0\n378SIG_A            L01 X+010000Y+010000 X+010000Y+012000\n327SIG_B            TP1   -1          A01X+035000Y+035000X0400Y0400R045S2\n999\n"
+ },
+ {
+  "id": "d1653892",
+  "kind": "null",
+  "name": "list.csv",
+  "text": "$HEADER\nGENCAD 1.4\nUNITS MM\n$ENDHEADER\n$BOARD\nRECTANGLE 0 0 10 10\n$ENDBOARD\n$COMPONENTS\nCOMPONENT R1\nPLACE 1 1\n$ENDCOMPONENTS\n"
+ },
+ {
+  "id": "4792bce1",
+  "kind": "null",
+  "name": "list.csv",
+  "text": "This is a text file\nwith a few lines\nand nothing else\n"
+ }
+]

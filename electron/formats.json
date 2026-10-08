@@ -1,24 +1,114 @@
 {
   "extensions": [
-    ".cad", ".gcd",
+    ".cad",
+    ".gcd",
     ".brd",
     ".bdv",
     ".bvr",
-    ".fz", ".cae",
     ".asc",
+    ".fz",
+    ".cae",
     ".pcb",
     ".cst",
     ".kicad_pcb",
-    ".pcbdoc", ".cmpcbdoc", ".cspcbdoc",
+    ".pcbdoc",
+    ".cmpcbdoc",
+    ".cspcbdoc",
     ".neu",
     ".tvw",
+    ".json",
     ".gbr",
+    ".epro",
+    ".epcb",
+    ".zip",
     ".tgz",
-    ".xml", ".cvg"
+    ".gz",
+    ".tar",
+    ".z",
+    ".hyp",
+    ".fab",
+    ".fatf",
+    ".ipc",
+    ".356",
+    ".d356",
+    ".ipc356",
+    ".csv",
+    ".tsv",
+    ".txt",
+    ".xml",
+    ".cvg"
   ],
   "companions": {
-    "format.asc": ["pins.asc", "nails.asc"],
-    "pins.asc": ["format.asc", "nails.asc"],
-    "nails.asc": ["format.asc", "pins.asc"]
-  }
+    "format.asc": [
+      "pins.asc",
+      "nails.asc"
+    ],
+    "pins.asc": [
+      "format.asc",
+      "nails.asc"
+    ],
+    "nails.asc": [
+      "format.asc",
+      "pins.asc"
+    ]
+  },
+  "families": [
+    {
+      "name": "GenCAD",
+      "extensions": [
+        ".cad",
+        ".gcd"
+      ]
+    },
+    {
+      "name": "Boardview",
+      "extensions": [
+        ".brd",
+        ".bdv",
+        ".bvr",
+        ".asc",
+        ".fz",
+        ".cae",
+        ".pcb",
+        ".cst",
+        ".tvw"
+      ]
+    },
+    {
+      "name": "ECAD design",
+      "extensions": [
+        ".kicad_pcb",
+        ".pcbdoc",
+        ".cmpcbdoc",
+        ".cspcbdoc",
+        ".neu",
+        ".json",
+        ".epro",
+        ".epcb",
+        ".zip",
+        ".tgz",
+        ".gz",
+        ".tar",
+        ".z",
+        ".hyp",
+        ".fab",
+        ".fatf",
+        ".ipc",
+        ".356",
+        ".d356",
+        ".ipc356",
+        ".csv",
+        ".tsv",
+        ".txt",
+        ".xml",
+        ".cvg"
+      ]
+    },
+    {
+      "name": "Gerber",
+      "extensions": [
+        ".gbr"
+      ]
+    }
+  ]
 }

@@ -90,6 +90,7 @@
  * Budgets: SCHEMATIC_LIMITS are enforced (SchematicError 'LIMIT_EXCEEDED'); `options.signal` aborts with SchematicError
  * 'ABORTED'. Work is near-linear: spatial hashing for point coincidence, a coarse segment grid for interior tests.
  */
+import { boundText } from '../bounded-text';
 import { SCHEMATIC_LIMITS, SchematicError, pinKey, symbolRef, wireKey } from './model';
 import type {
   SchConnectivity, SchDiagnostic, SchLabel, SchLabelKind, SchNet, SchNetMember, SchPoint, SchSheetDef, SchSheetInstance,
@@ -178,7 +179,7 @@ class Diagnostics {
   add(d: SchDiagnostic): void {
     const n = this.counts.get(d.code) ?? 0;
     this.counts.set(d.code, n + 1);
-    if (!this.discard && n < DIAG_CAP) this.list.push(d);
+    if (!this.discard && n < DIAG_CAP) this.list.push({ ...d, message: boundText(d.message) });
   }
   finish(): SchDiagnostic[] {
     const out = this.list.slice();

@@ -1,0 +1,19 @@
+{
+  "pdf.ocr.recognize": "Szöveg felismerése",
+  "pdf.ocr.recognizeTitle": "Felismeri a szövegréteg nélküli oldalak szövegét ezen a számítógépen. Semmi sem kerül feltöltésre.",
+  "pdf.ocr.stop": "Leállítás",
+  "pdf.ocr.pageOffer": "Ez az oldal szövegréteg nélküli kép. Ismerd fel a szövegét, hogy kereshető legyen, és a panel azonosítóihoz kapcsolódhasson.",
+  "pdf.ocr.documentOffer": "Nincs szövegréteg: ez szkennelt vagy raszteres PDF. Ismerd fel a szövegét, hogy kereshető legyen, és a panel azonosítóihoz kapcsolódhasson.",
+  "pdf.ocr.starting": "Szövegfelismerés indítása…",
+  "pdf.ocr.running": "Szövegfelismerés: {page}. oldal ({done} / {total})",
+  "pdf.ocr.summary": "Felismert szöveg · oldalak: {pages} · szavak: {words}",
+  "pdf.ocr.linkRule": "A felismert szavak jelölve vannak. Csak a legalább {floor}%-os biztonsággal felismert, pontosan egyező panelnevekből lesz hivatkozás.",
+  "pdf.ocr.cancelled": "A szövegfelismerés leállt {done} / {total} oldal után. A már felismert oldalak kereshetők maradnak.",
+  "pdf.ocr.timeouts": "Az időkorláton belül fel nem ismert oldalak: {pages}",
+  "pdf.ocr.failed": "A szövegfelismerés nem sikerült: {message}",
+  "pdf.ocr.unavailable": "A szövegfelismerés itt nem érhető el: {message}",
+  "pdf.ocr.badge": "Felismert szöveg",
+  "pdf.ocr.badgeTitle": "Ezen a számítógépen OCR-rel felismert szöveg, átlagos biztonság: {confidence}%",
+  "pdf.ocr.wordTitle": "Felismert szöveg, biztonság: {confidence}%",
+  "pdf.ocr.linkLabel": "{name}, felismert szöveg, biztonság: {confidence}%"
+}

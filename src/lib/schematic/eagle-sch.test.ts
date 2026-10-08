@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SCHEMATIC_LIMITS, SchematicError, type Schematic, type SchPin, type SchSymbol } from './model';
 import { parseEagleSch } from './eagle-sch';
+import { catching, expectScaling } from '../../test-support/timing';
 
 // All fixtures are original synthetic EAGLE XML written for these tests (no vendor or third-party data).
 
@@ -108,16 +109,22 @@ describe('malformed and hostile input', () => {
   });
   it('reads a 40,000-digit coordinate and rejects a malformed one in linear time', () => {
     const withX = (x: string) => valid.replace('x="10" y="10"', `x="${x}" y="10"`);
-    const started = performance.now();
-    expect(must(withX('0'.repeat(40_000) + '10'))).toEqual(must(valid));
-    for (const x of ['1'.repeat(40_000) + 'x', '1'.repeat(40_000) + 'e', '1'.repeat(40_000)]) expect(thrown(() => parse(withX(x))).code, x.slice(-1)).toBe('INVALID_FORMAT');
-    expect(performance.now() - started).toBeLessThan(250);
+    const files = (size: number) => ({ padded: withX('0'.repeat(size) + '10'), malformed: ['1'.repeat(size) + 'x', '1'.repeat(size) + 'e', '1'.repeat(size)].map(withX) });
+    // A pattern that retries every position of the digits needs about 1 s for 40,000 of them, so a regression fails at the first pair.
+    expectScaling('EAGLE coordinate', [2500, 10_000, 40_000], size => { const { padded, malformed } = files(size), data = [padded, ...malformed].map(bytes); return () => { parseEagleSch({ name: 'test.sch', data: data[0] }); for (const file of data.slice(1)) catching(() => parseEagleSch({ name: 'test.sch', data: file }))(); }; });
+    const { padded, malformed } = files(40_000);
+    expect(must(padded)).toEqual(must(valid));
+    for (const file of malformed) expect(thrown(() => parse(file)).code, file.slice(-12)).toBe('INVALID_FORMAT');
   });
   it('never expands DOCTYPE entities (billion-laughs style) and rejects the declaration', () => {
-    const lol = Array.from({ length: 9 }, (_, i) => `<!ENTITY l${i + 1} "${i ? Array.from({ length: 10 }, () => `&amp;l${i};`).join('') : 'lol'}">`).join('\n');
-    const bomb = `<?xml version="1.0"?>\n<!DOCTYPE eagle [\n${lol}\n]>\n${valid.replace('<attributes/>', '<attributes><attribute name="A" value="&l9;"/></attributes>')}`;
-    const started = Date.now(), error = thrown(() => parse(bomb));
-    expect(error.code).toBe('INVALID_FORMAT'); expect(error.message).toMatch(/entit/i); expect(Date.now() - started).toBeLessThan(2000);
+    const bombOf = (levels: number) => {
+      const lol = Array.from({ length: levels }, (_, i) => `<!ENTITY l${i + 1} "${i ? Array.from({ length: 10 }, () => `&amp;l${i};`).join('') : 'lol'}">`).join('\n');
+      return `<?xml version="1.0"?>\n<!DOCTYPE eagle [\n${lol}\n]>\n${valid.replace('<attributes/>', `<attributes><attribute name="A" value="&l${levels};"/></attributes>`)}`;
+    };
+    // Every level multiplies the expansion by ten while the text only grows by a line, so a reader that expanded the entities would need ten times as long per level: the rejection must not grow with the level.
+    expectScaling('DOCTYPE entities', [3, 6, 9], levels => { const data = bytes(bombOf(levels)); return catching(() => parseEagleSch({ name: 'test.sch', data })); });
+    const error = thrown(() => parse(bombOf(9)));
+    expect(error.code).toBe('INVALID_FORMAT'); expect(error.message).toMatch(/entit/i);
     expect(thrown(() => parse(`<!DOCTYPE eagle [ <!ENTITY x SYSTEM "file:///etc/passwd"> ]>${valid}`)).code).toBe('INVALID_FORMAT');
     // a non-EAGLE document with an entity is simply not ours
     expect(parse('<!DOCTYPE note [ <!ENTITY a "b"> ]><note>&a;</note>')).toBeNull();
@@ -281,19 +288,16 @@ describe('sheets and declared nets', () => {
     expect(s.defs.every(d => d.file === 'test.sch' && d.sheetRefs.length === 0)).toBe(true);
   });
   it('names a sheet from its description in linear time even when the description is a run of "<" without any ">", and strips markup from it', () => {
-    const timed = <T>(work: () => T): { value: T; ms: number } => { const started = performance.now(); const value = work(); return { value, ms: performance.now() - started }; };
-    const titled = (description: string) => must(document({ parts: part('R1', 'R', '0805'), sheets: sheet(inst('R1', 'G$1', 10, 10), '', `<description language="en">${description}</description>`) })).defs[0].title;
-    // Ascending sizes: a tag pattern that rescans to the end of the text from every "<" needs about 1 s for 100,000 of them, so a regression fails at the second size.
-    for (const count of [1000, 40_000, 200_000]) {
-      for (const [label, description, expected] of [
-        ['entities for "<"', '&lt;'.repeat(count) + 'x', '<'.repeat(200)], ['"<" alternating with text', '&lt;a'.repeat(count), '<a'.repeat(100)],
-        ['one closing ">" at the very end', `${'&lt;'.repeat(count)}&gt;`, ''], ['a tag, then the run', `&lt;b&gt;${'&lt;'.repeat(count)}`, '<'.repeat(200)],
-      ] as const) {
-        const result = timed(() => titled(description));
-        expect(result.value, `${count}: ${label}`).toBe(expected);
-        expect(result.ms, `${count}: ${label}`).toBeLessThan(250);
-      }
-    }
+    const xmlOf = (description: string) => document({ parts: part('R1', 'R', '0805'), sheets: sheet(inst('R1', 'G$1', 10, 10), '', `<description language="en">${description}</description>`) });
+    const titled = (description: string) => must(xmlOf(description)).defs[0].title;
+    const sizes = [1000, 40_000, 200_000];
+    const shapes: Array<[string, (count: number) => string, string]> = [
+      ['entities for "<"', count => '&lt;'.repeat(count) + 'x', '<'.repeat(200)], ['"<" alternating with text', count => '&lt;a'.repeat(count), '<a'.repeat(100)],
+      ['one closing ">" at the very end', count => `${'&lt;'.repeat(count)}&gt;`, ''], ['a tag, then the run', count => `&lt;b&gt;${'&lt;'.repeat(count)}`, '<'.repeat(200)],
+    ];
+    // Ascending sizes: a tag pattern that rescans to the end of the text from every "<" needs about 1 s for 100,000 of them, so a regression fails at the first pair.
+    for (const [label, description] of shapes) expectScaling(label, sizes, count => { const data = bytes(xmlOf(description(count))); return () => parseEagleSch({ name: 'test.sch', data }); });
+    for (const count of sizes) for (const [label, description, expected] of shapes) expect(titled(description(count)), `${count}: ${label}`).toBe(expected);
     expect(titled('Power &lt;b&gt;&amp;&lt;/b&gt;  input')).toBe('Power & input');
     expect(titled('a &lt;&lt;b&gt; c &lt; d')).toBe('a c < d');
     expect(titled('&lt;&gt;x&lt;&gt;')).toBe('x');
@@ -424,6 +428,23 @@ describe('multi-pad pins', () => {
     const clash = run(rows(['G$1', 'P1', '1'], ['G$1', 'P2', '1']));
     expect(codes(clash)).toContain('PAD_DUPLICATE'); expect(clash.defs[0].symbols[0].pins.map(p => p.id)).toEqual(['R1:G$1#1']);
     for (const result of [dup, split, clash]) { const ids = result.defs[0].symbols[0].pins.map(p => p.id); expect(new Set(ids).size).toBe(ids.length); }
+  });
+  it('keeps the first of several symbol pins with one name, so that pin ids stay unique (found by the parser fuzzer)', () => {
+    const doubled = TEST_LIB.replace(RES, RES.replace('</symbol>', '<pin name="P1" x="9" y="9" length="short" direction="pas"/><pin name="P1" x="8" y="8" length="short" direction="pas"/></symbol>'));
+    const result = must(document({ libraries: doubled + SUPPLY_LIB, parts: part('R1', 'R', '0805'), sheets: sheet(inst('R1', 'G$1', 0, 0), net('N', pinref('R1', 'G$1', 'P1'))) }));
+    const pins = symbolOf(result, 'R1:G$1').pins;
+    expect(pins.map(p => p.id)).toEqual(['R1:G$1#1', 'R1:G$1#2']);
+    point(pinOf(symbolOf(result, 'R1:G$1'), '1').at, -5.08, 0);
+    expect(codes(result).filter(c => c === 'PIN_DUPLICATE')).toHaveLength(1);
+    expect(result.diagnostics.find(d => d.code === 'PIN_DUPLICATE')?.message).toContain('2 pin(s)');
+    expect(result.declaredNets?.[0].pins.map(p => p.pinId)).toEqual(['R1:G$1#1']);
+  });
+  it('reads a pin with a very long pad list in time that grows linearly with the list (found by the parser fuzzer)', () => {
+    const many = (pads: number) => bytes(document({
+      libraries: TEST_LIB.replace(connects(['G$1', 'P1', '1'], ['G$1', 'P2', '2']), connects(['G$1', 'P1', Array.from({ length: pads }, (_, index) => index + 1).join(' ')], ['G$1', 'P2', 'B'])) + SUPPLY_LIB,
+      parts: part('R1', 'R', '0805'), sheets: sheet(inst('R1', 'G$1', 0, 0)),
+    }));
+    expectScaling('pads of one pin', [4000, 16_000, 64_000], pads => { const data = many(pads); return () => parseEagleSch({ name: 'test.sch', data }); });
   });
   it('ignores a later claim on an already connected pad instead of guessing', () => {
     const clash = TEST_LIB.replace(connects(['G$1', 'VIN', '1'], ['G$1', 'GND', '2 EP 9']), connects(['G$1', 'VIN', '1'], ['G$1', 'GND', '2 EP 1']));

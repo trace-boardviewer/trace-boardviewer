@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Board } from '../types';
 import { BoardFormatError, textInput } from './common';
 import { parseBrd } from './brd';
+import { expectScaling } from '../../test-support/timing';
 
 const mm = (mil: number) => mil * 0.0254;
 const parse = (text: string, name = 'board.brd') => parseBrd(textInput(text, name));
@@ -184,7 +185,7 @@ describe('Landrex / TestLink BRD', () => {
     const error = thrown('str_length:\n0\nvar_data:\n4 1 1 0\nFormat:\n0 0\n');
     expect(error.format).toBe('Landrex / TestLink BRD'); expect(error.code).toBe('INVALID_FORMAT');
   });
-  it('bounds the work for hostile section sizes (LIMIT_EXCEEDED before millions of rows are materialised)', { timeout: 60_000 }, () => {
+  it('bounds the work for hostile section sizes (LIMIT_EXCEEDED before millions of rows are materialised)', { timeout: 300_000 }, () => {
     const header = 'str_length:\n0\nvar_data:\n0 1 1 0\nParts:\nU1 1 1\nPins:\n1 1 1 1 N\n';
     expect(thrown(header.replace('0 1 1 0', '0 1 1 1000001')).message).toMatch(/record count/);
     const flood = `${header}Nails:\n${'1 1 1 1 N\n'.repeat(1_000_001)}`;
@@ -197,12 +198,14 @@ describe('Landrex / TestLink BRD', () => {
     for (let index = 0; index < LANDREX.length; index++) utf16[2 + index * 2] = LANDREX.charCodeAt(index);
     expect(parseBrd({ name: 'board.brd', data: utf16 })).toEqual(must(LANDREX));
   });
-  it('does not take quadratic time on whitespace-only or blank-line floods (the sniffing regexes must not cross lines)', { timeout: 60_000 }, () => {
-    for (const text of ['\n'.repeat(300_000), '\r\n'.repeat(150_000), ' \n'.repeat(150_000), `${'\n'.repeat(200_000)}str_length:\n${'\n'.repeat(200_000)}`]) {
-      const started = performance.now();
-      expect(parse(text)).toBeNull();
-      expect(performance.now() - started).toBeLessThan(2000); // linear: milliseconds unloaded; the quadratic regex needed minutes
-    }
+  it('does not take quadratic time on whitespace-only or blank-line floods (the sniffing regexes must not cross lines)', { timeout: 300_000 }, () => {
+    // The quadratic regex needed minutes for 300,000 characters and about 1 s for 20,000, so a regression fails at the first pair.
+    const floods: Array<[string, (size: number) => string]> = [
+      ['newlines', size => '\n'.repeat(size)], ['CRLF', size => '\r\n'.repeat(size / 2)], ['blank lines of one space', size => ' \n'.repeat(size / 2)],
+      ['blank lines around a keyword', size => `${'\n'.repeat(size * 2 / 3)}str_length:\n${'\n'.repeat(size * 2 / 3)}`],
+    ];
+    for (const [label, flood] of floods) expectScaling(label, [20_000, 80_000, 320_000], size => { const input = textInput(flood(size), 'board.brd'); return () => parseBrd(input); });
+    for (const [label, flood] of floods) expect(parse(flood(300_000)), label).toBeNull();
   });
   it('returns null for files without the BRD markers', () => {
     expect(parse('$HEADER\nGENCAD 1.4\n$ENDHEADER\n')).toBeNull();
@@ -305,21 +308,17 @@ describe('TOPTEST BRD2', () => {
 
   it('reads section headings and ignores a line of blanks cut by a line separator in linear time', () => {
     const separator = String.fromCharCode(0x2028);
-    const timed = <T>(work: () => T): { value: T; ms: number } => { const started = performance.now(); const value = work(); return { value, ms: performance.now() - started }; };
     const golden = must(BRD2);
-    // Ascending sizes: a heading pattern whose blank run and "rest of the line" share the spaces retries every length and needs about 1 s for 40,000 blanks, so a regression fails at the second size.
-    for (const count of [1000, 40_000, 200_000]) {
-      const blanks = ' '.repeat(count);
-      for (const [label, noise] of [['line separator after the text', `PINS:${blanks}x${separator}y`], ['two separators', `NAILS:${blanks}x${separator}${blanks}${separator}y`], ['a heading word that is no heading', `PINSX:${blanks}x${separator}y`]] as const) {
-        const result = timed(() => must(`${noise}\n${BRD2}`));
-        expect(result.value, `${count}: ${label}`).toEqual(golden);
-        expect(result.ms, `${count}: ${label}`).toBeLessThan(250);
-      }
+    const sizes = [1000, 40_000, 200_000];
+    const files: Array<[string, (blanks: string) => string]> = [
+      ['line separator after the text', blanks => `PINS:${blanks}x${separator}y\n${BRD2}`], ['two separators', blanks => `NAILS:${blanks}x${separator}${blanks}${separator}y\n${BRD2}`],
+      ['a heading word that is no heading', blanks => `PINSX:${blanks}x${separator}y\n${BRD2}`],
       // The same blanks after a real heading are skipped: the count is read behind them, whatever the blank characters are.
-      const spaced = timed(() => must(BRD2.replace('NETS: 3', `NETS:${blanks}\t3`).replace('PARTS: 3', `PARTS:${String.fromCharCode(0xa0)}${blanks}3`)));
-      expect(spaced.value, `${count}: spaced headings`).toEqual(golden);
-      expect(spaced.ms, `${count}: spaced headings`).toBeLessThan(250);
-    }
+      ['spaced headings', blanks => BRD2.replace('NETS: 3', `NETS:${blanks}\t3`).replace('PARTS: 3', `PARTS:${String.fromCharCode(0xa0)}${blanks}3`)],
+    ];
+    // Ascending sizes: a heading pattern whose blank run and "rest of the line" share the spaces retries every length and needs about 1 s for 40,000 blanks, so a regression fails at the first pair.
+    for (const [label, file] of files) expectScaling(label, sizes, count => { const input = textInput(file(' '.repeat(count)), 'board.brd'); return () => parseBrd(input); });
+    for (const count of sizes) for (const [label, file] of files) expect(must(file(' '.repeat(count))), `${count}: ${label}`).toEqual(golden);
     // A heading whose rest holds a line separator is not a heading (it is a data row of the section above), exactly as before.
     expect(thrown(BRD2.replace('NETS: 3', `NETS: 3${separator}4`)).message).toMatch(/BRDOUT count does not match its header/);
   });
@@ -357,7 +356,6 @@ describe('BRD / BRD2 malformed input', () => {
     }
   });
 });
-
 
 // OpenBoardView conformance probes. The fixtures are original synthetic files modelled on BRDFile.cpp / BRD2File.cpp.
 const landrex = (parts: string[], pins: string[], format = ['0 0', '1000 0', '1000 500', '0 500']) =>
@@ -398,5 +396,27 @@ describe('Landrex / TestLink BRD: OpenBoardView edge conformance (synthetic, mod
     const board = must(landrex(['U1 5 2', 'R1 8 3'], ['100 100 1 1', '200 100 2 1 GND', '300 100 3 2 GND']));
     expect(pinRows(board)[0]).toEqual(['U1', '1', mm(100), mm(100), '', 'top']);
     expect(netNames(board)).toEqual(['GND']);
+  });
+});
+
+describe('Landrex / TestLink BRD export variants (original synthetic regressions)', () => {
+  it('accepts two extra signed var_data fields in both plain and encoded data without guessing an offset', () => {
+    const source = LANDREX.replace('4 3 7 2\n', '4 3 7 2 -1000 -500\n');
+    const encode = (value: string) => new TextEncoder().encode(value).map(byte => {
+      if (byte === 0 || byte === 10 || byte === 13) return byte;
+      const inverted = ~byte & 0xff; return ((inverted >>> 2) | (inverted << 6)) & 0xff;
+    });
+    const expected = must(LANDREX);
+    expect(must(source)).toEqual(expected);
+    expect(parseBrd({ name: 'board.brd', data: encode(source) })).toEqual(expected);
+    expect(thrown(source.replace('-1000 -500', '-1000 bad')).message).toMatch(/extra header value/);
+    expect(thrown(source.replace('-1000 -500', '-1000')).message).toMatch(/record counts/);
+  });
+  it('keeps a nail with an absent net and leaves a matching Lenovo pin disconnected', () => {
+    const source = 'str_length:\n0\nvar_data:\n0 1 1 1\nParts:\nU1 1 1\nPins:\n10 20 7 1\nNails:\n7 10 20 1\n';
+    const board = must(source);
+    expect(board.components.map(part => part.ref)).toEqual(['U1', 'TP:7']);
+    expect(board.pins.map(pin => pin.net)).toEqual(['', '']);
+    expect(thrown(source.replace('7 10 20 1\n', '7 10 20\n')).message).toMatch(/test point needs/);
   });
 });

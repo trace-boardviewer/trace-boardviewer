@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Board } from '../types';
 import { BoardFormatError, textInput } from './common';
 import { parseBdv } from './bdv';
+import { catching, expectScaling } from '../../test-support/timing';
 
 const inch = (value: number) => value * 25.4;
 const header = (count: number, tag: string) => Array.from({ length: count }, (_, index) => `; ${tag} header ${index + 1}`);
@@ -132,16 +133,16 @@ describe('Honhan BDV (plain)', () => {
       [text(lines(['0.0 1e999'], PINS)), /invalid outline Y/],
       [text(lines(['0.0 0x10'], PINS)), /invalid outline Y/],
       [text(lines(['0.0 inf'], PINS)), /invalid outline Y/],
-      [text(lines(['0.0 0.0 0.0'], PINS)), /two coordinates/],
+      [text(lines(['0.0 0.0 0.0 0.0'], PINS)), /two coordinates/],
       [withPins('Part U1'), /a Part line needs a reference and a side marker/],
       [withPins('Part U 1 (T)'), /a Part line needs a reference and a side marker/],
       [withPins('1 1 0.1 0.1 1 A 0'), /pin record appears before the first Part line/],
-      [withPins('Part U1 (T)', '1 1 0.1 0.1 1 A'), /a pin needs id, name, X, Y, layer, net and probe/],
+      [withPins('Part U1 (T)', '1 1 0.1 0.1 1'), /a pin needs id, name, X, Y, layer, net and an optional probe/],
       [withPins('Part U1 (T)', 'x 1 0.1 0.1 1 A 0'), /invalid pin id "x"/],
       [withPins('Part U1 (T)', '1 1 0.1 q 1 A 0'), /invalid pin Y "q"/],
       [withPins('Part U1 (T)', '1 1 0.1 0.1 1.5 A 0'), /invalid pin layer/],
       [withPins('Part U1 (T)', '1 1 0.1 0.1 1 A -1'), /invalid probe "-1"/],
-      [withPins('Part U1 (T)', '1 1 0.1 0.1 1 A B 0'), /invalid pin layer "A"/],
+      [withPins('Part U1 (T)', '1 1 0.1 0.1 BAD A 0'), /invalid pin layer "BAD"/],
       [text(lines(FORMAT, PINS, ['5 0.1 0.2 1 G1 (T) 11 VCC'])), /marker character before its probe number/],
       [text(lines(FORMAT, PINS, ['*5 0.1 0.2 1 G1 (T) 11'])), /a test point needs probe, X, Y, type, grid, side, net id and net/],
       [text(lines(FORMAT, PINS, ['*x 0.1 0.2 1 G1 (T) 11 VCC'])), /invalid probe/],
@@ -202,10 +203,12 @@ describe('Honhan BDV (plain)', () => {
 describe('Honhan BDV: very long numeric tokens', () => {
   it('reads a 40,000-digit coordinate and rejects a malformed one in linear time', () => {
     const withCorner = (corner: string) => text(lines(['0.000 0.000', '2.000 0.000', '2.000 1.000', corner]));
-    const started = performance.now();
-    expect(must(withCorner(`0.000 ${'0'.repeat(40_000)}1.000`))).toEqual(must(GOLDEN));
-    for (const token of [`${'1'.repeat(40_000)}x`, `${'1'.repeat(40_000)}e`, '1'.repeat(40_000)]) expect(thrown(withCorner(`0.000 ${token}`)).message).toMatch(/invalid/i);
-    expect(performance.now() - started).toBeLessThan(250);
+    const files = (size: number) => ({ padded: withCorner(`0.000 ${'0'.repeat(size)}1.000`), malformed: [`${'1'.repeat(size)}x`, `${'1'.repeat(size)}e`, '1'.repeat(size)].map(token => withCorner(`0.000 ${token}`)) });
+    // A pattern that retries every position of the digits needs about 1 s for 40,000 of them, so a regression fails at the first pair.
+    expectScaling('BDV coordinate', [2500, 10_000, 40_000], size => { const { padded, malformed } = files(size), data = [padded, ...malformed].map(bytes); return () => { parse(data[0]); for (const file of data.slice(1)) catching(() => parse(file))(); }; });
+    const { padded, malformed } = files(40_000);
+    expect(must(padded)).toEqual(must(GOLDEN));
+    for (const file of malformed) expect(thrown(file).message).toMatch(/invalid/i);
   });
 });
 
@@ -273,5 +276,57 @@ describe('Honhan BDV: OpenBoardView edge conformance (synthetic, modelled on BDV
     const board = must(text(lines(FORMAT, ['Part U1 (t)', '1  1  0.100 0.200  1  VCC  5', 'Part U2 T', '1  1  0.300 0.200  1  VCC  5'], [])));
     expect(board.components.map(c => c.side)).toEqual(['bottom', 'bottom']);
     expect(notes(board)).toContain('2 records have a side marker other than (T) or (B) and are placed on the bottom side, as OpenBoardView does.');
+  });
+});
+
+describe('Honhan BDV: record variants of real exports (original synthetic regressions)', () => {
+  it('accepts the optional zero radius column without changing the outline', () => {
+    expect(must(text(lines(FORMAT.map(row => `${row} 0`), PINS, NAILS)))).toEqual(must(GOLDEN));
+    const curved = must(text(lines(['0 0 0.25', '2 0 0', '2 1 0', '0 1 0'], PINS, [])));
+    expect(curved.outline).toEqual(must(text(lines(FORMAT, PINS, []))).outline);
+    expect(notes(curved)).toContain('1 outline point carries a non-zero radius; the outline is shown with straight segments, as OpenBoardView does.');
+    expect(thrown(text(lines(['0 0 NaN'], PINS, []))).message).toMatch(/invalid outline radius/);
+  });
+
+  it('reads comma-separated probe lists, wrapped continuations and an absent probe without altering pins or nets', () => {
+    const board = must(text(lines(FORMAT, ['Part U1 (T)', '1 A 1 0.100 0.200 1 N1 5,7,11', '13,17', ',19', '2 2 0.150 0.200 1 N2'], [])));
+    expect(pinRows(board)).toEqual([['U1', 'A 1', inch(0.1), inch(0.2), 'N1', 'top'], ['U1', '2', inch(0.15), inch(0.2), 'N2', 'top']]);
+    expect(thrown(text(lines(FORMAT, ['Part U1 (T)', '5,7'], []))).message).toMatch(/continuation appears before the first pin/);
+    expect(thrown(text(lines(FORMAT, ['Part U1 (T)', '1 1 0.1 0.2 1 N1 5,x'], []))).message).toMatch(/invalid probe/);
+    expect(thrown(text(lines(FORMAT, ['Part U1 (T)', '1 1 0.1 0.2 1 N1 5,'], []))).message).toMatch(/invalid probe/);
+  });
+
+  it('preserves blanks in a net column and ignores virtual nail annotations after the net', () => {
+    const board = must(text(lines(FORMAT, ['Part U1 (T)', '1 1 0.100 0.200 1 DRIVER LOW 5', '2 A 1 0.150 0.200 1 N2 7'], ['$5 0.1 0.2 1 A1 (T) #2 N1 V PIN TP1.1', '$7 0.15 0.2 2 A1 (B) #3 N2 VIA .'])));
+    expect(board.pins[0].net).toBe('DRIVER LOW');
+    expect(board.pins[1].number).toBe('A 1');
+    expect(board.pins.slice(2).map(pin => [pin.number, pin.net, pin.side])).toEqual([['5', 'N1', 'top'], ['7', 'N2', 'bottom']]);
+  });
+
+  it('gives a test point the whole net name when a pin already carries that name with blanks, and never invents a net from annotations', () => {
+    const board = must(text(lines(FORMAT, ['Part U1 (T)', '1 1 0.100 0.200 1 DRIVER  LOW 5'], ['$5 0.1 0.2 1 A1 (T) #2 DRIVER LOW V PIN TP1.1', '$7 0.15 0.2 2 A1 (B) #3 OTHER WORDS VIA .', '$9 0.2 0.2 2 A1 (B) #3 DRIVER ANNOTATION'])));
+    expect(board.pins.map(pin => pin.net)).toEqual(['DRIVER  LOW', 'DRIVER  LOW', 'OTHER', 'DRIVER']);
+    expect(board.nets.map(net => net.name)).toEqual(['DRIVER  LOW', 'OTHER', 'DRIVER']);
+  });
+
+  it('opens compact sections at a complete first record and reports shortened headers', () => {
+    const board = must(text(['<<format.asc>>', ...FORMAT, '<<pins.asc>>', '; compact header', 'Part U1 (T)', '1 1 0.1 0.2 1 N1', '<<nails.asc>>', '$5 0.1 0.2 1 A1 (T) #2 N1']));
+    expect(board.pins).toHaveLength(2);
+    expect(notes(board)).toEqual(['<<format.asc>>: read a shortened section header (0 of the usual 8 lines).', '<<pins.asc>>: read a shortened section header (1 of the usual 8 lines).', '<<nails.asc>>: read a shortened section header (0 of the usual 7 lines).']);
+  });
+
+  it.each(['le', 'be'])('recognizes BOM-marked UTF-16%s without changing the board', endian => {
+    const data = new Uint8Array(2 + GOLDEN.length * 2); data.set(endian === 'le' ? [0xff, 0xfe] : [0xfe, 0xff]);
+    for (let index = 0; index < GOLDEN.length; index++) data[2 + index * 2 + (endian === 'le' ? 0 : 1)] = GOLDEN.charCodeAt(index);
+    expect(must(data)).toEqual(must(GOLDEN));
+    expect(parse(Uint8Array.from([0xff, 0xfe, 0x41]))).toBeNull();
+  });
+
+  it('refuses a pin record longer than 16384 characters before it is split into fields, while a long probe continuation is still read', () => {
+    const error = thrown(text(lines(FORMAT, ['Part U1 (T)', `1 ${'A '.repeat(9000)}0.1 0.2 1 N1 5`], [])));
+    expect(error.code).toBe('LIMIT_EXCEEDED');
+    expect(error.message).toMatch(/longer than 16384 characters/);
+    const probes = Array.from({ length: 5000 }, (_, index) => index + 1).join(',');
+    expect(must(text(lines(FORMAT, ['Part U1 (T)', '1 A 0.1 0.2 1 N1 5', probes], []))).pins).toHaveLength(1);
   });
 });

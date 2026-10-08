@@ -1,0 +1,26 @@
+{
+  "help.title": "Raccourcis à portée de main",
+  "help.open": "Ouvrir un fichier",
+  "help.search": "Rechercher des composants",
+  "help.fit": "Carte entière",
+  "help.rotate": "Pivoter",
+  "help.measure": "Mesurer la distance",
+  "help.labels": "Étiquettes",
+  "help.note": "Note",
+  "help.zoom": "Zoom avant / arrière",
+  "help.layout": "Atelier / Focus",
+  "help.escape": "Effacer la surbrillance / arrêter la mesure",
+  "help.footer": "Molette : zoom sur le curseur. Glisser : déplacer la carte. Clic : sélectionner un composant ou une broche.",
+  "help.diagnosticReport": "Rapport de diagnostic de format…",
+  "help.diagnosticHint": "Décrit un fichier qui ne s’ouvre pas, sans son contenu.",
+
+  "recents.title": "Cartes récentes",
+  "recents.empty": "Aucun fichier n’a encore été ouvert.",
+  "recents.openOther": "Ouvrir un autre fichier",
+
+  "info.title": "Informations sur la carte",
+  "info.format": "Format",
+  "info.size": "Taille de la carte",
+  "info.counts": "Composants / broches / réseaux",
+  "info.footer": "Les guides montrent la connectivité des réseaux. Ils ne remplacent pas la géométrie des pistes de cuivre du fichier."
+}

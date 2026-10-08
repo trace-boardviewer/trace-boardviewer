@@ -1,0 +1,23 @@
+{
+  "notes.unresolvedTitle": "Notes non rattachées",
+  "notes.unresolvedIntro": "Ces notes enregistrées ne sont rattachées à aucun composant de cette carte. Rien n’a été supprimé. Copier le texte si besoin, puis supprimer l’entrée.",
+  "notes.unresolvedEmpty": "Aucune note non rattachée.",
+  "notes.wasAttachedTo": "Était rattachée à",
+  "notes.targetPart": "Composant",
+  "notes.copyText": "Copier le texte de la note",
+  "notes.measureVoltage": "Tension",
+  "notes.measureResistance": "Résistance",
+  "notes.measureOther": "Autre",
+  "notes.reasonComponentMissing": "Aucun composant de cette carte n’a ce repère ou cette position.",
+  "notes.reasonComponentAmbiguous": "Plusieurs composants de cette carte correspondent, aucun n’a donc été choisi.",
+  "notes.reasonPinMissing": "Le composant n’a pas de broche portant ce numéro ou cette position.",
+  "notes.reasonPinAmbiguous": "Plusieurs broches du composant correspondent, aucune n’a donc été choisie.",
+  "notes.reasonLegacyIdMissing": "La note a été enregistrée avec un identifiant interne que cette carte ne possède pas.",
+  "notes.reasonLegacyIndistinguishable": "Le composant ou la broche ne se distingue d’un autre ni par le nom ni par la position.",
+  "notes.reasonDuplicateTarget": "Une autre note est déjà rattachée au même composant ou à la même broche.",
+  "notes.fallbackDuplicateRef": "Plusieurs composants portent ce repère ; la note est donc liée à la position de ce composant sur la carte.",
+  "notes.fallbackUnnamedPart": "Le fichier ne donne aucun repère à ce composant ; la note est donc liée à sa position sur la carte.",
+  "notes.fallbackUnnamedPin": "Le fichier ne donne aucun numéro à cette broche ; la note est donc liée à sa position sur la carte.",
+  "notes.refusePart": "Aucune note ne peut être enregistrée pour ce composant : un autre composant de même repère se trouve exactement à la même position, les deux ne peuvent donc pas être distingués.",
+  "notes.refusePin": "Aucune note ne peut être enregistrée pour cette broche : une autre broche sans numéro se trouve exactement à la même position, les deux ne peuvent donc pas être distinguées."
+}

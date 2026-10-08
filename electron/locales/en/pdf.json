@@ -1,0 +1,19 @@
+{
+  "pdf.ocr.recognize": "Recognize text",
+  "pdf.ocr.recognizeTitle": "Reads the text of the pages without a text layer, on this computer. Nothing is uploaded.",
+  "pdf.ocr.stop": "Stop",
+  "pdf.ocr.pageOffer": "This page is an image without a text layer. Recognize its text to search it and to link board references.",
+  "pdf.ocr.documentOffer": "No text layer: this is a scanned or raster PDF. Recognize its text to search it and to link board references.",
+  "pdf.ocr.starting": "Starting text recognition…",
+  "pdf.ocr.running": "Recognizing text: page {page} ({done} of {total})",
+  "pdf.ocr.summary": "Recognized text · pages: {pages} · words: {words}",
+  "pdf.ocr.linkRule": "Recognized words are marked. Only exact board names read with a confidence of at least {floor}% become links.",
+  "pdf.ocr.cancelled": "Text recognition stopped after {done} of {total} pages. Recognized pages stay searchable.",
+  "pdf.ocr.timeouts": "Pages not recognized within the time limit: {pages}",
+  "pdf.ocr.failed": "Text recognition failed: {message}",
+  "pdf.ocr.unavailable": "Text recognition is not available here: {message}",
+  "pdf.ocr.badge": "Recognized text",
+  "pdf.ocr.badgeTitle": "Text recognized by OCR on this computer, average confidence {confidence}%",
+  "pdf.ocr.wordTitle": "Recognized text, confidence {confidence}%",
+  "pdf.ocr.linkLabel": "{name}, recognized text, confidence {confidence}%"
+}

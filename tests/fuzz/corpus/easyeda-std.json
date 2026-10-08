@@ -1,0 +1,92 @@
+[
+ {
+  "id": "69fd4906",
+  "kind": "valid",
+  "name": "std-board.json",
+  "text": "{\n  \"head\": {\n    \"docType\": \"3\",\n    \"editorVersion\": \"6.5.1\",\n    \"newgId\": true,\n    \"c_para\": {},\n    \"hasIdFlag\": true,\n    \"x\": \"400\",\n    \"y\": \"300\"\n  },\n  \"canvas\": \"CA~2400~2400~#000000~yes~#FFFFFF~10~1200~1200~line~1~mil~1~45~visible~0.5~400~300\",\n  \"shape\": [\n    \"TRACK~1~10~~100 100 500 100~gge1\",\n    \"TRACK~1~10~~500 100 500 400~gge2\",\n    \"TRACK~1~10~~500 400 100 400~gge3\",\n    \"TRACK~1~10~~100 400 100 100~gge4\",\n    \"LIB~200~200~package`R0603`value`10k`Contributor`synthetic`~0~~gge10~0#@$TEXT~P~190~188~0.7~0~~3~~4.5~R1~M 0 0 L 1 1~~gge11#@$PAD~RECT~195~200~3.2~3.6~1~NET_A~1~0~193.4 198.2 196.6 198.2 196.6 201.8 193.4 201.8~0~gge12~0~~Y~0#@$PAD~RECT~205~200~3.2~3.6~1~GND~2~0~203.4 198.2 206.6 198.2 206.6 201.8 203.4 201.8~0~gge13~0~~Y~0#@$TRACK~0.8~3~~190 196 210 196 210 204 190 204 190 196~gge14\",\n    \"LIB~300~300~package`C0603`value`100nF`~90~~gge20~0#@$TEXT~P~290~288~0.7~0~~4~~4.5~C1~M 0 0 L 1 1~~gge21#@$PAD~RECT~300~295~3.6~3.2~2~NET_A~1~0~298.2 293.4 301.8 293.4 301.8 296.6 298.2 296.6~0~gge22~0~~Y~0#@$PAD~RECT~300~305~3.6~3.2~2~GND~2~0~298.2 303.4 301.8 303.4 301.8 306.6 298.2 306.6~0~gge23~0~~Y~0#@$TRACK~0.8~4~~296 290 304 290 304 310 296 310 296 290~gge24\",\n    \"LIB~400~300~package`DIP-4`~0~~gge30~0#@$TEXT~P~390~284~0.7~0~~3~~4.5~U1~M 0 0 L 1 1~~gge31#@$PAD~RECT~390~310~6~6~11~VCC~1~1.4~387 307 393 307 393 313 387 313~0~gge32~0~~Y~0#@$PAD~ELLIPSE~390~300~6~6~11~NET_A~2~1.4~~0~gge33~0~~Y~0#@$PAD~OVAL~410~300~6~9~11~GND~3~1.4~410 297 410 303~0~gge34~0~~Y~0#@$PAD~ELLIPSE~410~310~6~6~11~~4~1.4~~0~gge35~0~~Y~0#@$TRACK~1~3~~385 295 415 295 415 315 385 315 385 295~gge36\",\n    \"PAD~ELLIPSE~450~350~5~5~1~TP_OUT~1~0~~0~gge40~0~~Y~0\",\n    \"PAD~ELLIPSE~120~120~6~6~11~~~1.6~~0~gge41~0~~Y~0\",\n    \"TRACK~1~1~NET_A~195 200 300 295~gge50\",\n    \"VIA~250~250~3.2~NET_A~0.8~gge51\",\n    \"COPPERAREA~2px~1~GND~150 150 250 150 250 250 150 250~1~solid~gge52~spoke~none~[]\",\n    \"TEXT~L~150~350~0.8~0~none~3~~8~LABEL~M 0 0 L 1 1~~gge53\",\n    \"HOLE~130~380~4~gge54\"\n  ],\n  \"layers\": [\n    \"1~TopLayer~#FF0000~true~true~true\",\n    \"2~BottomLayer~#0000FF~true~false~true\",\n    \"3~TopSilkLayer~#FFFF00~true~false~true\",\n    \"4~BottomSilkLayer~#808000~true~false~true\",\n    \"10~BoardOutline~#FF00FF~true~false~true\",\n    \"11~Multi-Layer~#C0C0C0~true~false~true\"\n  ],\n  \"DRCRULE\": {\n    \"trackWidth\": 0.7,\n    \"track2Track\": 0.7,\n    \"pad2Pad\": 0.8,\n    \"track2Pad\": 0.8,\n    \"hole2Hole\": 1,\n    \"holeSize\": 1.6\n  }\n}\n"
+ },
+ {
+  "id": "646b32c0",
+  "kind": "valid",
+  "name": "board.json",
+  "text": "{\"success\":true,\"result\":{\"dataStr\":{\"TRACK\":{\"gge6\":{\"gId\":\"gge6\",\"layerid\":\"1\",\"net\":\"S$7\",\"pointArr\":[{\"x\":357,\"y\":171},{\"x\":456,\"y\":171}],\"strokeWidth\":1}},\"PAD\":{\"gge8\":{\"gId\":\"gge8\",\"layerid\":\"11\",\"shape\":\"ELLIPSE\",\"x\":428,\"y\":179,\"net\":\"TP\",\"width\":6,\"height\":6,\"number\":\"1\",\"holeR\":1.8,\"pointArr\":[],\"rotation\":\"0\"}},\"VIA\":{\"gge11\":{\"gId\":\"gge11\",\"x\":441,\"y\":180,\"net\":\"\",\"diameter\":3.2,\"layerid\":11,\"holeR\":\"0.8\"}},\"TEXT\":{},\"DIMENSION\":{},\"FOOTPRINT\":{\"gge43\":{\"TRACK\":{\"gge45\":{\"gId\":\"gge45\",\"layerid\":\"3\",\"net\":\"\",\"pointArr\":[{\"x\":410.42,\"y\":148.31},{\"x\":425.54,\"y\":148.31}],\"strokeWidth\":1}},\"PAD\":{\"gge46\":{\"gId\":\"gge46\",\"layerid\":\"11\",\"shape\":\"RECT\",\"x\":413,\"y\":143,\"net\":\"VCC\",\"width\":3.2,\"height\":3.8,\"number\":\"1\",\"holeR\":1.4,\"pointArr\":[{\"x\":411.4,\"y\":141.1},{\"x\":414.6,\"y\":141.1},{\"x\":414.6,\"y\":144.9},{\"x\":411.4,\"y\":144.9}],\"rotation\":\"0\"},\"gge47\":{\"gId\":\"gge47\",\"layerid\":\"11\",\"shape\":\"ELLIPSE\",\"x\":418,\"y\":143,\"net\":\"SIG\",\"width\":3.9,\"height\":3.9,\"number\":\"2\",\"holeR\":1.4,\"pointArr\":[],\"rotation\":\"0\"},\"gge48\":{\"gId\":\"gge48\",\"layerid\":\"11\",\"shape\":\"ELLIPSE\",\"x\":423,\"y\":143,\"net\":\"GND\",\"width\":3.9,\"height\":3.9,\"number\":\"3\",\"holeR\":1.4,\"pointArr\":[],\"rotation\":\"0\"}},\"VIA\":{},\"TEXT\":{\"gge44\":{\"gId\":\"gge44\",\"layerid\":\"3\",\"type\":\"P\",\"x\":424.98,\"y\":123.59,\"rotation\":\"0\",\"mirror\":\"\",\"fontSize\":\"4.5\",\"text\":\"Q1\",\"pathStr\":\"M 1 1 L 2 2\",\"strokeWidth\":\"0.7\"}},\"ARC\":{\"gge49\":{\"gId\":\"gge49\",\"layerid\":\"3\",\"net\":\"\",\"d\":\"M425.58,148.27 A10.07,10.07 0 1,0 410.38,148.27\",\"c_helper_dots\":\"\",\"strokeWidth\":1}},\"RECT\":{},\"CIRCLE\":{},\"gId\":\"gge43\",\"itemOrder\":[\"gge44\",\"gge45\",\"gge46\",\"gge47\",\"gge48\",\"gge49\"],\"head\":{\"x\":\"417\",\"y\":\"140\",\"c_para\":\"package`TO-92`value`BC547`\",\"gId\":\"gge43\",\"layerid\":\"1\"},\"net\":\"\"}},\"ARC\":{\"gge22\":{\"gId\":\"gge22\",\"layerid\":\"10\",\"net\":\"\",\"d\":\"M425,92 A107.5,107.5 0 0 1 425,307\",\"c_helper_dots\":\"\",\"strokeWidth\":1},\"gge23\":{\"gId\":\"gge23\",\"layerid\":\"10\",\"net\":\"\",\"d\":\"M425,307 A107.5,107.5 -0 0,1 425,92\",\"c_helper_dots\":\"\",\"strokeWidth\":1}},\"RECT\":{},\"CIRCLE\":{},\"COPPERAREA\":{},\"SOLIDREGION\":{},\"DRCRULE\":{\"trackWidth\":0.7},\"FABRICATION\":{},\"SIGNALS\":{\"\":[{\"gId\":\"gge8\",\"cmd\":\"PAD\",\"layerid\":11,\"fid\":0}]},\"head\":{\"c_para\":null},\"layers\":{\"1\":{\"name\":\"TopLayer\",\"color\":\"#FF0000\",\"visible\":true,\"active\":true,\"config\":true},\"10\":{\"name\":\"BoardOutline\",\"color\":\"#FF00FF\",\"visible\":true,\"active\":false,\"config\":true}},\"BBox\":{\"x\":297,\"y\":75,\"width\":267,\"height\":238},\"itemOrder\":[\"gge43\",\"gge22\",\"gge23\",\"gge6\",\"gge8\"]}}}"
+ },
+ {
+  "id": "6c9b045f",
+  "kind": "valid",
+  "name": "board.json",
+  "text": "{\"head\":{\"docType\":\"3\"},\"canvas\":\"CA~1000~1000~#000000~yes~#FFFFFF~10~1200~1200~line~1~mil~1~45~visible~0.5~400~300\",\"shape\":[\"TRACK~1~10~~0 0 400 0~g1\",\"TRACK~1~10~~400 0 400 400~g1\",\"TRACK~1~10~~400 400 0 400~g1\",\"TRACK~1~10~~0 400 0 0~g1\",\"LIB~200~200~Designator`U7`BOM_Value`TL431`Package`SOT-23`~0~~g4~0#@$PAD~RECT~195~200~3~3~1~A~1~0~~0~g2~0~~Y~0\"]}"
+ },
+ {
+  "id": "da3fa9e8",
+  "kind": "valid",
+  "name": "board.json",
+  "text": "{\"head\":{\"docType\":\"3\"},\"canvas\":\"CA~1000~1000~#000000~yes~#FFFFFF~10~1200~1200~line~1~mil~1~45~visible~0.5~400~300\",\"shape\":[\"TRACK~1~10~~0 0 400 0~g1\",\"TRACK~1~10~~400 0 400 400~g1\",\"TRACK~1~10~~400 400 0 400~g1\",\"TRACK~1~10~~0 400 0 0~g1\",\"LIB~200~200~package`M`~0~~g4~0#@$TEXT~P~0~0~0.7~0~~3~~4.5~M1~M 0 0 L 1 1~~g3#@$PAD~RECT~195~200~3~3~2~A~1~0~~0~g2~0~~Y~0#@$PAD~RECT~205~200~3~3~2~B~2~0~~0~g2~0~~Y~0#@$PAD~RECT~200~210~3~3~1~C~3~0~~0~g2~0~~Y~0\",\"LIB~300~200~package`S`~0~~g4~0#@$TEXT~P~0~0~0.7~0~~4~~4.5~M2~M 0 0 L 1 1~~g3#@$PAD~RECT~295~200~3~3~11~A~1~0~~0~g2~0~~Y~0\",\"LIB~100~100~package`N`~0~~g4~0#@$TEXT~P~0~0~0.7~0~~1~~4.5~M3~M 0 0 L 1 1~~g3#@$PAD~RECT~95~100~3~3~11~A~1~0~~0~g2~0~~Y~0\"]}"
+ },
+ {
+  "id": "167d86ed",
+  "kind": "valid",
+  "name": "board.json",
+  "text": "{\"head\":{\"docType\":\"3\"},\"canvas\":\"CA~1000~1000~#000000~yes~#FFFFFF~10~1200~1200~line~1~mil~1~45~visible~0.5~400~300\",\"shape\":[\"LIB~200~200~package`R0603`value`10k`~0~~g4~0#@$TEXT~P~0~0~0.7~0~~3~~4.5~R1~M 0 0 L 1 1~~g3#@$PAD~RECT~195~200~3~3~1~A~1~0~~0~g2~0~~Y~0#@$PAD~RECT~205~200~3~3~1~B~2~0~~0~g2~0~~Y~0\",\"RECT~100~100~300~200~3~g5~0\",\"CIRCLE~250~250~100~1~4~g6~0\"]}"
+ },
+ {
+  "id": "9f27d596",
+  "kind": "valid",
+  "name": "board.json",
+  "text": "{\"head\":{\"docType\":\"3\"},\"canvas\":\"CA~1000~1000~#000000~yes~#FFFFFF~10~1200~1200~line~1~mil~1~45~visible~0.5~400~300\",\"shape\":[\"TRACK~1~10~~0 0 400 0~g1\",\"TRACK~1~10~~400 0 400 400~g1\",\"TRACK~1~10~~400 400 0 400~g1\",\"TRACK~1~10~~0 400 0 0~g1\",\"LIB~200~200~package`P`~0~~g4~0#@$TEXT~P~0~0~0.7~0~~3~~4.5~P1~M 0 0 L 1 1~~g3#@$PAD~POLYGON~200~200~0~0~1~N~1~0~190 190 210 190 205 210 195 210~0~g2~0~~Y~0\"]}"
+ },
+ {
+  "id": "e15566b8",
+  "kind": "valid",
+  "name": "board.json",
+  "text": "{\"head\":{\"docType\":\"3\"},\"canvas\":\"CA~1000~1000~#000000~yes~#FFFFFF~10~1200~1200~line~1~mil~1~45~visible~0.5~400~300\",\"shape\":[\"LIB~200~200~package`R0603`value`10k`~0~~g4~0#@$TEXT~P~0~0~0.7~0~~3~~4.5~R1~M 0 0 L 1 1~~g3#@$PAD~RECT~195~200~3~3~1~A~1~0~~0~g2~0~~Y~0#@$PAD~RECT~205~200~3~3~1~B~2~0~~0~g2~0~~Y~0\",\"ARC~1~10~~M 100,200 A 100,100 0 0,1 300,200~~g7~0\",\"ARC~1~10~~M 300,200 A 100,100 0 0,1 100,200~~g8~0\"]}"
+ },
+ {
+  "id": "835d300b",
+  "kind": "valid",
+  "name": "board.json",
+  "text": "{\"head\":{\"docType\":\"3\"},\"canvas\":\"CA~1000~1000~#000000~yes~#FFFFFF~10~1200~1200~line~1~mil~1~45~visible~0.5~400~300\",\"shape\":[\"TRACK~1~10~~0 0 200 0~g1\",\"TRACK~1~10~~200 0 200 200~g1\",\"TRACK~1~10~~200 200 0 200~g1\",\"TRACK~1~10~~0 200 0 0~g1\",\"LIB~100~100~package`X`~0~~g4~0#@$TEXT~P~0~0~0.7~0~~3~~4.5~X1~M 0 0 L 1 1~~g3#@$PAD~RECT~100~100~4~2~1~N~1~0~98.767949 98.133975 102.232051 100.133975 101.232051 101.866025 97.767949 99.866025~30~g2~0~~Y~0\"]}"
+ },
+ {
+  "id": "04286cf6",
+  "kind": "valid",
+  "name": "board.json",
+  "b64": "eyJoZWFkIjp7ImRvY1R5cGUiOiIzIn0sImNhbnZhcyI6IkNBfjEwMDB+MTAwMH4jMDAwMDAwfnllc34jRkZGRkZGfjEwfjEyMDB+MTIwMH5saW5lfjF+bWlsfjF+NDV+dmlzaWJsZX4wLjV+NDAwfjMwMCIsInNoYXBlIjpbIlRSQUNLfjF+MTB+fjAgMCA0MDAgMH5nMSIsIlRSQUNLfjF+MTB+fjQwMCAwIDQwMCA0MDB+ZzEiLCJUUkFDS34xfjEwfn40MDAgNDAwIDAgNDAwfmcxIiwiVFJBQ0t+MX4xMH5+MCA0MDAgMCAwfmcxIiwiTElCfjIwMH4yMDB+cGFja2FnZWBSMDYwM2B2YWx1ZWAxMGtgfjB+fmc0fjAjQCRURVhUflB+MH4wfjAuN34wfn4zfn40LjV+UjF+TSAwIDAgTCAxIDF+fmczI0AkUEFEflJFQ1R+MTk1fjIwMH4zfjN+MX5BfjF+MH5+MH5nMn4wfn5ZfjAjQCRQQUR+UkVDVH4yMDV+MjAwfjN+M34xfkJ+Mn4wfn4wfmcyfjB+fll+MCIsIkxJQn42MH42MH5wYWNrYWdlYFLpc2B+MH5+ZzR+MCNAJFRFWFR+UH4wfjB+MC43fjB+fjN+fjQuNX5SOX5NIDAgMCBMIDEgMX5+ZzMjQCRQQUR+UkVDVH41NX42MH4zfjN+MX5OfjF+MH5+MH5nMn4wfn5ZfjAiXX0="
+ },
+ {
+  "id": "17754243",
+  "kind": "error",
+  "name": "board",
+  "text": "{\"head\":{\"docType\":\"3\"},\"__proto__\":{\"polluted\":true},\"constructor\":{\"prototype\":{\"polluted\":true}},\"FOOTPRINT\":{\"__proto__\":{\"PAD\":{}},\"gge1\":{\"head\":{\"x\":\"1\",\"y\":\"1\",\"c_para\":\"package`P`\"},\"PAD\":{\"p\":{\"shape\":\"RECT\",\"layerid\":\"1\",\"x\":1,\"y\":1,\"width\":2,\"height\":2,\"net\":\"N\",\"number\":\"1\",\"pointArr\":[],\"rotation\":\"0\"}}}},\"TRACK\":{},\"PAD\":{},\"itemOrder\":[],\"layers\":{\"1\":{}}}"
+ },
+ {
+  "id": "c37b5d0d",
+  "kind": "error",
+  "name": "board.json",
+  "text": "{\"head\":{\"docType\":\"3\"},\"canvas\":\"CA~1000~1000~#000000~yes~#FFFFFF~10~1200~1200~line~1~mil~1~45~visible~0.5~400~300\",\"shape\":[\"TRACK~1~10~~0 0 400 0~g1\",\"TRACK~1~10~~400 0 400 400~g1\",\"TRACK~1~10~~400 400 0 400~g1\",\"TRACK~1~10~~0 400 0 0~g1\",\"LIB~200~200~package`R0603`value`10k`~0~~g4~0#@$TEXT~P~0~0~0.7~0~~3~~4.5~R1~M 0 0 L 1 1~~g3#@$PAD~RECT~195~200~3~3~1~A~1~0~~0~g2~0~~Y~0#@$PAD~RECT~205~200~3~3~1~B~2~0~~0~g2~0~~Y~0\",\"PAD~STAR~1~1~1~1~1~N~1~0~~0~g2~0~~Y~0\"]}"
+ },
+ {
+  "id": "66583835",
+  "kind": "error",
+  "name": "board.json",
+  "text": "{\"head\":{\"docType\":\"3\"},\"TRACK\":{},\"PAD\":{},\"FOOTPRINT\":{},\"itemOrder\":[],\"layers\":{\"1\":{\"name\":\"Top\"}}}"
+ },
+ {
+  "id": "4c6bab6d",
+  "kind": "error",
+  "name": "board",
+  "text": "{\"head\":{\"docType\":\"4\"},\"canvas\":\"CA~1000~1000~#000000~yes~#FFFFFF~10~1200~1200~line~1~mil~1~45~visible~0.5~400~300\",\"shape\":[\"PAD~RECT~1~1~1~1~1~~1~0~~0~g2~0~~Y~0\"]}"
+ },
+ {
+  "id": "d1d87a01",
+  "kind": "error",
+  "name": "board.json",
+  "text": "{\"head\":{\"docType\":\"3\"},\"canvas\":\"CA~1000~1000~#000000~yes~#FFFFFF~10~1200~1200~line~1~mil~1~45~visible~0.5~400~300\",\"shape\":[\"TRACK~1~10~~0 0 400 0~g1\",\"TRACK~1~10~~400 0 400 400~g1\",\"TRACK~1~10~~400 400 0 400~g1\",\"TRACK~1~10~~0 400 0 0~g1\",\"LIB~200~200~package`R0603`value`10k`~0~~g4~0#@$TEXT~P~0~0~0.7~0~~3~~4.5~R1~M 0 0 L 1 1~~g3#@$PAD~RECT~195~200~3~3~1~A~1~0~~0~g2~0~~Y~0#@$PAD~RECT~205~200~3~3~1~B~2~0~~0~g2~0~~Y~0\"]} trailing"
+ },
+ {
+  "id": "993170e5",
+  "kind": "null",
+  "name": "board",
+  "text": "{\"head\":{\"docType\":\"1\"},\"canvas\":\"CA~1\",\"shape\":[\"W~1 1 2 2~#000~1~0~none~g1\"]}"
+ }
+]

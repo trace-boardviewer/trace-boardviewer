@@ -1,0 +1,17 @@
+{
+  "settings.title": "Tvoj pracovný priestor",
+  "settings.appearance": "Vzhľad",
+  "settings.themeDark": "Tmavý",
+  "settings.themeLight": "Svetlý",
+  "settings.themeSystem": "Systémový",
+  "settings.layout": "Rozloženie",
+  "settings.language": "Jazyk",
+  "settings.languageHint": "Rozhranie sa prepne okamžite; údaje dosky, názvy sietí a tvoje osobné poznámky zostanú nezmenené.",
+  "settings.motion": "Jemné animácie",
+  "settings.motionHint": "Odozva pri výbere a v paneloch",
+  "settings.labels": "Popisky súčiastok",
+  "settings.labelsHint": "Označenia súčiastok, ktoré sa prispôsobujú priblíženiu",
+  "settings.connections": "Pomocné čiary spojení",
+  "settings.connectionsHint": "Priame čiary medzi vybraným pinom a padmi jeho siete",
+  "settings.autosave": "Nastavenia sa ukladajú automaticky."
+}

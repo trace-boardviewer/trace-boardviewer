@@ -1,8 +1,9 @@
 import { Buffer } from 'node:buffer';
-import { deflateSync, zlibSync } from 'fflate';
+import { deflateSync, unzlibSync, zlibSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 import { BoardFormatError, MAX_IMPORT_BYTES } from './common';
 import { inflateRaw, inflateZlib } from './compression';
+import { expectCostAtMost, expectScaling } from '../../test-support/timing';
 
 /** Deterministic xorshift32 bytes so every run inflates the same streams. */
 function randomBytes(length: number, seed = 0x9e3779b9): Uint8Array {
@@ -150,7 +151,7 @@ describe('zlib container negatives (B02)', () => {
       expect(() => inflateRaw(original.subarray(2), limit)).toThrow(/Invalid decompression limit/);
     }
   });
-  it('caps an expansion bomb at the 64 MiB import limit by default (LIMIT_EXCEEDED, no unbounded allocation)', { timeout: 120_000 }, () => {
+  it('caps an expansion bomb at the 64 MiB import limit by default (LIMIT_EXCEEDED, no unbounded allocation)', { timeout: 300_000 }, () => {
     const bomb = zlibSync(new Uint8Array(MAX_IMPORT_BYTES + 1), { level: 1 });
     expect(bomb.length).toBeLessThan(MAX_IMPORT_BYTES / 100);
     expect(failure(() => inflateZlib(bomb)).code).toBe('LIMIT_EXCEEDED');
@@ -211,16 +212,14 @@ describe('raw deflate stream negatives', () => {
 });
 
 describe('performance', () => {
-  it('inflates 16 MiB of compressible board text comfortably under two seconds', { timeout: 120_000 }, () => {
-    const data = compressible(16 * 1024 * 1024, 99);
-    const zlib = zlibSync(data, { level: 6 });
-    const start = performance.now();
-    const output = inflateZlib(zlib);
-    const elapsed = performance.now() - start;
-    expect(same(output, data)).toBe(true);
-    console.info(`inflateZlib: ${(zlib.length / 1024 / 1024).toFixed(2)} MiB -> 16 MiB in ${elapsed.toFixed(0)} ms`);
-    expect(elapsed).toBeLessThan(2000);
-  });
+  it('inflates 16 MiB of compressible board text in linear time and as fast as an established inflater', () => {
+    const MiB = 1024 * 1024;
+    const streams = new Map([1, 4, 16].map(size => [size, zlibSync(compressible(size * MiB, 99), { level: 6 })]));
+    expectScaling('inflating board text', [1, 4, 16], size => { const stream = streams.get(size)!; return () => inflateZlib(stream); });
+    // The reference is the inflater of the compression library the tests build their streams with, on the same stream: about 1.7 times its cost here, accepted up to 6 times.
+    expectCostAtMost('inflating 16 MiB', () => inflateZlib(streams.get(16)!), () => unzlibSync(streams.get(16)!), 6);
+    expect(same(inflateZlib(streams.get(16)!), compressible(16 * MiB, 99))).toBe(true);
+  }, 300_000);
 });
 
 describe('malformed streams never escape as a non-format exception', () => {

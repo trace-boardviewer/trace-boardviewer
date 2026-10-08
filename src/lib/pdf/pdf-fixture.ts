@@ -1,13 +1,16 @@
 /**
  * Minimal PDF 1.4 writer for tests and the browser harness only; the application never imports it.
  * It emits uncompressed objects with a correct cross-reference table: Helvetica text at explicit
- * positions, an optional grey raster XObject (a "scanned" page), a bookmark tree, raw annotation / page /
+ * positions, an optional grey raster XObject (a "scanned" page; `raster` places real 8-bit grey pixels such as rendered text, so
+ * the OCR tests can build synthetic scans), a bookmark tree, raw annotation / page /
  * catalog entries (security tests put scripts and external links there) and, through the `encryption` hook,
  * standard-security-handler encryption of stream data (`rc4Encryption` below supplies RC4-40/MD5).
  */
 export interface FixtureText { x: number; y: number; text: string; size?: number }
+/** An 8-bit DeviceGray image (top row first) drawn at `rect` in PDF user space (origin bottom-left; default: the whole page). */
+export interface FixtureRaster { width: number; height: number; data: Uint8Array; rect?: { x: number; y: number; width: number; height: number } }
 export interface FixturePage {
-  width?: number; height?: number; rotate?: 0 | 90 | 180 | 270; texts?: FixtureText[]; image?: boolean;
+  width?: number; height?: number; rotate?: 0 | 90 | 180 | 270; texts?: FixtureText[]; image?: boolean; raster?: FixtureRaster;
   /** Dictionary bodies (without the << >>) of annotations, e.g. `/Type /Annot /Subtype /Link /Rect [0 0 9 9] /A << /S /URI /URI (https://x.invalid/) >>`. */
   annotations?: string[];
   /** Extra entries of the page dictionary, e.g. `/AA << /O << /S /JavaScript /JS (...) >> >>`. */
@@ -62,9 +65,18 @@ export function buildPdfFixture(options: FixtureOptions): Uint8Array {
     const content: string[] = [];
     for (const text of page.texts ?? []) content.push(`BT /F1 ${text.size ?? 12} Tf 1 0 0 1 ${text.x} ${text.y} Tm ${literal(text.text)} Tj ET`);
     if (page.image) content.push(`q ${width * 0.6} 0 0 ${height * 0.4} ${width * 0.2} ${height * 0.3} cm /Im1 Do Q`);
+    let raster = 0;
+    if (page.raster) {
+      const { width: w, height: h, data, rect = { x: 0, y: 0, width, height } } = page.raster;
+      if (data.length !== w * h) throw new RangeError('raster data must be width x height bytes');
+      raster = reserve();
+      set(raster, stream(raster, `/Type /XObject /Subtype /Image /Width ${w} /Height ${h} /ColorSpace /DeviceGray /BitsPerComponent 8`, data));
+      content.push(`q ${rect.width} 0 0 ${rect.height} ${rect.x} ${rect.y} cm /Im2 Do Q`);
+    }
     const pageNumber = reserve();
     const contentNumber = add(stream(objects.length + 1, '', ascii(content.join('\n'))));
-    const resources = `/Resources << /Font << /F1 ${font} 0 R >>${image ? ` /XObject << /Im1 ${image} 0 R >>` : ''} >>`;
+    const xobjects = [image ? `/Im1 ${image} 0 R` : '', raster ? `/Im2 ${raster} 0 R` : ''].filter(Boolean).join(' ');
+    const resources = `/Resources << /Font << /F1 ${font} 0 R >>${xobjects ? ` /XObject << ${xobjects} >>` : ''} >>`;
     set(pageNumber, `<< /Type /Page /Parent ${pagesNode} 0 R /MediaBox [0 0 ${width} ${height}]${page.rotate ? ` /Rotate ${page.rotate}` : ''} ${resources} /Contents ${contentNumber} 0 R`
       + `${page.annotations?.length ? ` /Annots [${page.annotations.map(body => `<< ${body} >>`).join(' ')}]` : ''}${page.pageExtra ? ` ${page.pageExtra}` : ''} >>`);
     pageNumbers.push(pageNumber);

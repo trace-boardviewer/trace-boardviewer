@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BoardFormatError, MAX_IMPORT_BYTES, textInput } from './common';
 import { parseEagle } from './eagle';
+import { catching, expectScaling } from '../../test-support/timing';
 
 // Original synthetic EAGLE XML written from the public eagle.dtd / Fusion ECAD ULP documentation; no vendor files.
 const DECLARATION = '<?xml version="1.0" encoding="utf-8"?>\n<!DOCTYPE eagle SYSTEM "eagle.dtd">\n';
@@ -301,9 +302,9 @@ describe('EAGLE board XML: expansion preflight (B22)', () => {
     expect(() => parse(grid(1000, 1001))).toThrow(/1001000 pins/);
   });
   it('B22: a plan of 4e8 pins from ~3 MB of XML fails immediately instead of allocating (completing at all proves nothing was materialized)', () => {
-    const started = performance.now();
     expect(() => parse(grid(20_000, 20_000))).toThrow(/400000000 pins/);
-    expect(performance.now() - started).toBeLessThan(20_000);
+    // The text grows with n and the plan with n squared: refusing the plan takes as long as reading the text. A reader that materialized the pins would need time and memory that grow with n squared.
+    expectScaling('refusing a plan of n x n pins', [2500, 5000, 10_000, 20_000], size => { const input = textInput(grid(size, size), 'synthetic.brd'); return catching(() => parseEagle(input)); });
   });
   it('counts each referenced package per element; unreferenced packages and size do not count', () => {
     const libs = library('lib', `${pkg('BIG', Array.from({ length: 2000 }, (_, index) => smd(String(index), index, 0, 1, 1)).join(''))}${pkg('R0603', `${smd('1', 0, 0, 1, 1)}${smd('2', 2, 0, 1, 1)}`)}`);

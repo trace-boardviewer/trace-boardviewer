@@ -1,0 +1,11 @@
+Pin list for board TRACE-SYN-1
+Exported by a test script
+
+Units: mil
+Component,Pin,Net,X,Y,Side
+R1,1,GND,1000,2000,T
+R1,2,VCC,1100,2000,T
+U7,1,+3V3,4000,1000,T
+U7,2,SDA,4050,1000,T
+C9,1,GND,6000,2000,B
+C9,2,+3V3,6100,2000,B

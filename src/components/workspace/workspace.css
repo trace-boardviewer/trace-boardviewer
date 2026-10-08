@@ -57,6 +57,7 @@
 .wsp-note-text{white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0;line-height:1.6}.wsp-note-foot{font-size:9px;color:var(--muted);margin:6px 0 0}
 .wsp-measures{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0}.wsp-measures>div{background:var(--bg);border:1px solid var(--line);padding:2px 7px;border-radius:6px;font-size:10px}.wsp-measures dt{display:inline;color:var(--muted)}.wsp-measures dd{display:inline;margin:0 0 0 6px}
 .wsp-add-note{width:100%;margin-bottom:8px}
+.wsp-lostnotes{list-style:none;margin:0;padding:0;display:grid;gap:8px;max-height:min(60vh,520px);overflow:auto}.wsp-lostnotes>li{margin:0}.wsp-lostnotes-head{display:flex;gap:7px;align-items:center;min-width:0;font-size:11px}.wsp-lostnotes-head>svg{flex:none;color:var(--accent)}.wsp-lostnotes-target{flex:1;min-width:0;overflow-wrap:anywhere}.wsp-lostnotes-head .tool-button{width:24px;height:24px;flex:none}.wsp-fallback-note{font-size:10px;color:var(--accent);line-height:1.6;margin:0 0 8px}.note-info{width:auto;grid-auto-flow:column;gap:4px;padding:0 5px;font-size:10px}
 .wsp-measure-fields{border:0;margin:14px 0 0;padding:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.wsp-measure-fields legend{font-size:11px;color:var(--muted);margin-bottom:9px;padding:0;float:left;width:100%}.wsp-measure-fields label{display:grid;gap:5px;font-size:11px;color:var(--muted)}
 .wsp-measure-fields input{padding:9px 10px;background:var(--bg);border:1px solid var(--line);border-radius:7px;font-size:12px;min-width:0}.wsp-measure-fields input:focus-visible{outline:0;border-color:var(--accent)}
 .wsp-measure-fields legend+label{clear:left}
@@ -131,3 +132,4 @@
 .wsp-net-facts{display:grid;gap:3px;margin-bottom:8px}.wsp-candidate-chips{grid-column:1/-1;display:flex;gap:4px;flex-wrap:wrap}.wsp-candidate-chips:empty{display:none}.wsp-candidate-chips .wsp-chip{margin-left:0}
 .wsp-net-candidate{grid-template-columns:minmax(0,1fr)}.wsp-net-candidate .wsp-candidate-where,.wsp-net-candidate .wsp-candidate-choose{grid-column:1}
 @media (max-width:780px){.wsp-link-form{grid-template-columns:minmax(0,1fr)}.wsp-link-arrow{display:none}.wsp-link-columns{grid-template-columns:1fr}}
+.loading-track>span.determinate{animation:none;transition:width .2s ease-out}.loading-card .loading-cancel{margin:18px auto 0}.loading-overlay[data-stalled=true] .loading-card p{color:var(--text)}

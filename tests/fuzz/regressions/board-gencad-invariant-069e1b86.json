@@ -1,0 +1,7 @@
+{
+ "target": "board:gencad",
+ "finding": "invariant",
+ "note": "warning parse.warning.danglingNodes: a parameter is not a short text, a finite number or a boolean",
+ "name": "test.cad",
+ "text": "$HEADER\nGENCAD 1.4\nUNITS MM\n$ENDHEADER\n$BOARD\n$ENDBOARD\n$PADSTACKS\n$ENDPADSTACKS\n$SHAPES\nSHAPE S\nPIN 1 PS 2 3 TOP 0\n$ENDSHAPES\n$COMPONENTS\nCOMPONENT R1\nPLACE 10 20\nSHAPE S 0\n$ENDCOMPONENTS\n$DEVICES\n$ENDDEVICES\n$SIGNALS\nSIGNAL D\nNODE R1 ><a>><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a>1\n$ENDSIGNALS\n"
+}

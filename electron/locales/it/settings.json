@@ -1,0 +1,17 @@
+{
+  "settings.title": "Il tuo spazio di lavoro",
+  "settings.appearance": "Aspetto",
+  "settings.themeDark": "Scuro",
+  "settings.themeLight": "Chiaro",
+  "settings.themeSystem": "Sistema",
+  "settings.layout": "Layout",
+  "settings.language": "Lingua",
+  "settings.languageHint": "L'interfaccia cambia all'istante; i dati della scheda, i nomi dei net e le tue note personali restano invariati.",
+  "settings.motion": "Animazioni discrete",
+  "settings.motionHint": "Riscontro visivo per selezioni e pannelli",
+  "settings.labels": "Etichette dei componenti",
+  "settings.labelsHint": "Riferimenti che si adattano allo zoom",
+  "settings.connections": "Linee ausiliarie di connessione",
+  "settings.connectionsHint": "Linee rette tra il pin selezionato e i pad del suo net",
+  "settings.autosave": "Le impostazioni vengono salvate automaticamente."
+}

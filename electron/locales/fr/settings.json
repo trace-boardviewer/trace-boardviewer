@@ -1,0 +1,17 @@
+{
+  "settings.title": "Votre espace de travail",
+  "settings.appearance": "Apparence",
+  "settings.themeDark": "Sombre",
+  "settings.themeLight": "Clair",
+  "settings.themeSystem": "Système",
+  "settings.layout": "Disposition",
+  "settings.language": "Langue",
+  "settings.languageHint": "L’interface change immédiatement ; les données de la carte, les noms de réseaux et les notes personnelles restent inchangés.",
+  "settings.motion": "Animations discrètes",
+  "settings.motionHint": "Retour visuel pour les sélections et les panneaux",
+  "settings.labels": "Étiquettes des composants",
+  "settings.labelsHint": "Repères qui s’adaptent au zoom",
+  "settings.connections": "Guides de connexion",
+  "settings.connectionsHint": "Lignes droites entre la broche sélectionnée et les pastilles de son réseau",
+  "settings.autosave": "Les paramètres sont enregistrés automatiquement."
+}

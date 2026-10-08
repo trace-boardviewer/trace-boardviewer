@@ -1,4 +1,4 @@
-import { AlertCircle, Keyboard } from 'lucide-react';
+import { AlertCircle, Keyboard, StickyNote } from 'lucide-react';
 import { memo, useSyncExternalStore } from 'react';
 import type { SaveState, StatusStore } from '../../app/api';
 import type { Formatters, Translator } from '../../lib/i18n';
@@ -48,12 +48,15 @@ export interface StatusBarProps {
   store: StatusStore; fmt: Formatters; t: Translator;
   counts: { components: number; pins: number; nets: number };
   warnings: number; save: SaveState; persistence: 'native' | 'session-only'; breadcrumb: string;
-  onInfo(): void; onHelp(): void;
+  /** Notes not attached to any component of the board (0 hides the button). */
+  unresolvedNotes: number;
+  onInfo(): void; onHelp(): void; onUnresolvedNotes(): void;
 }
-export const StatusBar = memo(function StatusBar({ store, fmt, t, counts, warnings, save, persistence, breadcrumb, onInfo, onHelp }: StatusBarProps) {
+export const StatusBar = memo(function StatusBar({ store, fmt, t, counts, warnings, save, persistence, breadcrumb, unresolvedNotes, onInfo, onHelp, onUnresolvedNotes }: StatusBarProps) {
   return <footer className="statusbar" aria-label="Status">
     <div className="status-left"><span className="status-dot" /><span>{t('unit.components', { count: counts.components })}</span><span className="status-separator">·</span><span>{t('unit.pins', { count: counts.pins })}</span><span className="status-separator">·</span><span>{t('unit.nets', { count: counts.nets })}</span>
-      {warnings > 0 && <button type="button" className="data-info" title={t('status.fileInfo')} aria-label={t('status.fileInfo')} onClick={onInfo}><AlertCircle size={13} /></button>}</div>
+      {warnings > 0 && <button type="button" className="data-info" title={t('status.fileInfo')} aria-label={t('status.fileInfo')} onClick={onInfo}><AlertCircle size={13} /></button>}
+      {unresolvedNotes > 0 && <button type="button" className="data-info note-info" title={`${t('notes.unresolvedTitle')}: ${unresolvedNotes}`} aria-label={`${t('notes.unresolvedTitle')}: ${unresolvedNotes}`} data-testid="unresolved-notes-button" onClick={onUnresolvedNotes}><StickyNote size={13} /><span className="mono">{unresolvedNotes}</span></button>}</div>
     <LiveStatus store={store} fmt={fmt} />
     <div className="status-right"><SaveBadge save={save} persistence={persistence} /><span className="selection-breadcrumb mono" title={breadcrumb}>{breadcrumb}</span><button type="button" aria-label={t('status.shortcuts')} onClick={onHelp}><Keyboard size={15} /></button></div>
   </footer>;

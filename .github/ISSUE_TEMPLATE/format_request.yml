@@ -1,0 +1,64 @@
+name: Format request or file that does not open
+description: A board file does not open, or opens wrongly. Send the structure of the file, never the file.
+title: "[Format] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for telling us about a file that TRACE cannot read. **Please do not attach or paste the board file, a schematic or any proprietary, licensed or customer data.**
+
+        Instead, create the content-free diagnostic report in TRACE: **Help, then "Format diagnostic report..."**, choose the file, read the report and save it. The report holds counts, sizes and format facts only: no file name, no references, net names or values, no coordinates (see `docs/DIAGNOSTIC-REPORT.md`). TRACE reads the file on your computer and sends nothing anywhere; you decide what goes into this form.
+  - type: input
+    id: format
+    attributes:
+      label: Which format or software wrote the file?
+      description: For example "Landrex BRD", "BVRAW_FORMAT_3", "Allegro 17.4", "KiCad 9", or the name of the vendor tool. Only names, not the file.
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happens when you open it?
+      description: Nothing opens, an error message, or the board looks wrong (mirrored, wrong size, missing parts)? Copy the message if there is one, as long as it shows no private data.
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: Diagnostic report (JSON)
+      description: Paste the text of the report that TRACE showed in Help, "Format diagnostic report...", or the content of the file you saved. Read it first; it is exactly what you share. Leave this empty if you prefer to describe the problem in words.
+      render: json
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: TRACE version
+      description: The version in the file name of the download, for example 1.3.0. It is also in the report.
+      placeholder: "1.3.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: system
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Linux (.deb)
+        - Linux (AppImage)
+        - Linux (other)
+        - Other
+    validations:
+      required: true
+  - type: checkboxes
+    id: no-board-file
+    attributes:
+      label: Privacy
+      options:
+        - label: I did not attach the board file and I am allowed to use it.
+          required: true
+        - label: I read the diagnostic report before pasting it, and it holds nothing I do not want to share.
+          required: false

@@ -1,5 +1,6 @@
 import { PdfError } from './document';
 import type { PdfHandle, TextItem } from './document';
+import { OCR_LINK_MIN_CONFIDENCE } from '../ocr/contract';
 
 /**
  * Text search and board cross-reference candidates over a PDF's text items.
@@ -18,6 +19,11 @@ import type { PdfHandle, TextItem } from './document';
  * (MAX_TOTAL_CANDIDATE_HITS recorded hits) and in work (MAX_CANDIDATE_WORK units: items, their length and tokens examined). Items are
  * scanned in index order, so a budget stop returns EXACTLY the hits a full scan would list up to that point and
  * discloses the cut (`truncated`, `limit`, `scannedItems`); nothing past the budget is ever allocated.
+ *
+ * Recognized text (OCR, `TextItem.source === 'ocr'`): every recognized word is searchable and its hits carry `source` and
+ * `confidence`, so the UI marks them. The reference scan takes a recognized word only at `minOcrConfidence` (default
+ * OCR_LINK_MIN_CONFIDENCE) or above; the exact-token rule above applies unchanged, so an OCR misreading ("CL" for C1) is a miss,
+ * never a wrong link.
  */
 export interface TextIndex {
   readonly pageCount: number;
@@ -40,6 +46,9 @@ export interface Hit {
    * substring; absent when upper-casing changed the item's length (e.g. "ß" -> "SS"), because the offset is then not reliable.
    */
   token?: string;
+  /** Set when the matched item is recognized text (OCR): its confidence 0-100 travels with the hit. */
+  source?: 'ocr';
+  confidence?: number;
 }
 export interface FindOptions { caseSensitive?: boolean; wholeWord?: boolean; maxHits?: number }
 export interface RefCandidate { kind: 'ref' | 'net'; name: string; hits: Hit[] }
@@ -59,6 +68,8 @@ export interface RefScanOptions {
   maxWork?: number;
   /** Cap per reference or net (default MAX_CANDIDATE_HITS). */
   maxHitsPerReference?: number;
+  /** Recognized words below this confidence are not scanned (default OCR_LINK_MIN_CONFIDENCE). */
+  minOcrConfidence?: number;
 }
 export interface RefCandidateScan {
   candidates: RefCandidate[];
@@ -87,6 +98,7 @@ const capToken = (value: string) => (value.length > MAX_HIT_TOKEN_LENGTH ? value
 const CHECKPOINT_WORK = 4096;
 
 const aborted = (message: string) => new PdfError('ABORTED', message);
+const originOf = (item: TextItem): Pick<Hit, 'source' | 'confidence'> => (item.source === 'ocr' ? { source: 'ocr', confidence: item.confidence ?? 0 } : {});
 
 export async function buildTextIndex(handle: PdfHandle, options: BuildTextIndexOptions = {}): Promise<TextIndex> {
   const maxItems = options.maxItems ?? MAX_INDEX_ITEMS;
@@ -115,6 +127,28 @@ export async function buildTextIndex(handle: PdfHandle, options: BuildTextIndexO
   }
   while (pageStarts.length < handle.pageCount + 1) pageStarts.push(items.length);
   return { pageCount: handle.pageCount, items, pageStarts, indexedPages, truncated: itemBound || failedPages > 0, ...(failedPages ? { failedPages } : {}) };
+}
+
+/**
+ * The index with recognized words added to their pages (after the page's own text items). Pages beyond `indexedPages` of a
+ * truncated index stay out, and the item bound still holds: words that do not fit make the result `truncated`.
+ */
+export function mergeRecognizedText(index: TextIndex, recognized: ReadonlyMap<number, readonly TextItem[]>, maxItems = MAX_INDEX_ITEMS): TextIndex {
+  if (!recognized.size) return index;
+  const items: TextItem[] = [];
+  const pageStarts: number[] = [0];
+  let cut = false;
+  for (let page = 1; page <= index.pageCount; page++) {
+    if (page <= index.indexedPages) {
+      for (let i = index.pageStarts[page - 1]; i < index.pageStarts[page]; i++) {
+        if (items.length >= maxItems) { cut = true; break; }
+        items.push(index.items[i]);
+      }
+      for (const item of recognized.get(page) ?? []) { if (items.length >= maxItems) { cut = true; break; } items.push(item); }
+    }
+    pageStarts.push(items.length);
+  }
+  return { pageCount: index.pageCount, items, pageStarts, indexedPages: index.indexedPages, truncated: index.truncated || cut, ...(index.failedPages ? { failedPages: index.failedPages } : {}) };
 }
 
 const wordChar = /[\p{L}\p{N}_]/u;
@@ -179,7 +213,7 @@ function* findSteps(index: TextIndex, query: string, options: FindOptions, signa
       if (options.wholeWord && (!isBoundary(haystack, position - 1) || !isBoundary(haystack, position + needle.length))) continue;
       hits.push({
         page: item.page, itemIndex: i, ...partialBox(item, position, needle.length, haystack.length), context: context(item.str, position, needle.length),
-        ...(haystack.length === item.str.length ? { token: capToken(item.str.slice(position, position + needle.length)) } : {}),
+        ...(haystack.length === item.str.length ? { token: capToken(item.str.slice(position, position + needle.length)) } : {}), ...originOf(item),
       });
       if (hits.length >= maxHits) return hits;
       from = position + needle.length;
@@ -246,6 +280,7 @@ function* refScanSteps(index: TextIndex, refs: ReadonlySet<string>, nets: Readon
   const maxTotal = budget(options.maxTotalHits, MAX_TOTAL_CANDIDATE_HITS);
   const maxWork = budget(options.maxWork, MAX_CANDIDATE_WORK);
   const maxPerReference = budget(options.maxHitsPerReference, MAX_CANDIDATE_HITS);
+  const minOcrConfidence = options.minOcrConfidence ?? OCR_LINK_MIN_CONFIDENCE;
   const lookup = new Map<string, RefCandidate[]>();
   const groups: RefCandidate[] = [];
   const register = (kind: RefCandidate['kind'], names: ReadonlySet<string>) => {
@@ -274,6 +309,7 @@ function* refScanSteps(index: TextIndex, refs: ReadonlySet<string>, nets: Readon
       yield;
       if (signal?.aborted) throw aborted('The reference scan was cancelled.');
     }
+    if (item.source === 'ocr' && !((item.confidence ?? 0) >= minOcrConfidence)) { scannedItems = i + 1; continue; } // too uncertain to link
     for (const { token, start } of tokens(item.str)) {
       if (work >= maxWork) { stop = 'work'; break scan; }
       work++;
@@ -282,7 +318,7 @@ function* refScanSteps(index: TextIndex, refs: ReadonlySet<string>, nets: Readon
         for (const group of matches) {
           if (group.hits.length >= maxPerReference) { capped = true; continue; }
           if (total >= maxTotal) { stop = 'total-hits'; break scan; } // checked BEFORE building the hit: nothing past the budget is allocated
-          group.hits.push({ page: item.page, itemIndex: i, ...partialBox(item, start, token.length, item.str.length), context: context(item.str, start, token.length), token: capToken(token) });
+          group.hits.push({ page: item.page, itemIndex: i, ...partialBox(item, start, token.length, item.str.length), context: context(item.str, start, token.length), token: capToken(token), ...originOf(item) });
           total++;
         }
       }

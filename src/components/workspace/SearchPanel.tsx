@@ -2,9 +2,11 @@ import { Clock3, FileText, LoaderCircle, Route, Search, StickyNote, X, CircuitBo
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
 import type { WorkspaceApi } from '../../app/api';
 import type { SearchRow } from '../../lib/crossprobe';
+import { annotatedComponentIds } from '../../lib/note-keys';
 import { symbolKey } from '../../lib/schematic/model';
 import type { BoardComponent, ViewSide } from '../../lib/types';
-import { flattenResults, GROUP_LABEL, listComponents, resultIdentity, rowKey } from './search-model';
+import { flattenResults, GROUP_LABEL, resultIdentity, rowKey } from './search-model';
+import { indexOfState } from './model';
 import type { FlatItem } from './search-model';
 import { useUi } from './ui-context';
 import { Highlight, naturalOrder, PartIcon, kindKey, sideBadgeKey, sideLabelKey, VirtualList } from './ui';
@@ -157,7 +159,7 @@ function ResultRow({ row, index, active, selected, query, annotated, onActivate 
 
 export function SearchResults({ api, ctl, className = '' }: { api: WorkspaceApi; ctl: SearchController; className?: string }) {
   const { state } = api;
-  const annotated = useMemo(() => new Set(state.notes.map(note => note.componentId)), [state.notes]);
+  const annotated = useMemo(() => annotatedComponentIds(state.board, state.notes), [state.board, state.notes]);
   const sch = state.probe.schematic;
   const isSelected = (row: SearchRow) => {
     switch (row.source) {
@@ -190,8 +192,10 @@ const ComponentRow = memo(function ComponentRow({ component, selected, annotated
 
 export function ComponentList({ api, side, allSides, resetKey }: { api: WorkspaceApi; side: ViewSide; allSides: boolean; resetKey: string }) {
   const { state, actions } = api;
-  const components = useMemo(() => listComponents(state.board, side, allSides, naturalOrder), [state.board, side, allSides]);
-  const annotated = useMemo(() => new Set(state.notes.map(note => note.componentId)), [state.notes]);
+  // The index sorts once per board and side (natural reference order); a side switch no longer re-sorts the whole board.
+  const index = indexOfState(state);
+  const components = useMemo(() => index?.componentsInOrder(allSides ? undefined : side) ?? [], [index, side, allSides]);
+  const annotated = useMemo(() => annotatedComponentIds(state.board, state.notes), [state.board, state.notes]);
   const actionsRef = useRef(actions); actionsRef.current = actions;
   const locate = useCallback((id: string) => actionsRef.current.selectComponent(id, { center: true, origin: 'search' }), []);
   const selectedIndex = components.findIndex(component => component.id === state.selection.componentId);
@@ -206,7 +210,7 @@ export function SearchPanel({ api, side, allSides, onAllSides, onRecents, inputR
   const ctl = useSearchController(api, inputRef, onActivated);
   const searching = ctl.query.trim().length > 0;
   const board = api.state.board;
-  const count = searching ? ctl.rows.length : board ? listComponents(board, side, allSides, naturalOrder).length : 0;
+  const count = searching ? ctl.rows.length : indexOfState(api.state)?.componentsInOrder(allSides ? undefined : side).length ?? 0;
   return <aside className="search-panel" aria-label={t('panel.components')}>
     <div className="pane-title"><span>{searching ? T.results : t('panel.components')}</span><span className="mono" data-testid="search-count">{fmt.count(count)}</span></div>
     <SearchField ctl={ctl} inputRef={inputRef} />

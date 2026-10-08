@@ -20,9 +20,9 @@ Keep customer boards, schematics, measurements, notes and identifying screenshot
 
 ## Adding or improving a translation
 
-TRACE speaks Hungarian (`hu`), English (`en`), German (`de`), French (`fr`), Italian (`it`), Slovak (`sk`), Polish (`pl`) and Ukrainian (`uk`). The interface (`src/lib/i18n.ts`) and the native shell (`electron/i18n.cjs`: file dialogs and error messages) read the same catalogs, `electron/locales/<lang>.json`, with identical lookup, plural and interpolation rules.
+TRACE speaks Hungarian (`hu`), English (`en`), German (`de`), French (`fr`), Italian (`it`), Slovak (`sk`), Polish (`pl`) and Ukrainian (`uk`). The interface (`src/lib/i18n.ts`) and the native shell (`electron/i18n.cjs`: file dialogs and error messages) read the same catalogs, `electron/locales/<lang>/<namespace>.json` (one folder per language, one file per feature area; see [docs/I18N.md](docs/I18N.md)), with identical lookup, plural and interpolation rules.
 
-- **Keys.** `en.json` and `hu.json` are the complete reference catalogs. Keys are semantic (`unit.pins`, `parse.error.empty`, `native.dialog.openTitle`), never the English wording, so improving a text never renames a key. Every catalog has exactly the keys of `en.json`.
+- **Keys.** `en/` and `hu/` are the complete reference catalogs. Keys are semantic (`unit.pins`, `parse.error.empty`, `native.dialog.openTitle`), never the English wording, so improving a text never renames a key. Every language has exactly the keys of `en/`, in the same namespace file. `node scripts/i18n.cjs add <key> ...` adds a key to all eight languages at once.
 - **Values.** A value is a string, or a plural object for counts, for example `{ "one": "{count} pin", "other": "{count} pins" }`. The form is chosen with the CLDR rules of the language from `params.count`, so list every category the language uses for whole numbers and always `other`: English, German, French, Italian `one`, `other`; Slovak `one`, `few`, `other`; Polish and Ukrainian `one`, `few`, `many`, `other`. Every plural form must contain `{count}`. Hungarian may use a plain string.
 - **Placeholders.** Copy `{name}` placeholders exactly; do not translate, rename, add or drop them. Numbers passed as parameters are formatted for the language automatically. The literal `$` in `$END{section}` and `${section}` is part of the GENCAD syntax and stays.
 - **Fixed tokens.** Keep `mm`, `MB`, `GENCAD`, `TRACE`, `.cad`, `.gcd`, version numbers and GENCAD record keywords (`PIN`, `PADSTACK`, `SHAPE`, ...) as they are, in Latin letters in every language. Do not translate or invent board data.
@@ -30,7 +30,7 @@ TRACE speaks Hungarian (`hu`), English (`en`), German (`de`), French (`fr`), Ita
 - **Check.** Run `pnpm test`. `src/lib/i18n.test.ts` checks key and placeholder parity, plural completeness, leftover English or Hungarian, alphabets, fixed tokens and native/web parity. When a text is identical to English on purpose (a cognate such as "Format", or EDA jargon such as "Pin"), add it with a short reason to the allow-list in that test.
 - **Review.** Describe the context of the texts you changed, ask a native speaker to review, and do not submit unreviewed machine translation. Switch the language in Settings and look at the screen before submitting.
 
-To add a language, create `electron/locales/<lang>.json` with all keys, then register the code in `LANGUAGES`, `LANGUAGE_NAMES`, `LOCALE_TAGS` and the catalog import in `src/lib/i18n.ts`, in `LANGUAGES`, `LOCALE_TAGS` and `catalogs` in `electron/i18n.cjs`, and in the README language table.
+To add a language, create `electron/locales/<lang>/` with every namespace file and all keys, then register the code as described in [docs/I18N.md](docs/I18N.md) (`LANGUAGES`, `LANGUAGE_NAMES`, `LOCALE_TAGS` in `src/lib/i18n.ts`, the language lists of `electron/i18n.cjs` and `scripts/i18n.cjs`, and the README language table).
 
 ## Pull requests and issues
 

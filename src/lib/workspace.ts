@@ -16,7 +16,8 @@ import type {
   DocumentAnnotation, DocumentBookmark, DocumentCalibration, DocumentCamera, DocumentKind, DocumentLocateResult,
   DocumentRecord, WorkspaceAliases, WorkspaceManifest, WorkspaceSplit, WorkspaceTab,
 } from './documents';
-import type { BoardNote } from './types';
+import { isKeyedNote, noteKeyText, normalizeName, sameNoteKey } from './note-keys';
+import type { BoardNote, KeyedNote, LegacyNote, NoteAnchor, NoteKey, NoteProblem } from './types';
 
 // i18n: pending (error texts are English with a stable `code`; the catalogs are frozen)
 
@@ -25,7 +26,7 @@ export const WORKSPACE_MODEL_LIMITS = Object.freeze({
   documents: WORKSPACE_LIMITS.documents, bookmarks: WORKSPACE_LIMITS.bookmarks, annotations: WORKSPACE_LIMITS.annotations,
   cameras: WORKSPACE_LIMITS.cameras, notes: WORKSPACE_LIMITS.notes, aliases: WORKSPACE_LIMITS.aliases,
   text: WORKSPACE_LIMITS.text, path: WORKSPACE_LIMITS.pathLength, id: WORKSPACE_LIMITS.id, measurement: WORKSPACE_LIMITS.measurement,
-  componentId: 256, alias: 256, timestamp: 40, page: 1_000_000, ratioMin: 0.2, ratioMax: 0.8,
+  componentId: 256, alias: 256, timestamp: 40, page: 1_000_000, anchor: 1e9, ratioMin: 0.2, ratioMax: 0.8,
 });
 const LIMITS = WORKSPACE_MODEL_LIMITS;
 const DOCUMENT_KINDS: readonly DocumentKind[] = Object.freeze(['pdf', 'image', 'schematic'] as const);
@@ -229,9 +230,45 @@ export function validateManifest(raw: unknown, expectedBoardKey: string): Worksp
 type NoteMeasurements = NonNullable<BoardNote['measurements']>;
 const MEASUREMENT_FIELDS = ['voltage', 'resistance', 'other'] as const;
 
+/** Same list as NOTE_PROBLEMS in electron/workspace.cjs (and the NoteProblem union in types.ts). */
+const NOTE_PROBLEMS: readonly NoteProblem[] = Object.freeze([
+  'component-missing', 'component-ambiguous', 'pin-missing', 'pin-ambiguous', 'legacy-id-missing', 'legacy-indistinguishable', 'duplicate-target',
+] as const);
+
+/** A reference or pin number as a key holds it: NFKC and trim, 1 to 256 characters (null when it is none). */
+function validateNoteName(value: unknown): string | null {
+  if (!isText(value, LIMITS.componentId, 1)) return null;
+  const name = normalizeName(value);
+  return name.length >= 1 && name.length <= LIMITS.componentId ? name : null;
+}
+function validateNoteAnchor(raw: unknown, bad: (field: string) => WorkspaceError, field: string): NoteAnchor {
+  if (!isObject(raw)) throw bad(field);
+  if (raw.side !== 'top' && raw.side !== 'bottom' && raw.side !== 'both') throw bad(`${field}.side`);
+  if (!isFiniteNumber(raw.x) || Math.abs(raw.x) > LIMITS.anchor) throw bad(`${field}.x`);
+  if (!isFiniteNumber(raw.y) || Math.abs(raw.y) > LIMITS.anchor) throw bad(`${field}.y`);
+  // `+ 0` turns a rounded -0 into 0, so a stored position never prints as "-0".
+  return { side: raw.side, x: Math.round(raw.x * 1000) / 1000 + 0, y: Math.round(raw.y * 1000) / 1000 + 0 };
+}
+/** Strict, canonical form of a stored key: names normalized, anchors rounded to 1 um, unknown fields dropped, a reference or an anchor required. */
+function validateNoteKey(raw: unknown, bad: (field: string) => WorkspaceError): NoteKey {
+  if (!isObject(raw)) throw bad('target');
+  const key: NoteKey = {};
+  if (raw.ref !== undefined) { const ref = validateNoteName(raw.ref); if (ref === null) throw bad('target.ref'); key.ref = ref; }
+  if (raw.at !== undefined) key.at = validateNoteAnchor(raw.at, bad, 'target.at');
+  if (key.ref === undefined && key.at === undefined) throw bad('target');
+  if (raw.pin !== undefined) { const pin = validateNoteName(raw.pin); if (pin === null) throw bad('target.pin'); key.pin = pin; }
+  if (raw.pinAt !== undefined) {
+    if (key.pin !== undefined) throw bad('target.pinAt');
+    key.pinAt = validateNoteAnchor(raw.pinAt, bad, 'target.pinAt');
+  }
+  return key;
+}
+
 /**
- * Notes: same limits as the native validator plus the pin-note fields. One note per component (or per
- * component+pin) is an invariant (B15): duplicates are malformed input and are rejected, never merged.
+ * Notes: same limits as the native validator plus the pin-note fields. A note names its target either by a key (`target`, see
+ * note-keys.ts) or, when it was written before keys existed, by the importer's positional ids (`componentId` and `pinId`, with an
+ * `unresolved` record once a migration could not place it); both kinds may share one list. One note per target is an invariant
+ * (B15): duplicates are malformed input and are rejected, never merged.
  */
 export function validateNotes(raw: unknown): BoardNote[] {
   if (!Array.isArray(raw)) throw new WorkspaceError('NOTES_INVALID', 'Invalid notes: not a list.');
@@ -243,16 +280,33 @@ export function validateNotes(raw: unknown): BoardNote[] {
     if (!isObject(note)) throw new WorkspaceError('NOTES_INVALID', `Invalid notes: notes[${index}].`);
     if (!isId(note.id)) throw bad('id');
     if (ids.has(note.id)) throw bad('id (duplicate)');
-    if (!isText(note.componentId, LIMITS.componentId, 1)) throw bad('componentId');
-    if (note.pinId !== undefined && !isText(note.pinId, LIMITS.componentId, 1)) throw bad('pinId');
+    let key: NoteKey | undefined;
+    if (note.target !== undefined) {
+      if (note.componentId !== undefined || note.pinId !== undefined || note.unresolved !== undefined) throw bad('target (a note has a target or a componentId, not both)');
+      key = validateNoteKey(note.target, bad);
+    } else {
+      if (!isText(note.componentId, LIMITS.componentId, 1)) throw bad('componentId');
+      if (note.pinId !== undefined && !isText(note.pinId, LIMITS.componentId, 1)) throw bad('pinId');
+    }
     if (!isText(note.text, LIMITS.text)) throw bad('text');
     if (!isTimestamp(note.updatedAt)) throw bad('updatedAt');
-    const target = `${note.componentId}\0${note.pinId === undefined ? '' : note.pinId}`;
-    if (targets.has(target)) throw bad(note.pinId === undefined ? 'componentId (duplicate note for this component)' : 'pinId (duplicate note for this pin)');
+    let unresolved: LegacyNote['unresolved'];
+    if (!key && note.unresolved !== undefined) {
+      if (!isObject(note.unresolved) || !NOTE_PROBLEMS.includes(note.unresolved.reason as NoteProblem) || !isTimestamp(note.unresolved.at)) throw bad('unresolved');
+      unresolved = { reason: note.unresolved.reason as NoteProblem, at: note.unresolved.at };
+    }
+    const target = key ? `K\0${noteKeyText(key)}` : `L\0${note.componentId}\0${note.pinId === undefined ? '' : note.pinId}`;
+    if (targets.has(target)) throw bad(key ? 'target (duplicate note for this target)' : note.pinId === undefined ? 'componentId (duplicate note for this component)' : 'pinId (duplicate note for this pin)');
     ids.add(note.id);
     targets.add(target);
-    const result: BoardNote = { id: note.id, componentId: note.componentId, text: note.text, updatedAt: note.updatedAt };
-    if (note.pinId !== undefined) result.pinId = note.pinId as string;
+    let result: BoardNote;
+    if (key) result = { id: note.id, target: key, text: note.text, updatedAt: note.updatedAt };
+    else {
+      const legacy: LegacyNote = { id: note.id, componentId: note.componentId as string, text: note.text, updatedAt: note.updatedAt };
+      if (note.pinId !== undefined) legacy.pinId = note.pinId as string;
+      if (unresolved) legacy.unresolved = unresolved;
+      result = legacy;
+    }
     if (note.measurements !== undefined) {
       if (!isObject(note.measurements)) throw bad('measurements');
       const measurements: NoteMeasurements = {};
@@ -721,7 +775,8 @@ export function removeAlias(manifest: WorkspaceManifest, kind: AliasKind, from: 
 // Notes helpers
 // ---------------------------------------------------------------------------------------------
 
-export interface NoteTarget { componentId: string; pinId?: string }
+/** What a note is about: the key of a part or pin (note-keys.ts). Never the importer's positional ids. */
+export type NoteTarget = NoteKey;
 export interface NotePatch {
   text?: string;
   /** Replaces the whole set of measurements; `null` or an empty object clears it. Omit to keep the stored ones. */
@@ -729,18 +784,19 @@ export interface NotePatch {
 }
 const noteInvalid = (message: string) => new WorkspaceError('NOTES_INVALID', `Invalid notes: ${message}.`);
 
-/** One note per (componentId) or (componentId + pinId); an empty pin id is an error, never "the whole component". */
-export function noteTarget(componentId: string, pinId?: string): NoteTarget {
-  if (!isText(componentId, LIMITS.componentId, 1)) throw noteInvalid('componentId');
-  if (pinId === undefined) return { componentId };
-  if (!isText(pinId, LIMITS.componentId, 1)) throw noteInvalid('pinId');
-  return { componentId, pinId };
+/** The canonical form of a key (names normalized, anchors rounded to 1 um). A key without reference and anchor, or with a malformed part, is an error. */
+export function noteTarget(key: NoteKey): NoteTarget {
+  return validateNoteKey(key, noteInvalid);
 }
-const sameTarget = (note: BoardNote, target: NoteTarget) => note.componentId === target.componentId && note.pinId === target.pinId;
 
-/** The note of exactly this target (a component note never answers for one of its pins, nor the reverse). */
-export function noteFor(notes: readonly BoardNote[], target: NoteTarget): BoardNote | undefined {
-  return notes.find(note => sameTarget(note, target));
+/** The note of exactly this target (a part note never answers for one of its pins, nor the reverse). */
+export function noteFor(notes: readonly BoardNote[], target: NoteTarget): KeyedNote | undefined {
+  return notes.find((note): note is KeyedNote => isKeyedNote(note) && sameNoteKey(note.target, target));
+}
+
+/** The list without the note of that id (the SAME array when there is none): how an unresolved note is deleted. */
+export function removeNote(notes: BoardNote[], id: string): BoardNote[] {
+  return notes.some(note => note.id === id) ? notes.filter(note => note.id !== id) : notes;
 }
 
 function normalizeMeasurements(raw: NoteMeasurements | null | undefined): NoteMeasurements | undefined {
@@ -767,7 +823,7 @@ const sameMeasurements = (a: NoteMeasurements | undefined, b: NoteMeasurements |
  * target is touched (B15).
  */
 export function upsertNote(notes: BoardNote[], target: NoteTarget, patch: NotePatch, now: string, newId: () => string): BoardNote[] {
-  const checked = noteTarget(target?.componentId, target?.pinId);
+  const checked = noteTarget(target);
   const existing = noteFor(notes, checked);
   const text = (patch.text === undefined ? existing?.text ?? '' : patch.text);
   if (typeof text !== 'string') throw noteInvalid('text');
@@ -777,8 +833,7 @@ export function upsertNote(notes: BoardNote[], target: NoteTarget, patch: NotePa
   if (trimmed === '' && !measurements) return existing ? notes.filter(note => note !== existing) : notes;
   if (existing && existing.text === trimmed && sameMeasurements(existing.measurements, measurements)) return notes;
   if (!isTimestamp(now)) throw noteInvalid('updatedAt');
-  const note: BoardNote = { id: existing?.id ?? '', componentId: checked.componentId, text: trimmed, updatedAt: now };
-  if (checked.pinId !== undefined) note.pinId = checked.pinId;
+  const note: KeyedNote = { id: existing?.id ?? '', target: checked, text: trimmed, updatedAt: now };
   if (measurements) note.measurements = measurements;
   if (existing) return notes.map(candidate => (candidate === existing ? note : candidate));
   if (notes.length >= LIMITS.notes) throw new WorkspaceError('TOO_MANY_NOTES', `Invalid notes: at most ${LIMITS.notes} notes can be saved for one board.`);

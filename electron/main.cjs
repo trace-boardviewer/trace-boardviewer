@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, net, session, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, session, shell } = require('electron');
 const fs = require('node:fs/promises');
 const fsSync = require('node:fs');
 const path = require('node:path');
@@ -10,14 +10,21 @@ const formats = require('./formats.cjs');
 const identity = require('./identity.cjs');
 const workspace = require('./workspace.cjs');
 const documents = require('./documents.cjs');
+const diagnostics = require('./diagnostics.cjs');
 const updates = require('./updates.cjs');
-const { createJsonStore, createByteBudget, readBounded, hasStreamSeparator } = require('./store.cjs');
+const support = require('./support.cjs');
+const { createEgress, createElectronFetch } = require('./net/egress.cjs');
+const { createJsonStore, createByteBudget, readBounded, hasStreamSeparator, renameWithRetry } = require('./store.cjs');
+const readingsFormat = require('./readings.cjs');
+const { createRepairStore } = require('./repair-store.cjs');
 
 // Bound for the primary file alone and for the primary plus every companion sidecar together.
 const MAX_BOARD_BYTES = 64 * 1024 * 1024;
 const MAX_NOTES_BYTES = 8 * 1024 * 1024;
 const MAX_CONFIG_BYTES = 2 * 1024 * 1024;
 const MAX_WORKSPACE_BYTES = 32 * 1024 * 1024;
+// A readings file picked for import (pack, CSV, OpenBoardData text) and a written export.
+const MAX_READINGS_FILE_BYTES = 64 * 1024 * 1024;
 // Bytes that concurrent reads (boards and documents together) may hold at once; a burst of opens
 // can never allocate more than this, whatever the sizes of the files.
 const MAX_INFLIGHT_READ_BYTES = 2 * MAX_BOARD_BYTES;
@@ -26,13 +33,15 @@ const MAX_READ_CANDIDATES = 64;
 const DEFAULT_SETTINGS = Object.freeze({
   theme: 'dark', layout: 'workshop', motion: true, showLabels: true, showConnections: true, updateCheck: true,
 });
-// Support notice (shown on every start, see src/components/SupportNotice.tsx). The links (Stripe, Ko-fi and the GitHub bug report form) live HERE
-// and nowhere else in the desktop app: the renderer sends an id over 'trace:open-support-link', never a URL, and only these three ids are ever opened.
+// Support notice (shown on every start, see src/components/SupportNotice.tsx) and the heart button of the top bar. The links (Stripe, Ko-fi, the GitHub bug
+// report form and the support page of the project website) live HERE and nowhere else in the desktop app: the renderer sends an id over
+// 'trace:open-support-link', never a URL, and only these four ids are ever opened.
 // The bug report form is an address of the one repository slug (electron/repository.json, read through updates.cjs).
 const SUPPORT_LINKS = Object.freeze({
   stripe: 'https://donate.stripe.com/7sYaEZeET2op8PxaGE5EY00',
   kofi: 'https://ko-fi.com/tracerboardview',
   bug: `https://github.com/${updates.REPOSITORY}/issues/new?template=bug_report.yml`,
+  support: 'https://trace-boardviewer.github.io/support.html',
 });
 // Update notification (see electron/updates.cjs and src/components/UpdateNotice.tsx): the renderer asks 'trace:check-for-updates' and gets a bare result; it never
 // sends a URL or a tag. The validated tag of the last check that found a newer release is kept HERE, and 'trace:open-update-page' opens the release page of exactly that tag.
@@ -45,9 +54,27 @@ const UPDATE_MAX_INTERVAL_MS = 60 * 60 * 1000;
 let nextUpdateRequestAt = 0;
 let lastUpdateAnswer = { status: 'unavailable' };
 let updateRequest = null;
+// The network layer (electron/net/egress.cjs): the only code of the main process that makes a request. Created on first use; every feature registers there
+// (the update check, for now) and its requests land in the activity log that Settings shows through the two 'trace:*-network-activity' channels below.
+let egress = null;
+function getEgress() {
+  if (!egress) {
+    const layer = createEgress({
+      // The in-memory partition 'trace-egress': no cookies or cache, no permissions, no downloads, only hosts some feature may reach.
+      fetchImpl: createElectronFetch({ session, isAllowed: (url) => layer.isAllowedUrl(url) }),
+      version: app.getVersion(), now: () => Date.now(),
+      // Read at the moment of each request from the committed settings, so a switch that was just turned off holds at once.
+      isEnabled: (setting) => config.settings[setting] === true,
+    });
+    layer.register(updates.FEATURE);
+    layer.register(support.FEATURE);
+    egress = layer;
+  }
+  return egress;
+}
 /** One request to the releases API: the answer for the renderer (status and version only), the remembered tag and the cooldown change together. */
 async function requestUpdateCheck() {
-  const result = await updates.checkForUpdate({ currentVersion: app.getVersion(), fetchImpl: (url, init) => net.fetch(url, init) });
+  const result = await updates.checkForUpdate({ currentVersion: app.getVersion(), egress: getEgress() });
   nextUpdateRequestAt = Date.now() + Math.min(UPDATE_MAX_INTERVAL_MS, Math.max(UPDATE_MIN_INTERVAL_MS, result.retryAfterMs || 0));
   availableUpdateTag = result.status === 'available' ? result.tag : null;
   lastUpdateAnswer = result.status === 'available' ? { status: 'available', version: result.version } : { status: result.status };
@@ -62,7 +89,7 @@ async function openExternalUrl(url) {
 // Errors that carry one of these codes keep the code readable by the renderer: Electron drops custom
 // error properties on the way through IPC, so the message starts with "[CODE] " and preload.cjs turns it
 // back into `error.code` (the clean text follows the prefix).
-const PUBLIC_CODE = /^(?:DOCUMENT_|EXPORT_|WORKSPACE_)[A-Z_]+$|^(?:STORE_CLOSING|BOARD_CLOSING|BOARD_MISMATCH|MANIFEST_INVALID)$/;
+const PUBLIC_CODE = /^(?:DOCUMENT_|EXPORT_|WORKSPACE_|READINGS_|DIAGNOSTIC_)[A-Z_]+$|^(?:STORE_CLOSING|BOARD_CLOSING|BOARD_MISMATCH|MANIFEST_INVALID)$/;
 // Language of every native message and dialog. It follows the saved setting (see loadConfig and
 // trace:save-settings), so a language switch in the renderer applies here immediately.
 let locale = i18n.LEGACY_LANGUAGE;
@@ -72,6 +99,8 @@ let config = { version: 1, settings: { ...DEFAULT_SETTINGS, language: locale }, 
 // One queued atomic store for the settings, the notes and the workspaces: a single shutdown gate
 // (B01) covers every write.
 let store = null;
+// The readings of every board family (electron/repair-store.cjs): its own queue, closed by the same quit sequence.
+let repairStore = null;
 const readBudget = createByteBudget(MAX_INFLIGHT_READ_BYTES);
 const exportsInFlight = new Set();
 let initialBoardPromise = null;
@@ -186,6 +215,18 @@ function getStore() {
   }
   return store;
 }
+let supportService = null;
+function getSupportService() {
+  if (!supportService) supportService = support.createSupportService({ store: getStore(), egress: getEgress });
+  return supportService;
+}
+function getRepairStore() {
+  if (!repairStore) {
+    repairStore = createRepairStore({ directory: app.getPath('userData'), t, fs, trusted: true });
+    if (quitting) void repairStore.beginShutdown();
+  }
+  return repairStore;
+}
 
 const nativeError = (message, code) => Object.assign(new Error(message), { code });
 function validateKey(key) {
@@ -245,11 +286,12 @@ function systemLanguages() {
 }
 
 // Notes (pin notes and measurements included) are validated by workspace.cjs, which keeps the same
-// limits as before: one note per target - (componentId) or (componentId + pinId) - is an invariant
-// (B15), so a second record for the same target would stay hidden in the UI and be dropped by the
-// next save; such an array is rejected on read and write alike. Notes written before pin notes existed
-// (id, componentId, text, updatedAt; one per component) satisfy the same rules unchanged: they have no
-// pinId, so each one is the component-level target, and no migration of stored files is needed.
+// limits as before: one note per target is an invariant (B15), so a second record for the same
+// target would stay hidden in the UI and be dropped by the next save; such an array is rejected on read
+// and write alike. A note's target is a key (reference and pin number, see src/lib/note-keys.ts) or, for
+// notes written before keys existed, the importer's positional ids (componentId, pinId), which the
+// renderer converts once when it opens the board (the validator reads both kinds in one list). Notes
+// written before pin notes existed (id, componentId, text, updatedAt) are positional notes of that kind.
 function notesValue(value) {
   try { return workspace.validateNotes(value); }
   catch (error) {
@@ -258,6 +300,16 @@ function notesValue(value) {
     throw error;
   }
 }
+
+// A positional note that no conversion has been tried on (a keyed note has `target`; a tried one carries `unresolved`).
+const pendingPositional = (note) => note !== null && typeof note === 'object' && !Array.isArray(note) &&
+  note.target === undefined && note.componentId !== undefined && note.unresolved === undefined;
+// The first save that replaces positional notes by their keyed form keeps the original file beside it, once, as `<notes file>.positional.bak`
+// (the store does it inside the write's own queue slot, see keepFirst in store.cjs). The renderer converts each positional id by looking it up in
+// the board as the current importer reads it; the copy keeps the old ids, the only record of what the notes pointed at, so the step can be undone
+// by hand. A save that still carries unconverted positional notes (an older writer) keeps nothing: nothing was converted.
+const positionalNotesCopy = (name, incoming) => (incoming.some(pendingPositional) ? undefined
+  : { name: `${name}.positional.bak`, when: (current) => Array.isArray(current) && current.some(pendingPositional) });
 
 // A missing config file is a brand-new profile; an unreadable one is damaged (defaults, Hungarian UI).
 const MISSING = Symbol('missing');
@@ -425,6 +477,100 @@ async function readBoard(filename, wanted = () => true) {
   }
 }
 
+// Format diagnostic report (Help > Format diagnostic report, electron/diagnostics.cjs, docs/DIAGNOSTIC-REPORT.md). The main process owns both dialogs:
+// the file is chosen HERE and its bytes go to the renderer's diagnostic worker under a neutral name (diagnostics.parserName: only an extension, or the
+// fixed role name of a companion-set member), so that neither the name, the folder nor the user's profile ever reaches the renderer or the report.
+// Nothing here touches the network or the clipboard; the report is validated against the closed schema again before the one file write.
+// The dedupe code is an HMAC under a random secret of this installation (diagnostic-secret.json in the profile); the secret never leaves this file.
+let diagnosticSecret = null;
+function getDiagnosticSecret() {
+  diagnosticSecret ??= (async () => {
+    const stored = await getStore().read('diagnostic-secret.json', { maxBytes: 4096, missing: null }).catch(() => null);
+    const existing = diagnostics.parseSecret(stored);
+    if (existing) return existing;
+    const created = diagnostics.newSecret();
+    // A secret that could not be stored still serves this session; the next one makes another (codes are then no longer comparable).
+    await getStore().write('diagnostic-secret.json', created, { maxBytes: 4096 }).catch(() => {});
+    return diagnostics.parseSecret(created);
+  })();
+  return diagnosticSecret;
+}
+
+async function readDiagnosticFile(filename) {
+  const requested = localAbsolutePath(filename);
+  if (hasStreamSeparator(requested, process.platform)) throw new Error(t('native.error.invalidPath'));
+  let handle;
+  let release = null;
+  try {
+    const canonical = await fs.realpath(requested);
+    if (hasStreamSeparator(canonical, process.platform)) throw new Error(t('native.error.invalidPath'));
+    handle = await fs.open(canonical, 'r');
+    const stat = await handle.stat();
+    if (!stat.isFile()) throw new Error(t('native.error.notAFile'));
+    if (stat.size > MAX_BOARD_BYTES) throw new Error(t('native.error.boardTooLarge', { max: 64 }));
+    const plan = await planCompanions(canonical, stat.size);
+    release = await readBudget.acquire(stat.size + plan.bytes, diagnosticOpen);
+    const contents = await readBounded(handle, stat.size, MAX_BOARD_BYTES, t, { checkpoint: diagnosticOpen });
+    const companions = await readCompanions(plan, diagnosticOpen);
+    const base = path.basename(canonical);
+    const member = formats.companionNames(base).length > 0;
+    // A single file is identified by its bytes alone (a renamed copy gives the same code); a set by its members' roles and bytes.
+    const code = diagnostics.dedupeCode(await getDiagnosticSecret(), [
+      { name: member ? base : '', data: contents },
+      ...Object.entries(companions ?? {}).map(([name, data]) => ({ name, data })),
+    ]);
+    return { name: diagnostics.parserName(base, member), data: exactBytes(contents), ...(companions ? { companions } : {}), os: diagnostics.osFamily(process.platform), dedupe: code };
+  } catch (error) {
+    if (error.code === 'DIAGNOSTIC_CLOSING') throw error;
+    if (error.code === 'ENOENT') throw new Error(t('native.error.boardNotFound'));
+    if (error.code === 'EACCES' || error.code === 'EPERM') throw new Error(t('native.error.boardNotReadable'));
+    if (typeof error.code === 'string' && error.code.startsWith('STORE_')) throw new Error(error.message);
+    if (error.code) throw new Error(t('native.error.boardReadFailed'));
+    throw error;
+  } finally {
+    if (handle) await handle.close();
+    if (release) release();
+  }
+}
+
+async function pickDiagnosticFile() {
+  diagnosticOpen();
+  const choice = await dialog.showOpenDialog(mainWindow, {
+    title: t('native.dialog.diagnosticPickTitle'), buttonLabel: t('native.dialog.diagnosticPickButton'), properties: ['openFile'],
+    // Any file may be diagnosed (an unrecognized one is the usual reason): "all files" first, then the format filters.
+    filters: [{ name: t('native.dialog.diagnosticAllFiles'), extensions: ['*'] }, ...formats.dialogFilters(t('native.dialog.openFilter'))],
+  });
+  if (choice.canceled || !choice.filePaths[0]) return null;
+  diagnosticOpen();
+  return readDiagnosticFile(choice.filePaths[0]);
+}
+
+async function saveDiagnosticReport(report) {
+  diagnosticOpen();
+  let text;
+  try { text = diagnostics.serializeReport(diagnostics.validateReport(report, { reviewed: true })); }
+  catch (error) {
+    console.warn('TRACE: a diagnostic report was refused:', error && error.message); // names a field, never a value
+    throw nativeError(t('native.error.diagnosticInvalid'), 'DIAGNOSTIC_INVALID');
+  }
+  diagnosticOpen(); // no await since the check: the last look before the dialog opens
+  const choice = await dialog.showSaveDialog(mainWindow, {
+    title: t('native.dialog.diagnosticSaveTitle'), buttonLabel: t('native.dialog.diagnosticSaveButton'),
+    // A bare name: the dialog starts where the user last saved, not next to the file that was examined.
+    defaultPath: 'trace-format-diagnostic.json', filters: [{ name: t('native.dialog.diagnosticSaveFilter'), extensions: ['json'] }],
+  });
+  if (choice.canceled || !choice.filePath) return null;
+  diagnosticOpen();
+  const target = /\.json$/i.test(choice.filePath) ? choice.filePath : `${choice.filePath}.json`;
+  const work = fs.writeFile(target, text, 'utf8');
+  exportsInFlight.add(work);
+  try { await work; }
+  catch { throw nativeError(t('native.error.diagnosticWriteFailed'), 'DIAGNOSTIC_WRITE_FAILED'); }
+  finally { exportsInFlight.delete(work); }
+  return { bytes: Buffer.byteLength(text, 'utf8') };
+}
+
+
 function acceptBoard(filename, key) {
   const checkedPath = boardPath(filename);
   const checkedKey = validateKey(key);
@@ -520,6 +666,7 @@ function refuseWhenClosing(code, message) {
 const exportOpen = () => refuseWhenClosing('EXPORT_CLOSING', 'The application is closing; the export was not started.'); // i18n: pending
 const boardOpen = () => refuseWhenClosing('BOARD_CLOSING', 'The application is closing; no board was opened.'); // i18n: pending
 const documentsOpen = () => refuseWhenClosing('DOCUMENT_CLOSING', 'The application is closing; no document was attached.'); // i18n: pending
+const diagnosticOpen = () => refuseWhenClosing('DIAGNOSTIC_CLOSING', t('native.error.diagnosticClosing'));
 
 async function exportWorkspace(value) {
   const request = exportRequest(value);
@@ -556,6 +703,94 @@ async function exportWorkspace(value) {
   })();
   exportsInFlight.add(work);
   try { return await work; } finally { exportsInFlight.delete(work); }
+}
+
+// Readings (docs/READINGS_FORMAT.md). The renderer never names a path: import and export go through dialogs that main opens, the import
+// returns the file's base name and text only (the renderer parses it with src/lib/readings and appends the events, which the repair
+// store validates natively again), and an export is a pack the renderer built that main validates and writes itself.
+const readingsOpen = () => refuseWhenClosing('READINGS_CLOSING', t('native.error.readingsClosing'));
+const readingsError = (message, code) => nativeError(message, code);
+
+async function importReadings() {
+  readingsOpen();
+  const choice = await dialog.showOpenDialog(mainWindow, {
+    title: t('native.dialog.readingsImportTitle'), buttonLabel: t('native.dialog.readingsImportButton'), properties: ['openFile'],
+    filters: [{ name: t('native.dialog.readingsImportFilter'), extensions: ['json', 'csv', 'tsv', 'txt'] }, { name: t('native.dialog.allFiles'), extensions: ['*'] }],
+  });
+  if (choice.canceled || !choice.filePaths[0]) return null;
+  readingsOpen();
+  const filename = localAbsolutePath(choice.filePaths[0]);
+  if (hasStreamSeparator(filename, process.platform)) throw new Error(t('native.error.invalidPath'));
+  let handle;
+  let release = null;
+  try {
+    handle = await fs.open(filename, 'r');
+    const stat = await handle.stat();
+    if (!stat.isFile()) throw readingsError(t('native.error.notAFile'), 'READINGS_NOT_A_FILE');
+    if (stat.size > MAX_READINGS_FILE_BYTES) throw readingsError(t('native.error.fileLimitExceeded'), 'READINGS_FILE_TOO_LARGE');
+    release = await readBudget.acquire(stat.size);
+    const bytes = await readBounded(handle, stat.size, MAX_READINGS_FILE_BYTES, t);
+    const text = readingsFormat.decodeImportText(bytes);
+    if (text === null) throw readingsError(t('native.error.readingsNotText'), 'READINGS_NOT_TEXT');
+    return { name: path.basename(filename), bytes: bytes.length, text };
+  } catch (error) {
+    if (error && typeof error.code === 'string' && error.code.startsWith('READINGS_')) throw error;
+    if (error && typeof error.code === 'string' && error.code.startsWith('STORE_')) throw readingsError(error.message, 'READINGS_FILE_UNREADABLE');
+    throw readingsError(t('native.error.readingsFileUnreadable'), 'READINGS_FILE_UNREADABLE');
+  } finally {
+    if (handle) await handle.close();
+    if (release) release();
+  }
+}
+
+function readingsExportRequest(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !['pack', 'csv'].includes(value.format) ||
+      (value.name !== undefined && (typeof value.name !== 'string' || value.name.length === 0 || value.name.length > 120))) {
+    throw readingsError(t('native.error.readingsInvalidRequest'), 'READINGS_INVALID_REQUEST');
+  }
+  // READINGS_INVALID / READINGS_TOO_MANY: the native twin of validatePack, licence marking included.
+  return { format: value.format, pack: readingsFormat.validatePack(value.pack), name: value.name };
+}
+
+async function exportReadings(value) {
+  const request = readingsExportRequest(value);
+  const text = request.format === 'csv' ? readingsFormat.packToCsv(request.pack) : readingsFormat.serializePack(request.pack);
+  const data = Buffer.from(text, 'utf8');
+  if (data.length > MAX_READINGS_FILE_BYTES) throw readingsError(t('native.error.readingsTooLarge', { max: 64 }), 'READINGS_TOO_LARGE');
+  readingsOpen();
+  const stem = documents.safeFileName(request.name ?? request.pack.board.label ?? request.pack.title ?? 'readings', 'readings');
+  const extension = request.format === 'csv' ? 'csv' : 'json';
+  const choice = await dialog.showSaveDialog(mainWindow, {
+    title: t('native.dialog.readingsExportTitle'), buttonLabel: t('native.dialog.readingsExportButton'),
+    defaultPath: request.format === 'csv' ? `${stem}.csv` : `${stem}.trace-readings.json`,
+    filters: [{ name: request.format === 'csv' ? t('native.dialog.readingsCsvFilter') : t('native.dialog.readingsPackFilter'), extensions: [extension] }],
+  });
+  if (choice.canceled || !choice.filePath) return null;
+  readingsOpen();
+  const chosen = localAbsolutePath(choice.filePath);
+  if (hasStreamSeparator(chosen, process.platform)) throw new Error(t('native.error.invalidPath'));
+  const target = chosen.toLowerCase().endsWith(`.${extension}`) ? chosen : `${chosen}.${extension}`;
+  const work = (async () => {
+    const temporary = `${target}.${process.pid}.${Date.now().toString(36)}.tmp`;
+    try {
+      await fs.writeFile(temporary, data, { flag: 'wx', mode: 0o600 });
+      await renameWithRetry(fs, temporary, target);
+    } catch (error) {
+      await fs.unlink(temporary).catch(() => {});
+      throw readingsError(t('native.error.dataSaveFailed'), 'READINGS_SAVE_FAILED');
+    }
+    return { name: path.basename(target), bytes: data.length, readings: request.pack.readings.length };
+  })();
+  exportsInFlight.add(work);
+  try { return await work; } finally { exportsInFlight.delete(work); }
+}
+
+function readingsReadOptions(value) {
+  if (value === undefined || value === null) return {};
+  if (typeof value !== 'object' || Array.isArray(value) || (value.headerOnly !== undefined && typeof value.headerOnly !== 'boolean')) {
+    throw readingsError(t('native.error.readingsInvalidRequest'), 'READINGS_INVALID_REQUEST');
+  }
+  return { headerOnly: value.headerOnly === true };
 }
 
 // Close/quit flush (W-fin-lifecycle-02, W-fin-documents-01). The renderer saves the workspace after a 400 ms quiet
@@ -595,6 +830,7 @@ async function flushForClose(window) {
       await answered;
     } catch { /* A renderer that cannot be reached has nothing left to flush. */ }
     if (store) await store.flush(); // The writes the renderer just issued, rename retries included.
+    if (repairStore) await repairStore.flush();
   })();
   await boundedWait(work, FLUSH_TIMEOUT_MS);
   flushWaiters.delete(id);
@@ -664,7 +900,8 @@ function installIpc() {
   handle('trace:save-notes', async (key, notes) => {
     const name = notesName(key);
     const checked = notesValue(notes);
-    try { await getStore().write(name, checked, { maxBytes: MAX_NOTES_BYTES }); }
+    const keepFirst = positionalNotesCopy(name, checked);
+    try { await getStore().write(name, checked, { maxBytes: MAX_NOTES_BYTES, ...(keepFirst ? { keepFirst } : {}) }); }
     catch (error) {
       if (error && error.code === 'STORE_TOO_LARGE') throw new Error(t('native.error.notesTooLarge', { max: 8 }));
       throw error;
@@ -694,11 +931,28 @@ function installIpc() {
   });
   handle('trace:locate-documents', (boardFile, requests) => documents.locateDocuments(boardFile, requests, documentContext()));
   handle('trace:export-workspace', exportWorkspace);
-  // Developer-facing text on purpose: the renderer only ever sends the three fixed ids, so users never see this message.
+  // Format diagnostic report: the first takes no argument (main opens the dialog), the second only the report object, which is validated again here.
+  handle('trace:diagnostic-pick', () => pickDiagnosticFile());
+  handle('trace:diagnostic-save', (report) => saveDiagnosticReport(report));
+  // Readings (repair store): families are named by their 64-hex id; every event is validated natively before it is written.
+  handle('trace:list-readings-families', () => getRepairStore().list());
+  handle('trace:read-readings', (familyId, options) => getRepairStore().read(familyId, readingsReadOptions(options)));
+  handle('trace:append-readings', (familyId, events) => getRepairStore().append(familyId, events));
+  handle('trace:import-readings', importReadings);
+  handle('trace:export-readings', exportReadings);
+  // Developer-facing text on purpose: the renderer only ever sends the four fixed ids, so users never see this message.
   handle('trace:open-support-link', async (id) => {
     if (typeof id !== 'string' || !Object.hasOwn(SUPPORT_LINKS, id)) throw new Error('Unknown support link.');
-    await openExternalUrl(SUPPORT_LINKS[id]);
+    let url = SUPPORT_LINKS[id];
+    if (id === 'stripe') {
+      const reference = await getSupportService().prepare();
+      if (reference.available) url += '?client_reference_id=' + reference.code;
+    }
+    await openExternalUrl(url);
   });
+  handle('trace:get-support-status', () => getSupportService().status());
+  handle('trace:prepare-support', () => getSupportService().prepare());
+  handle('trace:check-support', () => getSupportService().check());
   // No renderer argument is read by either update handler. Developer-facing text on purpose, like the support link above.
   handle('trace:check-for-updates', () => {
     const wait = nextUpdateRequestAt - Date.now();
@@ -711,6 +965,10 @@ function installIpc() {
     if (!availableUpdateTag) throw new Error('No update available.');
     await openExternalUrl(updates.RELEASE_PAGE_BASE + availableUpdateTag);
   });
+  // Network activity (Settings > Network): the registered features and the in-memory log of every request, read-only; the one write is emptying the log.
+  // Neither handler reads a renderer argument, and no channel lets the renderer name a URL, a feature or a host.
+  handle('trace:get-network-activity', () => ({ features: getEgress().features(), ...getEgress().activity() }));
+  handle('trace:clear-network-activity', () => { getEgress().clearLog(); });
   handle('trace:is-maximized', () => mainWindow.isMaximized());
   for (const [channel, action] of [
     ['trace:minimize', () => mainWindow.minimize()],
@@ -993,7 +1251,9 @@ if (!singleInstance) {
     // direct app.quit()); only then the store flips to "closing" (new writes are rejected with STORE_CLOSING) and the
     // promise resolves after every write accepted before that moment has been committed. Without a live renderer
     // the store closes at once, in this very turn.
-    const closeStore = () => Promise.allSettled([store ? store.beginShutdown() : Promise.resolve(), ...exportsInFlight]);
+    const closeStore = () => Promise.allSettled([
+      store ? store.beginShutdown() : Promise.resolve(), repairStore ? repairStore.beginShutdown() : Promise.resolve(), ...exportsInFlight,
+    ]);
     shutdown ??= (rendererFlushable(mainWindow) ? flushForClose(mainWindow).then(closeStore) : closeStore())
       .then(() => { finalQuit = true; app.quit(); });
   });

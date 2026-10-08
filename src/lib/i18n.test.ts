@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 import {
@@ -11,7 +11,7 @@ import {
 /**
  * Localization contract tests. Three groups:
  *  - pure functions and hu/en reference catalogs: always meaningful;
- *  - catalog-dependent checks for de/fr/it/sk/pl/uk: they inspect electron/locales/<lang>.json as the
+ *  - catalog-dependent checks for de/fr/it/sk/pl/uk: they inspect electron/locales/<lang>/<namespace>.json as the
  *    translators deliver it, and only report real defects once those catalogs are complete;
  *  - native/web parity: src/lib/i18n.ts and electron/i18n.cjs must produce identical text.
  * Everything uses the catalogs and synthetic values only; no board file is read.
@@ -36,7 +36,11 @@ const native = nativeRequire('../../electron/i18n.cjs') as NativeI18n;
 
 const projectFile = (relative: string): URL => new URL(`../../${relative}`, import.meta.url);
 const readText = (relative: string): string => readFileSync(projectFile(relative), 'utf8');
-const localeFile = (lang: Language): string => `electron/locales/${lang}.json`;
+/** The folder of a language's namespace files (electron/locales/<lang>/<namespace>.json), used in messages. */
+const localeFile = (lang: Language): string => `electron/locales/${lang}/`;
+/** The namespace files of a language with their text, in file-name order. */
+const namespaceFilesOf = (lang: Language): Array<{ name: string; text: string }> =>
+  readdirSync(projectFile(`electron/locales/${lang}`)).filter(name => name.endsWith('.json')).sort().map(name => ({ name, text: readText(`electron/locales/${lang}/${name}`) }));
 
 // ---------------------------------------------------------------------------------------------
 // Catalog helpers
@@ -238,7 +242,7 @@ describe('catalog completeness', () => {
     const english = new Set(EN_KEYS);
     const missing = EN_KEYS.filter(key => !own.has(key)).map(key => `missing key ${key}`);
     const extra = [...own].filter(key => !english.has(key)).map(key => `extra key ${key}`);
-    expectNoProblems([...missing, ...extra], `${localeFile(lang)} key set differs from en.json`);
+    expectNoProblems([...missing, ...extra], `${localeFile(lang)} key set differs from electron/locales/en/`);
   });
 
   it.each(LANGUAGES)('%s: values are non-empty strings (plural forms included), trimmed, NFC and free of control characters', (lang) => {
@@ -270,17 +274,18 @@ describe('catalog completeness', () => {
         for (const form of Object.keys(own)) if (!PLURAL_CATEGORIES.includes(form)) problems.push(`${key}: unknown plural category "${form}"`);
       }
     });
-    expectNoProblems(problems, `${localeFile(lang)} plural structure differs from en.json`);
+    expectNoProblems(problems, `${localeFile(lang)} plural structure differs from electron/locales/en/`);
   });
 
-  it.each(LANGUAGES)('%s: JSON file is BOM-free, has no duplicate keys and no encoding damage', (lang) => {
-    const text = readText(localeFile(lang));
+  it.each(LANGUAGES)('%s: JSON files are BOM-free, have no duplicate keys (also across namespaces) and no encoding damage', (lang) => {
     const problems: string[] = [];
-    if (text.charCodeAt(0) === 0xfeff) problems.push('file starts with a UTF-8 BOM');
-    const seen = new Set<string>();
-    for (const key of topLevelKeys(text)) {
-      if (seen.has(key)) problems.push(`duplicate key ${key}`);
-      seen.add(key);
+    const seen = new Map<string, string>();
+    for (const { name, text } of namespaceFilesOf(lang)) {
+      if (text.charCodeAt(0) === 0xfeff) problems.push(`${name} starts with a UTF-8 BOM`);
+      for (const key of topLevelKeys(text)) {
+        if (seen.has(key)) problems.push(`duplicate key ${key} (${seen.get(key)} and ${name})`);
+        seen.set(key, name);
+      }
     }
     // Mojibake: UTF-8 text decoded as a single-byte code page (e.g. "Ã©", "Ä…", "Ð¿") or replacement characters.
     const mojibake = /[ÃÂÅÄÐÑ][\u0080-¿ŒœŠšŸŽžƒˆ˜–—‘-„†-•…‰‹›€™]/;
@@ -501,7 +506,7 @@ describe('no leftover English or Hungarian', () => {
   it('the identical-to-English allow-list only names real keys and languages', () => {
     for (const table of [SAME_AS_ENGLISH, SAME_AS_HUNGARIAN]) {
       for (const [key, entry] of Object.entries(table)) {
-        expect(EN_KEYS, `allow-list key ${key} must exist in en.json`).toContain(key);
+        expect(EN_KEYS, `allow-list key ${key} must exist in the English catalog`).toContain(key);
         expect(entry.reason.length, `${key} needs a justification`).toBeGreaterThan(15);
         if (entry.languages !== 'all') for (const lang of entry.languages) expect(TRANSLATED).toContain(lang);
       }
@@ -779,11 +784,15 @@ function nativeWithout(removals: readonly Removal[]): NativeI18n {
   const source = readText('electron/i18n.cjs');
   const module = { exports: {} as unknown };
   const localRequire = (request: string): unknown => {
-    const match = /^\.\/locales\/([a-z]+)\.json$/.exec(request);
-    if (!match) return nativeRequire(request);
-    const copy = JSON.parse(readText(`electron/locales/${match[1]}.json`)) as Record<string, CatalogValue>;
-    for (const [lang, key] of removals) if (lang === match[1]) delete copy[key];
-    return copy;
+    if (request !== './locale-catalogs.cjs') return nativeRequire(request);
+    const real = nativeRequire('../../electron/locale-catalogs.cjs') as { loadCatalog(language: string): Record<string, CatalogValue> };
+    return {
+      loadCatalog: (language: string) => {
+        const copy = { ...real.loadCatalog(language) };
+        for (const [lang, key] of removals) if (lang === language) delete copy[key];
+        return copy;
+      },
+    };
   };
   new Function('module', 'exports', 'require', source)(module, module.exports, localRequire);
   return module.exports as NativeI18n;
@@ -1045,10 +1054,10 @@ describe('documentation', () => {
 });
 
 // These checks switch on automatically once electron/main.cjs uses the shared catalogs (t('native.…')).
-// main.cjs hands its translator to store.cjs and documents.cjs, so the keys they look up count as used too.
+// main.cjs hands its translator to store.cjs, repair-store.cjs and documents.cjs, so the keys they look up count as used too.
 const mainSource = readText('electron/main.cjs');
 const preloadSource = readText('electron/preload.cjs');
-const nativeKeySource = ['main', 'store', 'documents', 'workspace', 'identity', 'formats'].map(name => readText(`electron/${name}.cjs`)).join('\n');
+const nativeKeySource = ['main', 'store', 'repair-store', 'documents', 'workspace', 'identity', 'formats'].map(name => readText(`electron/${name}.cjs`)).join('\n');
 const nativeKeysUsed = [...nativeKeySource.matchAll(/\bt\(\s*'([^']+)'/g)].map(match => match[1]);
 const HUNGARIAN_LETTERS = /[áéíóöőúüűÁÉÍÓÖŐÚÜŰ]/;
 

@@ -1,3 +1,4 @@
+import { isSchDoc } from '../../electron/altium-sniff.mjs';
 import { xmlRoot } from '../../electron/xml-prolog.mjs';
 import { sniffImage } from '../lib/images';
 import type { DocumentKind } from '../lib/documents';
@@ -27,6 +28,7 @@ export function sniffDocument(data: Uint8Array): SniffedDocument | null {
   if (data.length < 5) return null;
   const pdfHead = text(data.subarray(0, Math.min(data.length, 1024)), 1024);
   if (pdfHead.includes('%PDF-')) return { kind: 'pdf', format: 'pdf' };
+  if (isSchDoc(data)) return { kind: 'schematic', format: 'altium-sch' };
   const image = sniffImage(data);
   if (image) return { kind: 'image', format: image };
   const head = text(data, HEAD_BYTES);

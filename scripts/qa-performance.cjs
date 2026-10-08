@@ -1,5 +1,13 @@
 'use strict';
 
+// Synthetic mode needs no private board: generated boards, the production app, a JSON report and the budget check (scripts/perf-synthetic.cjs).
+//   node scripts/qa-performance.cjs --synthetic=100k        (see the header of perf-synthetic.cjs for all options)
+// Without --synthetic this file measures a local GENCAD stress board (below).
+if (process.argv.some(argument => argument === '--synthetic' || argument.startsWith('--synthetic='))) {
+  require('./perf-synthetic.cjs').main(process.argv.slice(2)).then(code => { process.exitCode = code; }, error => { console.error(error instanceof RangeError ? error.message : error); process.exitCode = 2; });
+  return;
+}
+
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const assert = require('node:assert/strict');
@@ -8,7 +16,7 @@ const ROOT = path.resolve(__dirname, '..');
 const OUT = path.join(ROOT, 'test-results');
 const boardArgument = process.argv.find(argument => argument.startsWith('--board='));
 const sampleValue = boardArgument ? boardArgument.slice(8) : process.env.TRACE_TEST_BOARD;
-if (!sampleValue) { console.error('Provide a local GENCAD stress board with AC1/GND: TRACE_TEST_BOARD=/path/to/board.cad node scripts/qa-performance.cjs --label=before (or pass --board=/path/to/board.cad).'); process.exit(2); }
+if (!sampleValue) { console.error('Provide a local GENCAD stress board with AC1/GND: TRACE_TEST_BOARD=/path/to/board.cad node scripts/qa-performance.cjs --label=before (or pass --board=/path/to/board.cad), or measure generated boards with --synthetic=100k.'); process.exit(2); }
 const SAMPLE = path.resolve(sampleValue);
 const label = (process.argv.find(argument => argument.startsWith('--label=')) || '--label=before').slice(8);
 const profileZoom = process.argv.includes('--profile-zoom');

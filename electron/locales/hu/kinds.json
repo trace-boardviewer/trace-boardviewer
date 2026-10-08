@@ -1,0 +1,19 @@
+{
+  "kind.ic": "Integrált áramkör",
+  "kind.capacitor": "Kondenzátor",
+  "kind.resistor": "Ellenállás",
+  "kind.inductor": "Tekercs",
+  "kind.connector": "Csatlakozó",
+  "kind.diode": "Dióda",
+  "kind.transistor": "Tranzisztor",
+  "kind.crystal": "Kristály",
+  "kind.fuse": "Biztosíték",
+  "kind.resistorArray": "Ellenállás-hálózat",
+  "kind.ferrite": "Ferritgyöngy",
+  "kind.led": "LED",
+  "kind.testpoint": "Mérőpont",
+  "kind.switch": "Kapcsoló",
+  "kind.jumper": "Áthidaló",
+  "kind.mechanical": "Mechanikai elem",
+  "kind.part": "Alkatrész"
+}

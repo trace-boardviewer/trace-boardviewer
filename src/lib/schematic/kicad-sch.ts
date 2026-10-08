@@ -6,6 +6,7 @@
  * (counter-clockwise on screen) is applied first, then the mirror in the sheet frame, then the position. Everything
  * the model contains is absolute millimetres, Y down, snapped to the 0.0001 mm schematic grid.
  */
+import { boundText } from '../bounded-text';
 import {
   SCHEMATIC_LIMITS, SchematicError,
   type SchBounds, type SchDiagnostic, type SchField, type SchGraphic, type SchLabel, type SchPin, type SchPinType, type SchPoint,
@@ -70,7 +71,7 @@ class DiagSink {
   private readonly groups = new Map<string, { count: number; severity: SchSeverity; code: string; text: (n: number) => string; at?: SchPoint }>();
   constructor(private readonly defId: string) {}
   add(severity: SchSeverity, code: string, message: string, at?: SchPoint): void {
-    this.list.push({ severity, code, message, defId: this.defId, ...(at ? { at } : {}) });
+    this.list.push({ severity, code, message: boundText(message), defId: this.defId, ...(at ? { at } : {}) });
   }
   count(severity: SchSeverity, code: string, key: string, text: (n: number) => string, at?: SchPoint): void {
     const id = `${code}\u0000${key}`;

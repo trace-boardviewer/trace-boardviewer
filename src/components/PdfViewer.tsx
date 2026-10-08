@@ -6,8 +6,11 @@ import {
 } from 'lucide-react';
 import type { DocumentAnnotation, DocumentBookmark } from '../lib/documents';
 import { WORKSPACE_LIMITS } from '../lib/documents';
+import { createTranslator } from '../lib/i18n';
+import type { Translator } from '../lib/i18n';
+import { OCR_LINK_MIN_CONFIDENCE } from '../lib/ocr/contract';
 import type { OutlineEntry, PdfHandle, TextItem } from '../lib/pdf/document';
-import type { PdfSession, PdfSessionSnapshot } from '../lib/pdf/session-contract';
+import type { PdfPageTextKind, PdfSession, PdfSessionSnapshot } from '../lib/pdf/session-contract';
 import type { Hit } from '../lib/pdf/search';
 import {
   BoundedCache, TaskQueue, captureAnchor, clamp, clampZoom, computeLayout, createThrottle, currentPageIndex, displayRotation, displaySize, expandRange, fitZoom,
@@ -317,7 +320,7 @@ function textWidthAt100(text: string): number {
   return measureContext ? measureContext.measureText(text).width : text.length * 55;
 }
 
-function buildTextSpans(items: readonly TextItem[]): DocumentFragment {
+function buildTextSpans(items: readonly TextItem[], decorate?: (span: HTMLSpanElement, item: TextItem) => void): DocumentFragment {
   const fragment = document.createDocumentFragment();
   const count = Math.min(items.length, TEXT_SPAN_LIMIT);
   for (let i = 0; i < count; i++) {
@@ -325,6 +328,7 @@ function buildTextSpans(items: readonly TextItem[]): DocumentFragment {
     if (!(item.width > 0 && item.height > 0)) continue;
     const span = document.createElement('span');
     span.textContent = item.str;
+    decorate?.(span, item);
     const natural = textWidthAt100(item.str) / 100;
     // Rotated text is only known as its axis-aligned box: a tall box with a longer string is treated as text reading upwards.
     if (item.str.length >= 3 && item.height > item.width * 1.3) {
@@ -354,6 +358,28 @@ const PageTextLayer = memo(function PageTextLayer({ handle, page, box, rotation,
   return <div ref={ref} className="pdfv-text" style={{ width: box.width, height: box.height, transform: `matrix(${a},${b},${c},${d},${e},${f})` }} />;
 });
 
+/**
+ * Recognized words (OCR) of a page: selectable like the text layer, but VISIBLY marked - each word has a dotted frame (fainter
+ * below the link confidence) and says "recognized text, confidence N %" on hover - so recognized text is never mistaken for the PDF's own.
+ */
+const PageRecognizedLayer = memo(function PageRecognizedLayer({ items, box, rotation, zoom, t }: { items: readonly TextItem[]; box: PageBox; rotation: ViewerRotation; zoom: number; t: Translator }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const host = ref.current;
+    if (!host) return;
+    host.replaceChildren(buildTextSpans(items, (span, item) => {
+      const confidence = item.confidence ?? 0;
+      span.className = confidence >= OCR_LINK_MIN_CONFIDENCE ? 'pdfv-ocr-word' : 'pdfv-ocr-word is-low';
+      span.title = t('pdf.ocr.wordTitle', { confidence });
+    }));
+    return () => { host.replaceChildren(); };
+  }, [items, t]);
+  const [a, b, c, d, e, f] = pageMatrix(box.width, box.height, rotation, zoom);
+  return <div ref={ref} className="pdfv-text pdfv-text-ocr" data-ocr-words={items.length} style={{ width: box.width, height: box.height, transform: `matrix(${a},${b},${c},${d},${e},${f})` }} />;
+});
+
+const meanConfidence = (items: readonly TextItem[]) => (items.length ? Math.round(items.reduce((sum, item) => sum + (item.confidence ?? 0), 0) / items.length) : 0);
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Page overlays: highlights (under the text layer) and interactive probe regions / notes (above it)
 
@@ -369,9 +395,9 @@ const PageHighlights = memo(function PageHighlights({ box, rotation, zoom, hits,
   if (!hits.length && !highlights.length) return null;
   return (
     <div className="pdfv-hl" aria-hidden="true">
-      {highlights.filter(item => item.kind !== 'selection').map(item => <span key={item.id} className={`pdfv-xhl pdfv-xhl-${item.kind}${item.active ? ' is-active' : ''}`} style={placeRect(item.rect, box, rotation, zoom)} />)}
-      {hits.map((hit, i) => <span key={i} className={hit === active ? 'pdfv-hit is-active' : 'pdfv-hit'} style={placeRect(hit, box, rotation, zoom)} />)}
-      {highlights.filter(item => item.kind === 'selection').map(item => <span key={item.id} className={`pdfv-xhl pdfv-xhl-selection${item.active ? ' is-active' : ''}`} style={placeRect(item.rect, box, rotation, zoom)} />)}
+      {highlights.filter(item => item.kind !== 'selection').map(item => <span key={item.id} className={`pdfv-xhl pdfv-xhl-${item.kind}${item.active ? ' is-active' : ''}${item.confidence !== undefined ? ' is-ocr' : ''}`} style={placeRect(item.rect, box, rotation, zoom)} />)}
+      {hits.map((hit, i) => <span key={i} className={`pdfv-hit${hit === active ? ' is-active' : ''}${hit.source === 'ocr' ? ' is-ocr' : ''}`} style={placeRect(hit, box, rotation, zoom)} />)}
+      {highlights.filter(item => item.kind === 'selection').map(item => <span key={item.id} className={`pdfv-xhl pdfv-xhl-selection${item.active ? ' is-active' : ''}${item.confidence !== undefined ? ' is-ocr' : ''}`} style={placeRect(item.rect, box, rotation, zoom)} />)}
     </div>
   );
 });
@@ -419,19 +445,23 @@ function NotePopover({ note, isDraft, left, top, pageWidth, actions }: { note: {
   );
 }
 
-const PageInteractive = memo(function PageInteractive({ box, rotation, zoom, width, probes, notes, openNote, actions }: {
+const PageInteractive = memo(function PageInteractive({ box, rotation, zoom, width, probes, notes, openNote, actions, t }: {
   box: PageBox; rotation: ViewerRotation; zoom: number; width: number; probes: readonly ViewerProbeRegion[];
-  notes: readonly { id: string; text: string; x: number; y: number }[]; openNote: OpenNote | null; actions: PageActions;
+  notes: readonly { id: string; text: string; x: number; y: number }[]; openNote: OpenNote | null; actions: PageActions; t: Translator;
 }) {
   if (!probes.length && !notes.length) return null;
   return (
     <div className="pdfv-ui">
-      {probes.map(region => (
-        <button
-          key={region.id} type="button" className="pdfv-probe" style={placeRect(region.rect, box, rotation, zoom)} aria-label={region.label} title={region.label}
-          onClick={event => { event.stopPropagation(); actions.probeClick(region.id); }}
-        />
-      ))}
+      {probes.map(region => {
+        // A link read from recognized text says so, with its confidence (it is drawn dotted instead of dashed).
+        const label = region.confidence === undefined ? region.label : t('pdf.ocr.linkLabel', { name: region.label, confidence: region.confidence });
+        return (
+          <button
+            key={region.id} type="button" className={region.confidence === undefined ? 'pdfv-probe' : 'pdfv-probe is-ocr'} style={placeRect(region.rect, box, rotation, zoom)} aria-label={label} title={label}
+            onClick={event => { event.stopPropagation(); actions.probeClick(region.id); }}
+          />
+        );
+      })}
       {notes.map(note => {
         const at = rotatePoint(note.x, note.y, box.width, box.height, rotation);
         const open = openNote?.id === note.id;
@@ -455,9 +485,11 @@ interface PdfPageProps {
   cache: BoundedCache<string, HTMLCanvasElement>; queue: TaskQueue; onCanvasChange(): void;
   hits: readonly Hit[]; activeHit: Hit | null; highlights: readonly ViewerHighlight[]; probes: readonly ViewerProbeRegion[];
   notes: readonly { id: string; text: string; x: number; y: number }[]; openNote: OpenNote | null; noteArmed: boolean; actions: PageActions;
+  /** Recognized words of this page (null: not recognized). */
+  recognized: readonly TextItem[] | null; t: Translator;
 }
 const PdfPage = memo(function PdfPage(props: PdfPageProps) {
-  const { handle, page, box, estimate, zoom, userRotation, dpr, top, left, width, height, visible, hits, activeHit, highlights, probes, notes, openNote, noteArmed, actions } = props;
+  const { handle, page, box, estimate, zoom, userRotation, dpr, top, left, width, height, visible, hits, activeHit, highlights, probes, notes, openNote, noteArmed, actions, recognized, t } = props;
   const host = useRef<HTMLDivElement>(null);
   const shown = box ? displaySize(box, userRotation) : estimate;
   const plan = planRenderScale(shown, zoom, dpr);
@@ -488,7 +520,9 @@ const PdfPage = memo(function PdfPage(props: PdfPageProps) {
       ) : null}
       {box ? <PageHighlights box={box} rotation={rotation} zoom={zoom} hits={hits} active={activeHit} highlights={highlights} /> : null}
       {box ? <PageTextLayer handle={handle} page={page} box={box} rotation={rotation} zoom={zoom} /> : null}
-      {box ? <PageInteractive box={box} rotation={rotation} zoom={zoom} width={width} probes={probes} notes={notes} openNote={openNote} actions={actions} /> : null}
+      {box && recognized?.length ? <PageRecognizedLayer items={recognized} box={box} rotation={rotation} zoom={zoom} t={t} /> : null}
+      {recognized?.length ? <span className="pdfv-ocr-badge" title={t('pdf.ocr.badgeTitle', { confidence: meanConfidence(recognized) })}>{t('pdf.ocr.badge')}</span> : null}
+      {box ? <PageInteractive box={box} rotation={rotation} zoom={zoom} width={width} probes={probes} notes={notes} openNote={openNote} actions={actions} t={t} /> : null}
     </div>
   );
 });
@@ -653,7 +687,7 @@ function IconButton({ label, onClick, disabled, pressed, children, hint, classNa
 /** `query` = the trimmed text the hits were found for (lets the viewer tell results of its own typing from restored/driven queries). */
 interface SearchState { hits: readonly Hit[]; busy: boolean; error: string | null; query: string }
 const IDLE_SEARCH: SearchState = { hits: NO_HITS, busy: false, error: null, query: '' };
-function usePdfSearch(session: PdfSession, query: string, enabled: boolean, caseSensitive: boolean, wholeWord: boolean): SearchState {
+function usePdfSearch(session: PdfSession, query: string, enabled: boolean, caseSensitive: boolean, wholeWord: boolean, revision: number): SearchState {
   const [state, setState] = useState<SearchState>(IDLE_SEARCH);
   useEffect(() => {
     const text = query.trim();
@@ -667,7 +701,7 @@ function usePdfSearch(session: PdfSession, query: string, enabled: boolean, case
       );
     }, SEARCH_DEBOUNCE_MS);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [session, query, enabled, caseSensitive, wholeWord]);
+  }, [session, query, enabled, caseSensitive, wholeWord, revision]);
   return state;
 }
 
@@ -677,6 +711,7 @@ function usePdfSearch(session: PdfSession, query: string, enabled: boolean, case
 function ReadyViewer(props: PdfViewerProps & { handle: PdfHandle; snapshot: PdfSessionSnapshot }) {
   const { handle, snapshot, session, camera, theme, motion, compact = false, bookmarks, annotations, searchQuery } = props;
   const pageCount = handle.pageCount;
+  const t = useMemo(() => createTranslator(props.language ?? 'en'), [props.language]);
   const pad = compact ? PAD_COMPACT : PAD;
   const propsRef = useRef(props); propsRef.current = props;
 
@@ -951,7 +986,10 @@ function ReadyViewer(props: PdfViewerProps & { handle: PdfHandle; snapshot: PdfS
 
   // ---- search
   const searchable = snapshot.searchable;
-  const search = usePdfSearch(session, searchQuery, searchable !== false, caseSensitive, wholeWord);
+  const ocr = snapshot.ocr;
+  /** The PDF's own text layer, or recognized words: either makes the document searchable. */
+  const canSearch = searchable !== false || ocr.words > 0;
+  const search = usePdfSearch(session, searchQuery, canSearch, caseSensitive, wholeWord, ocr.revision);
   const hits = search.hits;
   const hitsRef = useRef(hits); hitsRef.current = hits;
   const activeHitRef = useRef(activeHit); activeHitRef.current = activeHit;
@@ -986,6 +1024,21 @@ function ReadyViewer(props: PdfViewerProps & { handle: PdfHandle; snapshot: PdfS
     if (input && !input.disabled) { input.focus(); input.select(); }
   }, []);
   useEffect(() => { if (nonce !== firstNonce.current) focusSearch(); }, [nonce, focusSearch]);
+
+  // ---- text recognition: what the page in view holds (image without text = offer "Recognize text") and its recognized words
+  const ocrAvailable = ocr.state !== 'unavailable';
+  const [pageKind, setPageKind] = useState<{ page: number; kind: PdfPageTextKind } | null>(null);
+  useEffect(() => {
+    if (!ocrAvailable) return;
+    let cancelled = false;
+    const timer = setTimeout(() => { session.inspectPage(page).then(kind => { if (!cancelled) setPageKind({ page, kind }); }, () => undefined); }, 250);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [session, page, ocrAvailable]);
+  const ocrRevision = ocr.revision;
+  const recognizedOf = useCallback((target: number) => (ocrRevision >= 0 ? session.getRecognizedText(target) : null), [session, ocrRevision]);
+  const recognizedHere = recognizedOf(page);
+  const recognize = useCallback(() => { session.recognizeText({ firstPage: pageRef.current }).catch(() => undefined); }, [session]);
+  const stopRecognition = useCallback(() => session.cancelRecognition(), [session]);
 
   // ---- external highlights / probe regions
   const externalByPage = useMemo(() => groupByPage(props.highlights, HIGHLIGHTS_PER_PAGE), [props.highlights]);
@@ -1110,9 +1163,36 @@ function ReadyViewer(props: PdfViewerProps & { handle: PdfHandle; snapshot: PdfS
   const thumbJump = useCallback((target: number) => jumpFromSidebar(target), [jumpFromSidebar]);
   const index = snapshot.index;
   const limited = hits.length >= SEARCH_HIT_LIMIT;
-  const countText = search.busy ? T.searching : searchQuery.trim() && searchable !== false ? (hits.length ? `${Math.max(activeHit, 0) + 1} / ${hits.length.toLocaleString('en')}${limited ? '+' : ''}` : search.error ? '' : T.noMatches) : '';
-  const notices: Array<{ key: string; tone: 'info' | 'warn'; icon: ReactNode; text: string; progress?: number }> = [];
-  if (searchable === false) notices.push({ key: 'raster', tone: 'warn', icon: <ScanLine size={14} aria-hidden="true" />, text: T.noTextLayer });
+  const countText = search.busy ? T.searching : searchQuery.trim() && canSearch ? (hits.length ? `${Math.max(activeHit, 0) + 1} / ${hits.length.toLocaleString('en')}${limited ? '+' : ''}` : search.error ? '' : T.noMatches) : '';
+  const notices: Array<{ key: string; tone: 'info' | 'warn'; icon: ReactNode; text: string; progress?: number; action?: ReactNode }> = [];
+  const recognizeButton = <button type="button" className="pdfv-chip pdfv-chip-primary" data-action="recognize-text" title={t('pdf.ocr.recognizeTitle')} onClick={recognize}><ScanLine size={13} aria-hidden="true" />{t('pdf.ocr.recognize')}</button>;
+  const running = ocr.state === 'running';
+  if (running) {
+    notices.push({
+      key: 'ocr-running', tone: 'info', icon: <LoaderCircle size={14} className="pdfv-spin" aria-hidden="true" />,
+      text: ocr.currentPage ? t('pdf.ocr.running', { page: ocr.currentPage, done: ocr.processedPages, total: ocr.totalPages }) : t('pdf.ocr.starting'),
+      progress: ocr.totalPages ? ocr.processedPages / ocr.totalPages : 0,
+      action: <button type="button" className="pdfv-chip" data-action="stop-recognition" onClick={stopRecognition}><X size={13} aria-hidden="true" />{t('pdf.ocr.stop')}</button>,
+    });
+  }
+  const offerHere = ocrAvailable && !running && !recognizedHere && pageKind?.page === page && pageKind.kind === 'image-only';
+  if (searchable === false && ocr.words === 0) {
+    if (!ocrAvailable) notices.push({ key: 'raster', tone: 'warn', icon: <ScanLine size={14} aria-hidden="true" />, text: T.noTextLayer });
+    else if (!running) notices.push({ key: 'raster', tone: 'warn', icon: <ScanLine size={14} aria-hidden="true" />, text: t('pdf.ocr.documentOffer'), action: recognizeButton });
+  } else if (offerHere) notices.push({ key: 'ocr-offer', tone: 'warn', icon: <ScanLine size={14} aria-hidden="true" />, text: t('pdf.ocr.pageOffer'), action: recognizeButton });
+  if (!running && ocr.words > 0 && (searchable === false || recognizedHere)) {
+    notices.push({ key: 'ocr-summary', tone: 'info', icon: <ScanLine size={14} aria-hidden="true" />, text: `${t('pdf.ocr.summary', { pages: ocr.recognizedPages, words: ocr.words })}. ${t('pdf.ocr.linkRule', { floor: OCR_LINK_MIN_CONFIDENCE })}` });
+  }
+  if (ocr.state === 'cancelled') {
+    const resume = searchable === false && ocr.words > 0 && !offerHere; // a scan whose remaining pages were not recognized yet
+    notices.push({ key: 'ocr-cancelled', tone: 'info', icon: <ScanLine size={14} aria-hidden="true" />, text: t('pdf.ocr.cancelled', { done: ocr.processedPages, total: ocr.totalPages }), action: resume ? recognizeButton : undefined });
+  }
+  if (ocr.state === 'done' && ocr.failedPages > 0) notices.push({ key: 'ocr-timeouts', tone: 'warn', icon: <TriangleAlert size={14} aria-hidden="true" />, text: t('pdf.ocr.timeouts', { pages: ocr.failedPages }) });
+  if (ocr.state === 'error' && ocr.error) {
+    const unavailable = ocr.error.code === 'UNAVAILABLE';
+    notices.push({ key: 'ocr-error', tone: 'warn', icon: <TriangleAlert size={14} aria-hidden="true" />, text: t(unavailable ? 'pdf.ocr.unavailable' : 'pdf.ocr.failed', { message: ocr.error.message }) });
+  }
+  if (searchable === false) { /* a scan has no text layer to index: no indexing notices */ }
   else if (index.state === 'building') notices.push({ key: 'building', tone: 'info', icon: <LoaderCircle size={14} className="pdfv-spin" aria-hidden="true" />, text: T.indexing(index.indexedPages, index.pageCount), progress: index.pageCount ? index.indexedPages / index.pageCount : 0 });
   else if (index.state === 'truncated') notices.push({ key: 'truncated', tone: 'warn', icon: <TriangleAlert size={14} aria-hidden="true" />, text: T.truncated(index.indexedPages, index.pageCount) });
   else if (index.state === 'error') notices.push({ key: 'index-error', tone: 'warn', icon: <TriangleAlert size={14} aria-hidden="true" />, text: T.indexFailed });
@@ -1133,7 +1213,7 @@ function ReadyViewer(props: PdfViewerProps & { handle: PdfHandle; snapshot: PdfS
         cache={mainCache} queue={mainQueue} onCanvasChange={publishStats}
         hits={hitsByPage.get(number) ?? NO_HITS} activeHit={activeHitObject && activeHitObject.page === number ? activeHitObject : null}
         highlights={externalByPage.get(number) ?? noHighlights} probes={probesByPage.get(number) ?? noProbes}
-        notes={draft} openNote={openNote} noteArmed={noteArmed} actions={actions}
+        notes={draft} openNote={openNote} noteArmed={noteArmed} actions={actions} recognized={recognizedOf(number)} t={t}
       />,
     );
   }
@@ -1192,10 +1272,10 @@ function ReadyViewer(props: PdfViewerProps & { handle: PdfHandle; snapshot: PdfS
             <IconButton label={T.addBookmark} onClick={addBookmark} disabled={bookmarks.length >= WORKSPACE_LIMITS.bookmarks}><BookmarkPlus size={16} aria-hidden="true" /></IconButton>
             <IconButton label={noteArmed ? T.noteCancel : T.addNote} hint={noteArmed ? T.noteCancel : `${T.addNote}. Keyboard: ${T.addNoteKeyboard}`} pressed={noteArmed} onClick={startNote} disabled={!canAnnotate}><StickyNote size={16} aria-hidden="true" /></IconButton>
           </div>
-          <div className="pdfv-search" role="search" data-disabled={searchable === false ? 'true' : undefined}>
+          <div className="pdfv-search" role="search" data-disabled={canSearch ? undefined : 'true'}>
             <Search size={14} aria-hidden="true" className="pdfv-search-icon" />
             <input
-              ref={searchRef} className="pdfv-search-input" type="text" value={searchQuery} placeholder={T.searchPlaceholder} aria-label={T.searchLabel} disabled={searchable === false}
+              ref={searchRef} className="pdfv-search-input" type="text" value={searchQuery} placeholder={T.searchPlaceholder} aria-label={T.searchLabel} disabled={!canSearch}
               spellCheck={false} autoComplete="off" onChange={event => { markSearchIntent(event.target.value); props.onSearchQueryChange(event.target.value); }}
               onKeyDown={event => {
                 if (event.key === 'Enter') { event.preventDefault(); stepHit(event.shiftKey ? -1 : 1); }
@@ -1203,8 +1283,8 @@ function ReadyViewer(props: PdfViewerProps & { handle: PdfHandle; snapshot: PdfS
               }}
             />
             {searchQuery ? <button type="button" className="pdfv-mini" aria-label={T.searchClear} title={T.searchClear} onClick={() => { props.onSearchQueryChange(''); searchRef.current?.focus(); }}><X size={13} aria-hidden="true" /></button> : null}
-            <button type="button" className="pdfv-mini" aria-label={T.caseSensitive} title={T.caseSensitive} aria-pressed={caseSensitive} disabled={searchable === false} onClick={() => { markSearchIntent(searchQuery); setCaseSensitive(value => !value); }}><CaseSensitive size={15} aria-hidden="true" /></button>
-            <button type="button" className="pdfv-mini" aria-label={T.wholeWord} title={T.wholeWord} aria-pressed={wholeWord} disabled={searchable === false} onClick={() => { markSearchIntent(searchQuery); setWholeWord(value => !value); }}><WholeWord size={15} aria-hidden="true" /></button>
+            <button type="button" className="pdfv-mini" aria-label={T.caseSensitive} title={T.caseSensitive} aria-pressed={caseSensitive} disabled={!canSearch} onClick={() => { markSearchIntent(searchQuery); setCaseSensitive(value => !value); }}><CaseSensitive size={15} aria-hidden="true" /></button>
+            <button type="button" className="pdfv-mini" aria-label={T.wholeWord} title={T.wholeWord} aria-pressed={wholeWord} disabled={!canSearch} onClick={() => { markSearchIntent(searchQuery); setWholeWord(value => !value); }}><WholeWord size={15} aria-hidden="true" /></button>
             <span className="pdfv-count mono" role="status" aria-live="polite" data-testid="pdfv-count">{countText}</span>
             <IconButton label={T.prevHit} onClick={() => stepHit(-1)} disabled={hits.length === 0}><ChevronUp size={15} aria-hidden="true" /></IconButton>
             <IconButton label={T.nextHit} onClick={() => stepHit(1)} disabled={hits.length === 0}><ChevronDown size={15} aria-hidden="true" /></IconButton>
@@ -1217,6 +1297,7 @@ function ReadyViewer(props: PdfViewerProps & { handle: PdfHandle; snapshot: PdfS
             <p key={notice.key} className={`pdfv-notice is-${notice.tone}`} data-notice={notice.key}>
               {notice.icon}<span>{notice.text}</span>
               {notice.progress !== undefined ? <span className="pdfv-progress" aria-hidden="true"><span style={{ width: `${Math.round(notice.progress * 100)}%` }} /></span> : null}
+              {notice.action ? <span className="pdfv-notice-actions">{notice.action}</span> : null}
             </p>
           ))}
         </div>

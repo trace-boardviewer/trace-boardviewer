@@ -1,0 +1,23 @@
+{
+  "notes.unresolvedTitle": "Nepriradené poznámky",
+  "notes.unresolvedIntro": "Tieto uložené poznámky nie sú priradené k žiadnej súčiastke tejto dosky. Nič sa neodstránilo. Skopíruj text, ak ho ešte potrebuješ, a potom záznam odstráň.",
+  "notes.unresolvedEmpty": "Žiadne nepriradené poznámky.",
+  "notes.wasAttachedTo": "Bola priradená k",
+  "notes.targetPart": "Súčiastka",
+  "notes.copyText": "Kopírovať text poznámky",
+  "notes.measureVoltage": "Napätie",
+  "notes.measureResistance": "Odpor",
+  "notes.measureOther": "Iné",
+  "notes.reasonComponentMissing": "Žiadna súčiastka tejto dosky nemá toto označenie ani túto polohu.",
+  "notes.reasonComponentAmbiguous": "Zodpovedá viac súčiastok tejto dosky, preto sa nevybrala žiadna.",
+  "notes.reasonPinMissing": "Súčiastka nemá pin s týmto číslom ani touto polohou.",
+  "notes.reasonPinAmbiguous": "Zodpovedá viac pinov súčiastky, preto sa nevybral žiadny.",
+  "notes.reasonLegacyIdMissing": "Poznámka bola uložená s vnútorným ID, ktoré táto doska nemá.",
+  "notes.reasonLegacyIndistinguishable": "Súčiastku alebo pin nemožno odlíšiť od inej ani podľa názvu, ani podľa polohy.",
+  "notes.reasonDuplicateTarget": "K tej istej súčiastke alebo pinu už patrí iná poznámka.",
+  "notes.fallbackDuplicateRef": "Toto označenie má viac súčiastok, preto je poznámka viazaná na polohu tejto súčiastky na doske.",
+  "notes.fallbackUnnamedPart": "Súbor tejto súčiastke nepriraďuje žiadne označenie, preto je poznámka viazaná na jej polohu na doske.",
+  "notes.fallbackUnnamedPin": "Súbor tomuto pinu nepriraďuje žiadne číslo, preto je poznámka viazaná na jeho polohu na doske.",
+  "notes.refusePart": "Pre túto súčiastku sa nedá uložiť poznámka: iná súčiastka s rovnakým označením leží presne na tej istej polohe, takže ich nemožno odlíšiť.",
+  "notes.refusePin": "Pre tento pin sa nedá uložiť poznámka: iný pin bez čísla leží presne na tej istej polohe, takže ich nemožno odlíšiť."
+}

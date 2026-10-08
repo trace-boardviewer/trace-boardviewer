@@ -345,7 +345,8 @@ function SchematicViewer(props: SchematicViewerProps) {
   const fitSheet = (mode: 'page' | 'width' = 'page', animate = false) => {
     const scene = sceneRef.current, { width, height } = dimsRef.current;
     if (!scene.sheet || width < 2) return;
-    const target = fitView(scene.sheet.extent, width, height, mode);
+    // Fit the sheet (its paper), not every item: a stray note far off the page must not shrink the sheet. It stays reachable by panning (clampView uses the extent).
+    const target = fitView(scene.sheet.fitBounds, width, height, mode);
     if (animate) animateTo(target, mode); else commitView(target, mode);
   };
   const zoomBy = (factor: number, animate = true, anchor?: { x: number; y: number }) => {
@@ -513,7 +514,7 @@ function SchematicViewer(props: SchematicViewerProps) {
   const restoreCamera = () => {
     const scene = sceneRef.current, { width, height } = dimsRef.current, camera = propsRef.current.camera;
     if (!scene.sheet || width < 2) return;
-    const restored = cameraToView(camera, scene.sheet.extent, width, height);
+    const restored = cameraToView(camera, scene.sheet.extent, width, height, scene.sheet.fitBounds);
     stopAnimation();
     viewRef.current = restored.view; fitRef.current = restored.fit;
     emittedRef.current = restored.fit === 'none' && sameCamera(viewToCamera(restored.view, 'none'), camera) ? camera : null;

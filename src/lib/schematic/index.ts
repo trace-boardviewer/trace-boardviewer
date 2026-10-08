@@ -1,5 +1,6 @@
 import { utf8Input } from '../encoding';
 import { computeConnectivity } from './connectivity';
+import { parseAltiumSch } from './altium-sch';
 import { parseEagleSch } from './eagle-sch';
 import { parseKicadLegacySch } from './kicad-legacy';
 import { parseKicadSch } from './kicad-sch';
@@ -29,6 +30,7 @@ export interface SchematicCapability {
 }
 
 export const SCHEMATIC_CAPABILITIES: readonly SchematicCapability[] = [
+  { id: 'altium-sch', name: 'Altium schematic', extensions: ['.schdoc'], variants: ['OLE compound FileHeader record stream', 'Ascii File schematic export'], status: 'supported', connectivity: 'computed-from-geometry', units: '10 mil converted to mm, Y down', hierarchy: 'Sibling SchDoc sheets and PrjPcb scope; hierarchy proven only synthetically; Repeat sheets shown once', requires: ['sibling .SchDoc and .PrjPcb files for hierarchy and project scope'], limits: ['Harness, variants, off-sheet connectors and IEEE symbols are not modelled', 'Scope values 1 and 4 are unknown and disclosed', 'Binary-flagged and Additional records are skipped and disclosed'] },
   { id: 'kicad-sch', name: 'KiCad schematic', extensions: ['.kicad_sch'], variants: ['S-expression, (version) 20211123 (KiCad 6.0) through 20250114 (KiCad 9.0.x)'], status: 'supported',
     connectivity: 'computed-from-geometry', units: 'mm, Y down; every symbol resolved to absolute coordinates',
     hierarchy: 'Sheet symbols resolved from sibling .kicad_sch files of the same directory; repeated sub-sheets become separate instances (path = /sheetUuid/…) with per-instance references and units',
@@ -49,6 +51,7 @@ export const SCHEMATIC_CAPABILITIES: readonly SchematicCapability[] = [
 export interface SchematicParserEntry { id: SchematicFormat; parse: SchematicParser }
 /** Detection is by CONTENT; each parser returns null for bytes that are not its format. `.sch` is shared by two formats. */
 export const SCHEMATIC_PARSERS: SchematicParserEntry[] = [
+  { id: 'altium-sch', parse: parseAltiumSch },
   { id: 'kicad-sch', parse: parseKicadSch },
   { id: 'kicad-legacy-sch', parse: parseKicadLegacySch },
   { id: 'eagle-sch', parse: parseEagleSch },
@@ -86,7 +89,7 @@ export function parseSchematic(raw: SchematicInput): Schematic {
     if (schematic) return schematic;
   }
   const base = input.name.split(/[\\/]/).pop() ?? input.name;
-  throw new SchematicError(`The content of "${base}" matched none of the supported schematic formats (KiCad .kicad_sch, KiCad legacy .sch, EAGLE .sch).`, 'UNRECOGNIZED');
+  throw new SchematicError(`The content of "${base}" matched none of the supported schematic formats (KiCad .kicad_sch, KiCad legacy .sch, EAGLE .sch, Altium .SchDoc).`, 'UNRECOGNIZED');
 }
 
 /** Parses and computes connectivity: what the schematic worker returns for one document. */

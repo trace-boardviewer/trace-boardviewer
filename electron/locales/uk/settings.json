@@ -1,0 +1,17 @@
+{
+  "settings.title": "Ваш робочий простір",
+  "settings.appearance": "Вигляд",
+  "settings.themeDark": "Темна",
+  "settings.themeLight": "Світла",
+  "settings.themeSystem": "Системна",
+  "settings.layout": "Макет",
+  "settings.language": "Мова",
+  "settings.languageHint": "Інтерфейс перемикається миттєво; дані плати, назви ланцюгів і власні нотатки залишаються без змін.",
+  "settings.motion": "Плавні анімації",
+  "settings.motionHint": "Відгук для виділень і панелей",
+  "settings.labels": "Підписи компонентів",
+  "settings.labelsHint": "Позначення, що змінюють розмір разом із масштабом",
+  "settings.connections": "Допоміжні лінії з'єднань",
+  "settings.connectionsHint": "Прямі лінії від вибраного піна до падів його ланцюга",
+  "settings.autosave": "Налаштування зберігаються автоматично."
+}

@@ -1,17 +1,19 @@
 import type { ViewerCamera, ViewerHighlight, ViewerProbeRegion, SchematicSelection } from '../components/viewer-contracts';
+import type { BoardIndex } from '../lib/board-index';
 import type { BoardNetTarget, BoardTarget, LinkReport, Mapping, PdfLinkReport, SchematicNetTarget, SchematicTarget, SearchResult, SearchRow } from '../lib/crossprobe';
 import type { DocumentAnnotation, DocumentBookmark, DocumentCalibration, DocumentKind, DocumentRecord, WorkspaceExportResult, WorkspaceManifest, WorkspaceSplit, WorkspaceTab } from '../lib/documents';
 import type { PdfSession } from '../lib/pdf/session-contract';
 import type { SchSheetInstance, SchematicDesign } from '../lib/schematic/model';
 import type { Message } from '../lib/i18n';
 import type { Board, BoardNote, RecentFile } from '../lib/types';
-import type { NoteTarget, NotePatch } from '../lib/workspace';
+import type { NoteSubject } from '../lib/note-keys';
+import type { NotePatch } from '../lib/workspace';
 
 /**
  * Contract between the application core (src/app/**: `useWorkspace()` implements it, no JSX) and the UI
  * (src/App.tsx + src/components/workspace/**: renders it, owns layout/CSS/focus, never talks to Electron, workers,
  * pdf.js or the workspace manifest directly). Everything here is plain data or functions, so the UI can be exercised with
- * a mock implementation (src/app/mock-api.ts) before the real core lands.
+ * a mock implementation (src/app/mock-api.ts) without the real core.
  *
  * Rules every implementer follows:
  *  - State objects are immutable and referentially stable until something changes (React-friendly).
@@ -57,7 +59,7 @@ export interface ProbeState {
   nonce: number;
   /** What the schematic viewer shows/selects (set when a unique target exists or the user chose one candidate). */
   schematic: { documentId: string; instancePath: string; selection: SchematicSelection } | null;
-  /** Board → schematic resolution; `ambiguous` means the UI must offer `chooseSchematicTarget`. */
+  /** Board → schematic resolution of the selected board part, whoever made the selection (null only when no part is selected or no schematic is attached); `ambiguous` means the UI must offer `chooseSchematicTarget`. */
   schematicMapping: Mapping<SchematicTarget> | null;
   /** Schematic → board resolution of the current schematic selection (ambiguous → `chooseBoardTarget`). */
   boardMapping: Mapping<BoardTarget> | null;
@@ -83,6 +85,13 @@ export interface SaveState { dirty: boolean; saving: boolean; failure: string | 
 
 /** An encrypted board waiting for its key (the same payload is re-parsed once a key is entered; keys are session-only). */
 export interface KeyRequest { fileName: string; kind: 'fz' | 'xzz'; code: 'KEY_REQUIRED' | 'INVALID_KEY'; message: string }
+/** How far the parser of the running import got. */
+export interface ImportProgress {
+  /** 0..1 when the parser reports its position (GenCAD, KiCad), else null (the UI shows no percentage). */
+  fraction: number | null;
+  /** The watchdog saw no progress for a while (DEFAULT_PARSE_WATCHDOG.stallMs): the UI says the file takes unusually long. */
+  stalled: boolean;
+}
 export interface ImportState {
   /** 'reading' = native/browser file read, 'processing' = parser worker running. */
   phase: 'idle' | 'reading' | 'processing';
@@ -90,11 +99,18 @@ export interface ImportState {
   recents: RecentFile[];
   /** Original-file identity of the open board (null without a board). */
   file: { name: string; path: string; key: string } | null;
+  /** Set while `phase` is 'processing' (null otherwise). */
+  progress: ImportProgress | null;
 }
 
 export interface WorkspaceState {
   /** Null until a board is loaded. All other workspace data belongs to exactly this board (its identity key). */
   board: Board | null;
+  /**
+   * The shared, immutable index of `board` (src/lib/board-index.ts; the same object `boardIndexOf(board)` returns): O(1) lookups of parts,
+   * pads and nets, part kinds and per-side buckets. Null without a board. Components look parts up here instead of scanning `board`.
+   */
+  boardIndex: BoardIndex | null;
   boardKey: string | null;
   boardPath: string;
   /** Workspace manifest of the current board; null when no board or in the browser fallback (no persistence). */
@@ -102,7 +118,7 @@ export interface WorkspaceState {
   activeTab: WorkspaceTab;
   split: WorkspaceSplit;
   documents: DocumentRuntime[];
-  /** Notes of the current board (one per component or component+pin target). */
+  /** Notes of the current board as stored: one per part or pin key, plus any that could not be placed (see `unresolvedNotes` in lib/note-keys.ts). */
   notes: BoardNote[];
   notesBlocked: Message | null;
   save: SaveState;
@@ -130,6 +146,8 @@ export interface WorkspaceActions {
   /** Re-parses the waiting encrypted board with a key typed by the user (validated by `validateKeyText` in src/app/keys.ts); keys never persist. */
   submitKey(text: string): void;
   cancelKeyRequest(): void;
+  /** Stops the running import (read or parse); the previous board, if any, stays open. A notice says it was cancelled. */
+  cancelImport(): void;
   closeBoard(): void;
 
   // --- navigation / layout (persisted in the manifest) ---
@@ -183,7 +201,10 @@ export interface WorkspaceActions {
   activateSearchRow(row: SearchRow): void;
 
   // --- notes (technician records, never inferred measurements) ---
-  upsertNote(target: NoteTarget, patch: NotePatch): Promise<void>;
+  /** `target` names the part or pad by this session's board ids; the note is stored under its key (reference and pin number). */
+  upsertNote(target: NoteSubject, patch: NotePatch): Promise<void>;
+  /** Deletes one stored note by id, whether or not it is attached to a part (the way an unresolved note is removed). */
+  removeNote(id: string): Promise<void>;
   retryNotes(): Promise<void>;
 
   // --- misc ---

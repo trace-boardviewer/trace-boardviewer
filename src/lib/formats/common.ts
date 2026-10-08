@@ -1,10 +1,12 @@
+import { boundText } from '../bounded-text';
 import type { Board, BoardComponent, BoardPin, BoardSide, Bounds, Point, ParseIssue } from '../types';
+import { markBuildStage } from './stage';
 
 export const MAX_IMPORT_BYTES = 64 * 1024 * 1024;
 /** Canonical-mm magnitude cap shared with GenCAD (parse.error.coordinateRangeMm); larger values break the renderer grid. */
 export const MAX_MM = 1e9;
-export type FormatErrorCode = 'INVALID_FORMAT' | 'UNRECOGNIZED' | 'LIMIT_EXCEEDED' | 'KEY_REQUIRED' | 'INVALID_KEY' | 'COMPANIONS_REQUIRED' | 'UNSUPPORTED_VARIANT' | 'WRONG_KIND';
-export interface ParseOptions { fzKey?: number[]; xzzKey?: string }
+export type FormatErrorCode = 'INVALID_FORMAT' | 'UNRECOGNIZED' | 'LIMIT_EXCEEDED' | 'KEY_REQUIRED' | 'INVALID_KEY' | 'COMPANIONS_REQUIRED' | 'UNSUPPORTED_VARIANT' | 'WRONG_KIND' | 'AMBIGUOUS_FORMAT';
+export interface ParseOptions { fzKey?: number[]; xzzKey?: string; ipc356?: import('./ipc356').Ipc356Options; pinList?: import('./pinlist-csv').PinListOptions; /** ODB++: the step to read when the product model has several (default: the board step, see odbpp.ts). */ odbpp?: { step?: string } }
 export interface ParseInput {
   name: string;
   data: Uint8Array;
@@ -14,13 +16,23 @@ export interface ParseInput {
 /** null means "not this format"; a recognized but malformed file throws BoardFormatError. */
 export type BoardParser = (input: ParseInput) => Board | null;
 export class BoardFormatError extends Error {
+  /** Set by the dispatcher and the archive reader: the same failure as a catalog message, shown in the active language instead of `message`. */
+  issue?: ParseIssue;
   constructor(message: string, readonly code: FormatErrorCode = 'INVALID_FORMAT', readonly format?: string, readonly keyKind?: 'fz' | 'xzz') {
-    super(message); this.name = 'BoardFormatError';
+    super(boundText(message)); this.name = 'BoardFormatError';
   }
+}
+/** A BoardFormatError whose text is also a catalog message (`issue`); `message` stays the English developer text. */
+export function localizedFormatError(message: string, code: FormatErrorCode, issue: ParseIssue, format?: string): BoardFormatError {
+  const error = new BoardFormatError(message, code, format);
+  error.issue = issue;
+  return error;
 }
 export interface RawPart {
   key: string;
   ref?: string;
+  /** The adapter made `ref` up because the file names this component by nothing usable: it is shown, but never an identity (notes do not key on it). */
+  refGenerated?: boolean;
   value?: string;
   package?: string;
   side: BoardSide;
@@ -32,6 +44,8 @@ export interface RawPart {
 export interface RawPin extends Point {
   part: string;
   number: string;
+  /** The adapter made `number` up (an empty or missing number in the file): shown, never an identity. A number a format defines by position (BRD, CST) is not generated. */
+  numberGenerated?: boolean;
   name?: string;
   net?: string;
   side?: BoardSide;
@@ -53,7 +67,7 @@ export interface RawBoard {
   warnings?: ParseIssue[];
 }
 /** English diagnostic passed through the catalogs verbatim (parse.warning.formatNote = "{message}"). */
-export const note = (message: string): ParseIssue => ({ key: 'parse.warning.formatNote', params: { message } });
+export const note = (message: string): ParseIssue => ({ key: 'parse.warning.formatNote', params: { message: boundText(message) } });
 /** Vendor boardview placeholders (UNCONNECTED, UNCONNECTED12, UNCONNECTED<123>, UNCONNECTED-5, UNCONNECTED_7), per OpenBoardView BRDBoard.cpp.
  *  For BRD/BRD2/BDV/BVR/ASC/FZ adapters only: ECAD user nets such as KiCad "unconnected-(R1-Pad2)" are real names. */
 export const vendorDisconnected = (net: string): boolean => /^UNCONNECTED(?:$|\d|[<(_\-])/i.test(net);
@@ -271,6 +285,7 @@ export function stitchOutline(segments: ReadonlyArray<readonly [Point, Point]>, 
 }
 /** Normalizes adapters to the renderer's canonical mm / Y-up / top-bottom model. Every BoardFormatError it throws carries `raw.format`. */
 export function buildBoard(input: ParseInput, raw: RawBoard): Board {
+  markBuildStage(); // the diagnostic report's 'build' stage (formats/stage.ts)
   try { return assemble(input, raw); }
   catch (error) {
     if (!(error instanceof BoardFormatError) || error.format) throw error;
@@ -308,8 +323,10 @@ function assemble(input: ParseInput, raw: RawBoard): Board {
     if (!realRadius && pin.width === undefined && pin.height === undefined) fallbackPads++;
     // Only an empty string means "no net". Vendor sentinels (UNCONNECTED<n>) are normalized by their adapters via
     // vendorDisconnected(); an ECAD file that declares a net literally named UNCONNECTED keeps it.
+    // Ids and the fallback number are positional: they are handles of this session, never identities (note-keys.ts keys on reference and pin number).
     const result: BoardPin = {
-      id: `pin:${index}`, componentId: parent.id, number: String(pin.number || index + 1), name: pin.name ?? String(pin.number || index + 1),
+      id: `pin:${index}`, componentId: parent.id, number: String(pin.number || index + 1), ...(pin.numberGenerated || !pin.number ? { numberGenerated: true as const } : {}),
+      name: pin.name ?? String(pin.number || index + 1),
       net: pin.net ?? '', side: validSide(pin.side ?? parent.raw.side), ...position,
       radius: realRadius, shape: pin.shape ?? 'round',
       ...(pin.width === undefined ? {} : { width: scaled(pin.width, 'pad width') }),
@@ -339,7 +356,8 @@ function assemble(input: ParseInput, raw: RawBoard): Board {
     }
     if (outline.length < 3) outline = corners(bounds);
     const position = part.position ? point(part.position) : { x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2 };
-    return { id, ref: part.ref ?? part.key, value: part.value ?? '', package: part.package ?? '', side: validSide(part.side),
+    return { id, ref: part.ref ?? part.key, ...(part.refGenerated || part.ref === undefined ? { refGenerated: true as const } : {}),
+      value: part.value ?? '', package: part.package ?? '', side: validSide(part.side),
       position, rotation: number(part.rotation ?? 0, 'component rotation'), bounds, outline, pinIds: partPins.map(pin => pin.id) };
   });
   const netMap = new Map<string, string[]>();

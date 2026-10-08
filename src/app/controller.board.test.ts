@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { boardIdentityKey } from '../lib/workspace';
 import { boardPayload, createHarness, dividerBoard, deferred, enc, hexKey, makeBoard, openNative, registerBoard, seedWorkspace } from './testing';
 import type { Harness } from './testing';
+import type { KeyedNote } from '../lib/types';
 
 const fzKeyText = Array.from({ length: 44 }, (_, i) => (i + 1).toString(16)).join(' ');
 const keyRequired = (kind: 'fz' | 'xzz', code: 'KEY_REQUIRED' | 'INVALID_KEY' = 'KEY_REQUIRED') => ({ formatError: { message: `Encrypted ${kind} board.`, code, format: kind, keyKind: kind } });
@@ -320,7 +321,7 @@ describe('browser fallback', () => {
     await h.controller.actions.retryNotes();
     expect(h.state().notesBlocked).toBeNull();
     await h.controller.actions.upsertNote({ componentId: 'r1' }, { text: 'checked' });
-    expect(JSON.parse(h.storage.get(`trace-notes-${key}`)!)).toMatchObject([{ componentId: 'r1', text: 'checked' }]);
+    expect(JSON.parse(h.storage.get(`trace-notes-${key}`)!)).toMatchObject([{ target: { ref: 'R1' }, text: 'checked' }]);
   });
 });
 
@@ -336,12 +337,12 @@ describe('notes', () => {
     const { upsertNote } = h.controller.actions;
     await upsertNote({ componentId: 'r1' }, { text: 'bulged' });
     await upsertNote({ componentId: 'r1', pinId: 'r1.1.0' }, { text: '', measurements: { voltage: '1.8 V' } });
-    expect(h.state().notes.map(n => [n.componentId, n.pinId, n.text, n.measurements])).toEqual([['r1', undefined, 'bulged', undefined], ['r1', 'r1.1.0', '', { voltage: '1.8 V' }]]);
+    expect(h.state().notes.map(n => [(n as KeyedNote).target, n.text, n.measurements])).toEqual([[{ ref: 'R1' }, 'bulged', undefined], [{ ref: 'R1', pin: '1' }, '', { voltage: '1.8 V' }]]);
     expect(h.desktop.notes.get(hexKey(1))).toHaveLength(2);
     await upsertNote({ componentId: 'r1' }, { text: 'replaced' });
-    expect(h.state().notes.filter(n => n.componentId === 'r1' && !n.pinId)).toHaveLength(1);
+    expect(h.state().notes.filter(n => !(n as KeyedNote).target.pin)).toHaveLength(1);
     await upsertNote({ componentId: 'r1' }, { text: '' });
-    expect(h.state().notes.map(n => n.pinId)).toEqual(['r1.1.0']);
+    expect(h.state().notes.map(n => (n as KeyedNote).target)).toEqual([{ ref: 'R1', pin: '1' }]);
     expect(h.messages().filter(m => m === 'toast.noteDeleted')).toHaveLength(1);
     const same = h.state().notes;
     await upsertNote({ componentId: 'r1', pinId: 'r1.1.0' }, { measurements: { voltage: '1.8 V' } });

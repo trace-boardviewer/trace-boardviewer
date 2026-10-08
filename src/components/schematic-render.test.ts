@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { SchConnectivity, SchLabel, SchPin, SchSheetDef, SchSheetInstance, SchSymbol } from '../lib/schematic/model';
+import type { SchBounds, SchConnectivity, SchLabel, SchPin, SchSheetDef, SchSheetInstance, SchSymbol } from '../lib/schematic/model';
 import { pinKey, symbolKey, wireKey } from '../lib/schematic/model';
 import {
   BASE_SCALE, MAX_SCALE, MIN_SCALE, SheetCache, buildNavRows, buildNetHighlight, buildPalette, buildSheetData, cameraToView, clampScale, clampView,
   FALLBACK_TOKENS, fitView, hitTest, instanceChain, K, layoutLabel, layoutPinText, normalizeTextOrientation, paperFrame, panBy, parseKey, queryData,
-  resolveChildPath, resolveSelection, sameCamera, screenToSheet, segmentDistance, sheetToScreen, symbolDetail, symbolGeometry, textCorners, textWidth,
+  resolveChildPath, resolveSelection, robustContentBounds, sameCamera, screenToSheet, segmentDistance, sheetToScreen, symbolDetail, symbolGeometry, textCorners, textWidth,
   viewBounds, viewToCamera, withAlpha, zoomAt,
 } from './schematic-render';
 
@@ -272,6 +272,114 @@ describe('sheet data and culling index', () => {
     const f = paperFrame({ paper: { width: 297, height: 210 } })!;
     expect(f.inner).toEqual(bounds(10, 10, 287, 200));
     expect(f.title.maxX).toBe(287); expect(f.title.maxY).toBe(200); expect(f.title.minX).toBe(287 - 110);
+  });
+  describe('fit bounds: the sheet is fitted, not every item', () => {
+    const A3 = { width: 420, height: 297 };
+    const note = (x: number, y: number, text = 'NOTE'): SchSheetDef['graphics'][number] => ({ kind: 'text', at: P(x, y), text, angle: 0, size: 1.27, anchor: 'start' });
+    /** A drawing of `n` resistors with wires, spread over `box` (deterministic); `prefix` keeps ids apart when drawings are merged. */
+    function drawing(n: number, box: { x: number; y: number; w: number; h: number }, over: Partial<SchSheetDef> = {}, prefix = ''): SchSheetDef {
+      const def = makeDef({ paper: A3, ...over });
+      for (let i = 0; i < n; i++) {
+        const x = box.x + ((i * 37) % 101) / 101 * box.w, y = box.y + ((i * 53) % 103) / 103 * box.h;
+        def.symbols.push(resistor(`${prefix}r${i}`, x, y));
+        def.wires.push({ id: `${prefix}w${i}`, a: P(x, y + 5.54), b: P(x + 12, y + 5.54) });
+      }
+      return def;
+    }
+    /** Share of the limiting pane side that `shown` fills after a page fit to `fitTo`. */
+    function fill(fitTo: SchBounds, shown: SchBounds, width: number, height: number): number {
+      const v = fitView(fitTo, width, height, 'page');
+      const a = sheetToScreen(v, width, height, P(shown.minX, shown.minY)), z = sheetToScreen(v, width, height, P(shown.maxX, shown.maxY));
+      return Math.max((z.x - a.x) / width, (z.y - a.y) / height);
+    }
+    const PANES: Array<[number, number]> = [[1000, 700], [1280, 800], [700, 500], [400, 300], [500, 900], [1600, 400], [1920, 1000]];
+
+    it('fits the paper frame when stray text lies far off the page, and the page fills at least 85 % of the limiting pane side', () => {
+      // Two notes far below an A3 frame, as on a real sheet.
+      const data = buildSheetData(drawing(60, { x: 30, y: 30, w: 330, h: 230 }, { graphics: [note(100, 900), note(250, 1100, 'old note')] }));
+      expect(data.fitBounds).toEqual(bounds(0, 0, 420, 297));
+      expect(data.extent.maxY).toBeGreaterThan(1090);
+      const paper = bounds(0, 0, 420, 297);
+      for (const [w, h] of PANES) {
+        expect(fill(data.fitBounds, paper, w, h), `${w}x${h}`).toBeGreaterThanOrEqual(0.85);
+        // What fitting every item did: the page ended up much smaller than it is now.
+        expect(fitView(data.extent, w, h, 'page').scale, `${w}x${h}`).toBeLessThan(0.75 * fitView(data.fitBounds, w, h, 'page').scale);
+      }
+    });
+    it('keeps the stray items reachable by panning: the camera still roams over the whole extent', () => {
+      const data = buildSheetData(drawing(60, { x: 30, y: 30, w: 330, h: 230 }, { graphics: [note(100, 900)] }));
+      const far = clampView({ x: 100, y: 900, scale: 4 }, data.extent, 1000, 700);
+      near(far.x, 100); near(far.y, 900);
+      expect(clampView({ x: 100, y: 9000, scale: 4 }, data.extent, 1000, 700).y).toBeLessThan(data.extent.maxY + 700 / 8);
+      // The note is inside the clamped viewport at that camera.
+      const b = viewBounds(far, 1000, 700);
+      expect(b.minY).toBeLessThan(900); expect(b.maxY).toBeGreaterThan(900);
+    });
+    it('a stored page or width fit is re-fitted to the paper; a free camera is only clamped to the extent', () => {
+      const data = buildSheetData(drawing(60, { x: 30, y: 30, w: 330, h: 230 }, { graphics: [note(100, 900)] }));
+      const page = cameraToView({ fit: 'page' }, data.extent, 1000, 700, data.fitBounds);
+      expect(page.fit).toBe('page');
+      near(page.view.x, 210); near(page.view.y, 148.5);
+      near(page.view.scale, Math.min((1000 - 2 * 28) / 420, (700 - 2 * 28) / 297));
+      const width = cameraToView({ fit: 'width' }, data.extent, 1000, 700, data.fitBounds);
+      near(width.view.scale, (1000 - 2 * 28) / 420);
+      near(sheetToScreen(width.view, 1000, 700, P(0, 0)).y, 28);
+      const free = cameraToView({ zoom: 3, x: 100, y: 900, fit: 'none' }, data.extent, 1000, 700, data.fitBounds);
+      expect(free.fit).toBe('none'); near(free.view.y, 900); near(free.view.scale, 3 * BASE_SCALE);
+      // Without a fit box the extent is used (the previous behaviour).
+      near(cameraToView({ fit: 'page' }, data.extent, 1000, 700).view.y, (data.extent.minY + data.extent.maxY) / 2);
+    });
+    it('without a paper frame the fit drops far outliers but never cuts off the edge of a normal drawing', () => {
+      const clean = buildSheetData(drawing(200, { x: 20, y: 20, w: 300, h: 200 }, { paper: undefined }));
+      expect(clean.frame).toBeNull();
+      expect(clean.fitBounds).toEqual(clean.extent); // nothing is an outlier
+      const stray = buildSheetData(drawing(200, { x: 20, y: 20, w: 300, h: 200 }, { paper: undefined, graphics: [note(150, 2000), note(-900, 100)] }));
+      expect(stray.extent.maxY).toBeGreaterThan(1990); expect(stray.extent.minX).toBeLessThan(-890);
+      expect(stray.fitBounds).toEqual(clean.extent);
+      expect(fill(stray.fitBounds, clean.extent, 1000, 700)).toBeGreaterThanOrEqual(0.85);
+    });
+    it('sparse drawings, clusters and tiny sheets are not trimmed', () => {
+      // Fewer than 50 elements: every element counts, a note included.
+      const few = buildSheetData(drawing(10, { x: 20, y: 20, w: 100, h: 80 }, { paper: undefined, graphics: [note(50, 3000)] }));
+      expect(few.fitBounds).toEqual(few.extent);
+      // A second cluster of more than 2 % of the elements is part of the drawing.
+      const main = drawing(120, { x: 0, y: 0, w: 100, h: 80 }), far = drawing(20, { x: 900, y: 800, w: 40, h: 40 }, {}, 'far');
+      const two = buildSheetData(makeDef({ paper: undefined, symbols: [...main.symbols, ...far.symbols], wires: [...main.wires, ...far.wires] }));
+      expect(two.fitBounds.maxX).toBeGreaterThan(900); expect(two.fitBounds.maxY).toBeGreaterThan(800);
+      expect(robustContentBounds(new Float64Array(0), 0).minX).toBe(Infinity);
+    });
+    it('a drawing that mostly lies outside its own page is fitted together with the page', () => {
+      const data = buildSheetData(drawing(80, { x: 600, y: 500, w: 400, h: 300 }, { paper: { width: 297, height: 210 } }));
+      expect(data.fitBounds.minX).toBe(0); expect(data.fitBounds.minY).toBe(0);
+      expect(data.fitBounds.maxX).toBeGreaterThan(990); expect(data.fitBounds.maxY).toBeGreaterThan(790);
+      // Half of it on the page keeps the page.
+      const half = buildSheetData(drawing(40, { x: 10, y: 10, w: 250, h: 180 }, { paper: { width: 297, height: 210 }, graphics: Array.from({ length: 30 }, (_, i) => note(400 + i, 600)) }));
+      expect(half.fitBounds).toEqual(bounds(0, 0, 297, 210));
+    });
+    it('empty sheets: the paper when there is one, else the default box', () => {
+      expect(buildSheetData(makeDef({ paper: A3 })).fitBounds).toEqual(bounds(0, 0, 420, 297));
+      expect(buildSheetData(makeDef({ paper: undefined })).fitBounds).toEqual(bounds(0, 0, 100, 100));
+    });
+    it('the fit box is always finite, has an area and lies inside the extent, whatever the geometry', () => {
+      for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+        let s = seed * 7919;
+        const rnd = () => (s = (s * 1664525 + 1013904223) >>> 0) / 0x100000000;
+        const def = drawing(Math.floor(rnd() * 300), { x: rnd() * 100, y: rnd() * 100, w: 50 + rnd() * 400, h: 50 + rnd() * 300 }, { paper: seed % 2 ? A3 : undefined });
+        for (let k = 0; k < seed % 4; k++) def.graphics.push(note((rnd() - 0.5) * 6000, (rnd() - 0.5) * 6000));
+        if (seed === 3) def.wires.push({ id: 'bad', a: P(NaN, 0), b: P(1, 1) });
+        const data = buildSheetData(def), f = data.fitBounds, e = data.extent;
+        expect(Number.isFinite(f.minX + f.minY + f.maxX + f.maxY)).toBe(true);
+        expect(f.maxX > f.minX || f.maxY > f.minY).toBe(true);
+        expect(f.minX).toBeGreaterThanOrEqual(e.minX); expect(f.maxX).toBeLessThanOrEqual(e.maxX);
+        expect(f.minY).toBeGreaterThanOrEqual(e.minY); expect(f.maxY).toBeLessThanOrEqual(e.maxY);
+      }
+    });
+    it('fitView keeps its padding below 7 % of the shorter side, so a small pane still shows the sheet large', () => {
+      const a3 = bounds(0, 0, 420, 297);
+      expect(fill(a3, a3, 200, 150)).toBeGreaterThanOrEqual(0.86);
+      expect(fill(a3, a3, 1000, 700)).toBeGreaterThanOrEqual(0.9);
+      near(fitView(bounds(0, 0, 420, 297), 1000, 700, 'page', 500).scale, (700 - 2 * 49) / 297); // an explicit padding is capped too
+    });
   });
   it('SheetCache is a bounded LRU keyed by definition identity', () => {
     const cache = new SheetCache(2);

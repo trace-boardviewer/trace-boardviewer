@@ -1,7 +1,9 @@
 /** FZ (ASUS) and CAE (ASRock) boardview adapter, based on OpenBoardView FZFile.cpp / CAEFile.cpp.
  * Copyright (c) 2016 Chloridite and OpenBoardView contributors, MIT.
+ * Container framing reference: OpenBoardView commit cc76e697c85efd2285134dfe2df0b7809e4a49d0,
+ * https://github.com/OpenBoardView/OpenBoardView/blob/cc76e697c85efd2285134dfe2df0b7809e4a49d0/src/openboardview/FileFormats/FZFile.cpp
  *
- * Format facts: an RC6-feedback encrypted container (vendor key: 44 expanded words supplied by the user, never shipped) holding two
+ * Format facts: an RC6-feedback encrypted container (44 expanded key words) holding two
  * zlib blobs, content and description. The content is a Cadence Allegro style extract: `A!` header lines open a block
  * (REFDES parts, NET_NAME pins, TESTVIA nails), `S!` rows carry `!`-delimited fields. Coordinates are absolute board
  * coordinates in thou (0.001") unless a `UNIT:millimeters` line is present; upstream multiplies mm values by 25.4 to reach
@@ -12,6 +14,7 @@ import type { Board, BoardSide, ParseIssue } from '../types';
 import { asciiPrefix, BoardFormatError, buildBoard, decodeText, MAX_IMPORT_BYTES, note, vendorDisconnected, type FormatErrorCode, type ParseInput, type RawBoard, type RawPart, type RawPin } from './common';
 import { inflateZlib } from './compression';
 import { fzKeyParityValid, rc6Feedback } from './crypto';
+import { CAE_DEFAULT_KEY, FZ_DEFAULT_KEY } from './fz-default-keys';
 
 const MIL = 0.0254;
 const MAX_DESCRIPTION_BYTES = 16 * 1024 * 1024;
@@ -19,12 +22,16 @@ const MIN_ZLIB = 6; // 2-byte header + 4-byte Adler-32
 const MAX_PARTS = 250_000, MAX_PINS = 1_000_000; // the same record budgets buildBoard enforces, applied while reading
 const BLOCKS: Record<string, number> = { REFDES: 1, NET_NAME: 2, TESTVIA: 3, GRAPHIC_DATA_NAME: 4, CLASS: 5, LOGOInfo: 6, UnDrawSym: 7 };
 type Variant = 'fz' | 'cae';
-interface Container { content: Uint8Array; description: Uint8Array }
+interface Container { content: Uint8Array; description: Uint8Array; contentBytes?: number; descriptionBytes?: number; layout: number }
 
 const zlibHeaderAt = (data: Uint8Array, offset: number) =>
-  offset + MIN_ZLIB <= data.length && (data[offset] & 15) === 8 && ((data[offset] << 8) | data[offset + 1]) % 31 === 0 && !(data[offset + 1] & 32);
+  offset + MIN_ZLIB <= data.length && (data[offset] & 15) === 8 && data[offset] >>> 4 <= 7 && ((data[offset] << 8) | data[offset + 1]) % 31 === 0 && !(data[offset + 1] & 32);
+/** A plaintext-container clue at its fixed offset, shared by the bounded sniffer and parser; the complete framing and streams still need validation. */
+export const hasFzZlibHeader = (data: Uint8Array): boolean => zlibHeaderAt(data, 4);
+/** A bounded clue using the variant's published default key; full framing/checksums remain mandatory. */
+export const hasFzDefaultKeyHeader = (data: Uint8Array, variant: Variant): boolean => hasFzZlibHeader(rc6Feedback(data.subarray(0, 4 + MIN_ZLIB), variant === 'cae' ? CAE_DEFAULT_KEY : FZ_DEFAULT_KEY));
 /** Plain text rather than ciphertext: the leading bytes are valid UTF-8 without control characters (random bytes fail this almost surely, even for a 20-byte file). */
-function looksLikeText(data: Uint8Array): boolean {
+export function looksLikeText(data: Uint8Array): boolean {
   if (!data.length) return false;
   let text: string;
   try { text = new TextDecoder('utf-8', { fatal: true }).decode(data.subarray(0, 4096), { stream: true }); } catch { return false; }
@@ -40,21 +47,35 @@ function inflatedText(bytes: Uint8Array): string {
  * Splits the decoded container `[u32 contentLength][content zlib][u32 descriptionLength]?[description zlib][u32 footer]`.
  * The footer is accepted as either the description blob length or, as FZFile::split() arithmetic implies
  * (description starts at size - footer + 4), blob length + 8 framing bytes. Every candidate must account for the total size
- * exactly and both blobs must start with a zlib header; nothing is searched.
+ * exactly and both blobs must start with a zlib header; nothing is searched. Upstream's footer-framed spelling does
+ * not interpret the first four bytes as a content length, so it is also accepted with an opaque leading word.
+ * Real FZ containers use that word as the inflated content size and put two size words between the streams:
+ * `[u32 inflatedContent][content zlib][u32 contentZlib+8][u32 inflatedDescription][description zlib][u32 descriptionZlib+8]`.
  */
-function splitContainer(data: Uint8Array): Container | undefined {
+export function splitFzContainer(data: Uint8Array): Container | undefined {
   const size = data.length;
   if (size < 4 + MIN_ZLIB + MIN_ZLIB + 4) return undefined;
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
   const contentLength = view.getUint32(0, true), footer = view.getUint32(size - 4, true);
-  if (contentLength < MIN_ZLIB || 4 + contentLength + MIN_ZLIB + 4 > size || !zlibHeaderAt(data, 4)) return undefined;
-  for (const prefixed of [false, true]) {
-    const start = 4 + contentLength + (prefixed ? 4 : 0), length = size - 4 - start;
-    if (length < MIN_ZLIB) continue;
-    if (prefixed && view.getUint32(4 + contentLength, true) !== length) continue;
-    if (footer !== length && footer !== length + 8) continue;
-    if (!zlibHeaderAt(data, start)) continue;
-    return { content: data.subarray(4, 4 + contentLength), description: data.subarray(start, start + length) };
+  if (!hasFzZlibHeader(data)) return undefined;
+  if (contentLength >= MIN_ZLIB && 4 + contentLength + MIN_ZLIB + 4 <= size) {
+    for (const prefixed of [false, true]) {
+      const start = 4 + contentLength + (prefixed ? 4 : 0), length = size - 4 - start;
+      if (length < MIN_ZLIB) continue;
+      if (prefixed && view.getUint32(4 + contentLength, true) !== length) continue;
+      if (footer !== length && footer !== length + 8) continue;
+      if (!zlibHeaderAt(data, start)) continue;
+      return { content: data.subarray(4, 4 + contentLength), description: data.subarray(start, start + length), layout: (prefixed ? 2 : 1) + (footer === length + 8 ? 2 : 0) };
+    }
+  }
+  // FZFile::split derives this offset from the footer alone and skips the leading word. Preserve its exact arithmetic,
+  // but exclude the footer from the description stream and require both compressed streams to consume their slices.
+  const descriptionLength = footer - 8, start = size - footer + 4;
+  if (descriptionLength >= MIN_ZLIB && start >= 4 + MIN_ZLIB && start + descriptionLength === size - 4 && zlibHeaderAt(data, start)) {
+    if (start >= 4 + MIN_ZLIB + 8 && view.getUint32(start - 8, true) === start - 4) {
+      return { content: data.subarray(4, start - 8), description: data.subarray(start, size - 4), contentBytes: contentLength, descriptionBytes: view.getUint32(start - 4, true), layout: 6 };
+    }
+    return { content: data.subarray(4, start), description: data.subarray(start, size - 4), layout: 5 };
   }
   return undefined;
 }
@@ -167,18 +188,23 @@ export function parseFzContent(content: string, description: string | undefined,
 
 function inflateContainer(container: Container, onError: (error: BoardFormatError) => never): { content: string; description: string } {
   try {
-    return { content: inflatedText(inflateZlib(container.content)), description: inflatedText(inflateZlib(container.description, MAX_DESCRIPTION_BYTES)) };
+    const content = inflateZlib(container.content), description = inflateZlib(container.description, MAX_DESCRIPTION_BYTES);
+    if ((container.contentBytes !== undefined && container.contentBytes !== content.length) || (container.descriptionBytes !== undefined && container.descriptionBytes !== description.length)) {
+      throw new BoardFormatError('the declared decompressed lengths do not match the compressed streams.', 'INVALID_FORMAT', 'FZ/CAE');
+    }
+    return { content: inflatedText(content), description: inflatedText(description) };
   } catch (error) {
     if (error instanceof BoardFormatError && error.code !== 'LIMIT_EXCEEDED') onError(error);
     throw error;
   }
 }
 
-const CONTENT_SIGNATURE = /^(?:\xef\xbb\xbf)?\s*(?:A!|UNIT:)/;
+export const CONTENT_SIGNATURE = /^(?:\xef\xbb\xbf)?\s*(?:A!|UNIT:)/;
 
 /**
  * Recognition is by extension (.fz / .cae), as upstream: encrypted content carries no magic, so a file is only accepted once
- * its (decrypted) container, both zlib streams and the A!/S! content have validated. Without a key such a file reports KEY_REQUIRED.
+ * its (decrypted) container, both zlib streams and the A!/S! content have validated. FZ and CAE each use a published default
+ * key; an explicit user key overrides it. Unsupported key variants retain the session-key error path.
  */
 export function parseFz(input: ParseInput): Board | null {
   const match = /\.(fz|cae)$/i.exec(input.name);
@@ -193,23 +219,29 @@ export function parseFz(input: ParseInput): Board | null {
   if (CONTENT_SIGNATURE.test(asciiPrefix(data, 64))) return buildBoard(input, parseFzContent(decodeText(data), undefined, format)); // already decoded content (upstream only reads containers)
   if (looksLikeText(data)) return null; // any other text belongs to another format
   if (data.length < 4 + MIN_ZLIB + MIN_ZLIB + 4) fail('file is too short to be an FZ container.');
-  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-  const contentLength = view.getUint32(0, true);
-  if (zlibHeaderAt(data, 4) && contentLength >= MIN_ZLIB && 4 + contentLength + 4 <= data.length) {
-    // Unencrypted container variant ("zip-encoded" files noted by upstream): never decrypted. A zlib header right after a length that
-    // fits the file (with room for the footer) is strong evidence of it; ciphertext lands here with probability of about size / 2^42.
-    const container = splitContainer(data) ?? fail('unencrypted container lengths are inconsistent.');
+  if (hasFzZlibHeader(data)) {
+    // Unencrypted container variant ("zip-encoded" files noted by upstream): never decrypted. A zlib header at the fixed
+    // offset is evidence of it; the complete framing and both checksums must validate before any board is imported.
+    const container = splitFzContainer(data) ?? fail('unencrypted container lengths are inconsistent.');
     const { content, description } = inflateContainer(container, error => fail(`unencrypted container: ${error.message}`));
     return buildBoard(input, parseFzContent(content, description, format));
   }
-  const key = input.options?.fzKey ?? fail(`this file is encrypted and requires the vendor RC6 key (44 32-bit words) for ${variant.toUpperCase()} files.`, 'KEY_REQUIRED');
+  const explicitKey = input.options?.fzKey;
+  const key = explicitKey ?? (variant === 'cae' ? CAE_DEFAULT_KEY : FZ_DEFAULT_KEY);
   if (!Array.isArray(key) || key.length !== 44 || key.some(word => !Number.isInteger(word) || word < 0 || word > 0xffffffff)) fail('the key must contain 44 unsigned 32-bit words.', 'INVALID_KEY');
-  if (!fzKeyParityValid(key, variant)) fail(`the key does not match the ${variant.toUpperCase()} key parity pattern (a word is mistyped).`, 'INVALID_KEY');
+  // The ASRock CAE key publication says not to apply ASUS parity restrictions (OpenBoardView issue 162).
+  // CAE still validates all 44 uint32 words, the decrypted framing, both Adler-32 checksums and the board records.
+  if (variant === 'fz' && !fzKeyParityValid(key, variant)) fail('the key does not match the FZ key parity pattern (a word is mistyped).', 'INVALID_KEY');
   // The feedback cipher is a prefix function of the ciphertext: check the first block header before paying for the whole file (about 4 s per 16 MiB).
   const head = rc6Feedback(data.subarray(0, 4 + MIN_ZLIB), key);
-  const headLength = new DataView(head.buffer).getUint32(0, true);
-  if (!zlibHeaderAt(head, 4) || headLength < MIN_ZLIB || 4 + headLength + MIN_ZLIB + 4 > data.length) fail('the key did not produce a valid container; check the key.', 'INVALID_KEY');
-  const container = splitContainer(rc6Feedback(data, key)) ?? fail('the key did not produce a valid container; check the key.', 'INVALID_KEY');
-  const { content, description } = inflateContainer(container, () => fail('the key did not produce valid compressed content; check the key.', 'INVALID_KEY'));
+  // Without a session key only the built-in key was tried: when it does not open the file the user has to supply the key
+  // (KEY_REQUIRED). Once the built-in key has produced the container header, a later failure means the file is damaged.
+  if (!hasFzZlibHeader(head)) {
+    if (explicitKey === undefined) fail('this file is encrypted and the built-in key does not open it; the vendor RC6 key (44 32-bit words) is required.', 'KEY_REQUIRED');
+    fail('the key did not produce a valid container; check the key.', 'INVALID_KEY');
+  }
+  const damaged = (message: string, keyMessage: string): never => explicitKey === undefined ? fail(message) : fail(keyMessage, 'INVALID_KEY');
+  const container = splitFzContainer(rc6Feedback(data, key)) ?? damaged('the container opened with the built-in key is inconsistent.', 'the key did not produce a valid container; check the key.');
+  const { content, description } = inflateContainer(container, () => damaged('the compressed content opened with the built-in key is damaged.', 'the key did not produce valid compressed content; check the key.'));
   return buildBoard(input, parseFzContent(content, description, format));
 }

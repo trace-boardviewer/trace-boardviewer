@@ -342,6 +342,14 @@ describe('KiCad PCB adapter (real-file findings: big boards, noisy outline corne
     expect(b.pins.map(pin => pin.number)).toEqual(['1', '~2', '2', '~3', '~1']);
     expect(new Set(b.pins.map(pin => pin.number)).size).toBe(b.pins.length);
     expect(b.pins.map(pin => pin.name)).toEqual(['1', '', '2', '', '~1']);
+    // only the numbers the reader made up are flagged; a pad the file itself calls "~1" keeps a real number
+    expect(b.pins.map(pin => pin.numberGenerated)).toEqual([undefined, true, undefined, true, undefined]);
+  });
+  it('flags a footprint without a Reference property: its FP<n> placeholder is shown but is not an identity', () => {
+    const named = '(footprint "Test:R" (layer "F.Cu") (at 0 0) (property "Reference" "R1") (pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu")))';
+    const unnamed = '(footprint "Test:R" (layer "F.Cu") (at 5 0) (pad "1" smd rect (at 5 0) (size 1 1) (layers "F.Cu")))';
+    const b = parse(withoutOutline('', `${named} ${unnamed}`));
+    expect(b.components.map(component => [component.ref, component.refGenerated])).toEqual([['R1', undefined], ['FP2', true]]);
   });
   it('W-open-kicad-02: end points that differ by 20 nm still close the board-edge contour; a 0.02 mm gap does not', () => {
     const edge = (gap: number) => `(gr_line (start 0 ${30 + gap}) (end 0 0) (layer "Edge.Cuts")) (gr_line (start 0 30) (end 40 30) (layer "Edge.Cuts")) (gr_line (start 40 30) (end 40 0) (layer "Edge.Cuts")) (gr_line (start 0 0) (end 40 0) (layer "Edge.Cuts"))`;
@@ -351,5 +359,148 @@ describe('KiCad PCB adapter (real-file findings: big boards, noisy outline corne
     }
     const open = parse(withoutOutline(edge(0.02)));
     expect(warningKeys(open)).toContain('parse.warning.missingBoardOutline'); expect(messages(open).some(m => /closed contour/.test(m))).toBe(true);
+  });
+});
+
+// Real-file findings (ten KiCad 5 demo boards that rename their copper layers; one KiCad 9 demo board whose teardrop settings lack a
+// parenthesis): every construct below is reproduced with small ORIGINAL synthetic boards, never with real bytes.
+const failure = (run: () => unknown): BoardFormatError => { try { run(); } catch (error) { return error as BoardFormatError; } throw new Error('did not throw'); };
+const copperNotes = (b: { warnings: { key: string; params?: Record<string, unknown> }[] }) => messages(b).filter(m => /copper layers/.test(m));
+
+describe('KiCad PCB adapter (real-file findings: copper layers renamed by the design)', () => {
+  const userLayers = '(32 B.Adhes user) (33 F.Adhes user) (34 B.Paste user) (35 F.Paste user) (36 B.SilkS user) (37 F.SilkS user) (38 B.Mask user) (39 F.Mask user) (44 Edge.Cuts user)';
+  const parts = (front: string, back: string) => `(module Resistor_SMD:R_0603 (layer ${front}) (at 10 20)
+   (fp_text reference R1 (at 0 0) (layer F.SilkS)) (fp_text value 10k (at 0 1) (layer F.Fab))
+   (fp_line (start -1.5 -0.8) (end 1.5 -0.8) (layer F.CrtYd)) (fp_line (start 1.5 -0.8) (end 1.5 0.8) (layer F.CrtYd))
+   (pad 1 smd rect (at -0.8 0) (size 0.8 0.9) (layers ${front} F.Paste F.Mask) (net 1 GND))
+   (pad 2 smd rect (at 0.8 0) (size 0.8 0.9) (layers ${front} F.Paste F.Mask) (net 2 +3V3))
+   (pad 3 smd rect (at 0 2) (size 0.8 0.9) (layers F.Paste F.Mask)))
+  (module Connector:Pin (layer ${back}) (at 30 10)
+   (fp_text reference J1 (at 0 0) (layer B.SilkS)) (fp_text value Pin (at 0 1) (layer B.Fab))
+   (pad 1 smd rect (at 0 0) (size 1 1) (layers ${back} B.Paste B.Mask) (net 1 GND))
+   (pad 2 thru_hole circle (at 3 0) (size 1.4 1.4) (drill 0.8) (layers *.Cu *.Mask) (net 2 +3V3)))`;
+  const legacy = (copper: string, front = 'F.Cu', back = 'B.Cu', body = parts(front, back)) => `(kicad_pcb (version 20171130) (host pcbnew 5.1.12) (general (thickness 1.6))
+   (layers ${copper} ${userLayers}) (net 0 "") (net 1 GND) (net 2 +3V3) ${body} ${outlineLines(0, 0, 40, 30).replace(/"/g, '')})`;
+  const standard = parse(legacy('(0 F.Cu signal) (31 B.Cu signal)'));
+
+  it('reads the front and back layer by number and type, whatever the design calls them: the same board as with the standard names', () => {
+    for (const [front, back] of [['top_copper', 'bottom_copper'], ['Dessus', 'Dessous'], ['Top_layer', 'Bottom_layer'], ['top_cu', 'bottom_cu'], ['Épaisseur 1', 'Épaisseur 2']]) {
+      const b = parse(legacy(`(0 "${front}" signal) (31 "${back}" signal)`, `"${front}"`, `"${back}"`));
+      expect(b.components, front).toEqual(standard.components); expect(b.pins, front).toEqual(standard.pins); expect(b.nets, front).toEqual(standard.nets);
+      expect(b.outline, front).toEqual(standard.outline);
+      expect(b.components.map(c => c.side)).toEqual(['top', 'bottom']);
+      // the surface-mount pads that list only the renamed layer are kept (not taken for mask-only objects); the pad on mask and paste alone is not a pad
+      expect(b.pins.map(pin => pin.side)).toEqual(['top', 'top', 'bottom', 'both']); expect(b.nets.map(net => net.pinIds.length)).toEqual([2, 2]);
+    }
+  });
+  it('keeps the design\'s own names as labels and says which names were read by number', () => {
+    const b = parse(legacy('(0 top_copper signal) (31 bottom_copper signal)', 'top_copper', 'bottom_copper'));
+    expect(copperNotes(b)).toHaveLength(1); expect(copperNotes(b)[0]).toContain('top_copper is the front copper layer (0); bottom_copper is the back copper layer (31).');
+    expect(copperNotes(standard)).toEqual([]); expect(standard.warnings).toEqual(standard.warnings.filter(w => w.key === 'parse.warning.fallbackComponents' || w.key === 'parse.warning.approximatedPads'));
+  });
+  it('takes the number, not the type, as the position: front and back may be power, mixed or jumper layers', () => {
+    for (const [front, back] of [['power', 'signal'], ['signal', 'power'], ['mixed', 'jumper']]) {
+      const b = parse(legacy(`(0 top_copper ${front}) (31 bottom_copper ${back})`, 'top_copper', 'bottom_copper'));
+      expect(b.components.map(c => c.side), `${front}/${back}`).toEqual(['top', 'bottom']); expect(b.pins).toEqual(standard.pins);
+    }
+  });
+  it('renamed inner layers: no footprint sits on one, a pad that lists only one is not an electrical pad, and the note names them with their numbers', () => {
+    const inner = '(0 top_copper signal) (1 GND_layer power) (2 VCC_layer power) (31 bottom_copper signal)';
+    const withInnerPad = parts('top_copper', 'bottom_copper').replace('(pad 3 smd rect (at 0 2) (size 0.8 0.9) (layers F.Paste F.Mask))', '(pad 3 smd rect (at 0 2) (size 0.8 0.9) (layers GND_layer F.Mask))');
+    const b = parse(legacy(inner, 'top_copper', 'bottom_copper', withInnerPad));
+    expect(b.pins).toEqual(standard.pins); expect(b.components.map(c => c.side)).toEqual(['top', 'bottom']);
+    expect(copperNotes(b)[0]).toContain('GND_layer is the inner copper layer (1); VCC_layer is the inner copper layer (2); bottom_copper is the back copper layer (31)');
+    // renamed inner layers alone: the reading does not depend on them, so the board says nothing
+    expect(copperNotes(parse(legacy('(0 F.Cu signal) (1 GND_layer power) (2 VCC_layer power) (31 B.Cu signal)')))).toEqual([]);
+    const onInner = parts('GND_layer', 'bottom_copper');
+    expect(() => parse(legacy(inner, 'GND_layer', 'bottom_copper', onInner))).toThrow(/unsupported layer GND_layer/);
+  });
+  it('the standard names keep their meaning next to the design\'s own names, as KiCad reads them', () => {
+    const b = parse(legacy('(0 top_copper signal) (31 bottom_copper signal)', 'F.Cu', 'B.Cu'));
+    expect(b.components).toEqual(standard.components); expect(b.pins).toEqual(standard.pins);
+  });
+  it('KiCad 9 numbering: the back layer is 2 and the inner layers 4, 6, ...; a user label after the type is not a rename, and a user layer typed "signal" is not copper', () => {
+    const nine = '(layers (0 "F.Cu" signal "top_copper") (4 "In1.Cu" signal) (6 "In2.Cu" signal) (2 "B.Cu" signal "bottom_copper") (9 "F.Adhes" user "F.Adhesive") (31 "F.CrtYd" user "F.Courtyard") (39 "User.1" signal) (41 "User.2" user)) (net 0 "") (net 1 "GND")';
+    const front = parse(board('', fp, nine)), back = parse(board('', fp.replace('(layer "F.Cu") (at 10 20 90)', '(layer "B.Cu") (at 10 20 90)').replace('(layers "F.Cu")', '(layers "B.Cu")'), nine));
+    expect(front.components[0].side).toBe('top'); expect(front.warnings).toEqual([]);
+    expect(back.components[0].side).toBe('bottom'); expect(back.pins.map(pin => pin.side)).toEqual(['bottom', 'both']); expect(back.warnings).toEqual([]);
+    expect(() => parse(board('', fp.replace('(layer "F.Cu")', '(layer "User.1")'), nine))).toThrow(/unsupported layer User\.1/);
+    expect(() => parse(board('', fp.replace('(layer "F.Cu")', '(layer "In1.Cu")'), nine))).toThrow(/unsupported layer In1\.Cu/);
+    // an inner layer renamed alone changes nothing that is shown (no footprint sits on one), so the board says nothing; a footprint on it is still refused
+    const renamedInner = board('', fp, nine.replace('(4 "In1.Cu" signal)', '(4 "GND" signal)'));
+    expect(copperNotes(parse(renamedInner))).toEqual([]); expect(parse(renamedInner).warnings).toEqual([]);
+    expect(() => parse(board('', fp.replace('(layer "F.Cu")', '(layer "GND")'), nine.replace('(4 "In1.Cu" signal)', '(4 "GND" signal)')))).toThrow(/unsupported layer GND/);
+  });
+  it('KiCad 6-8 numbering with an inner layer: 31 is the back layer, and number 2 is an inner layer there', () => {
+    const six = '(layers (0 "F.Cu" signal) (1 "In1.Cu" signal) (2 "In2.Cu" power) (31 "B.Cu" signal) (32 "B.Adhes" user "B.Adhesive") (44 "Edge.Cuts" user)) (net 0 "") (net 1 "GND")';
+    const b = parse(board('', fp.replace('(layer "F.Cu") (at 10 20 90)', '(layer "B.Cu") (at 10 20 90)'), six));
+    expect(b.components[0].side).toBe('bottom'); expect(b.warnings).toEqual([]);
+    expect(() => parse(board('', fp.replace('(layer "F.Cu")', '(layer "In2.Cu")'), six))).toThrow(/unsupported layer In2\.Cu/);
+  });
+  it('a name from the file cannot break or flood the note: control characters are dropped and the length is bounded', () => {
+    const odd = `top\\ncopper ${'x'.repeat(200)}`;
+    const b = parse(legacy(`(0 "${odd}" signal) (31 bottom_copper signal)`, `"${odd}"`, 'bottom_copper'));
+    const note = copperNotes(b)[0];
+    expect(note).not.toMatch(/[\r\n]/); expect(note.length).toBeLessThan(400); expect(note).toContain('top copper xxxx');
+    expect(failure(() => parse(legacy('(0 a signal) (31 b signal)', 'a', `"${'q'.repeat(200)}"`))).message).toContain(`unsupported layer ${'q'.repeat(40)}.`);
+  });
+  it('a layer table that cannot be read is refused: repeated numbers or names, malformed entries, a table beyond the layer limit, or a second table', () => {
+    expect(() => parse(legacy('(0 a signal) (0 b signal)'))).toThrow(/layer number 0 twice/);
+    expect(() => parse(legacy('(0 a signal) (31 a signal)'))).toThrow(/layer name "a" twice/);
+    expect(() => parse(legacy('(0 a)'))).toThrow(/malformed layer entry/);
+    expect(() => parse(legacy('(zero a signal)'))).toThrow(/malformed layer entry/);
+    expect(() => parse(legacy('(0 "" signal)'))).toThrow(/malformed layer entry/);
+    expect(() => parse(legacy('0 a signal'))).toThrow(/not a layer/);
+    expect(() => parse(legacy('(0 (a) signal)'))).toThrow(/malformed layer entry/);
+    const many = Array.from({ length: 513 }, (_, i) => `(${i} L${i} user)`).join(' ');
+    expect(() => parse(board('', fp, `(layers ${Array.from({ length: 512 }, (_, i) => `(${i} L${i} user)`).join(' ')}) (net 0 "") (net 1 "GND")`))).not.toThrow();
+    expect(failure(() => parse(board('', fp, `(layers ${many}) (net 0 "") (net 1 "GND")`))).code).toBe('LIMIT_EXCEEDED');
+    expect(() => parse(legacy('(0 F.Cu signal)', 'F.Cu', 'B.Cu', '(layers (0 F.Cu signal)) ' + parts('F.Cu', 'B.Cu')))).toThrow(/more than one layer table/);
+  });
+});
+
+describe('KiCad PCB adapter (real-file findings: teardrop settings without their opening parenthesis)', () => {
+  const settings = (curved: string) => `(teardrops (best_length_ratio 0.5) (max_length 1) (best_width_ratio 1) (max_width 2) ${curved} (enabled yes) (allow_two_segments yes) (prefer_zone_connections yes))`;
+  const whole = '(curved_edges no) (filter_ratio 0.9)', lost = '(curved_edges no)filter_ratio 0.9)';
+  /** The test footprint with `first` in its first pad and `second` in its second one. */
+  const withSettings = (first: string, second = '') => fp.replace('(pinfunction "IN")', `(pinfunction "IN") ${first}`).replace('(layers "*.Cu" "*.Mask")', `(layers "*.Cu" "*.Mask") ${second}`);
+  const noteOf = (b: { warnings: { key: string; params?: Record<string, unknown> }[] }) => messages(b).filter(m => /teardrop/.test(m));
+
+  it('reads a pad whose settings lack a parenthesis like the well-formed pad, and says how many were read that way', () => {
+    const reference = parse(board('', withSettings(settings(whole))));
+    expect(reference.warnings).toEqual([]);
+    const b = parse(board('', withSettings(settings(lost))));
+    expect(b.components).toEqual(reference.components); expect(b.pins).toEqual(reference.pins); expect(b.nets).toEqual(reference.nets); expect(b.outline).toEqual(reference.outline);
+    expect(noteOf(b)).toEqual(['1 KiCad teardrop settings lack their opening parenthesis; they were read as KiCad reads them.']);
+    const two = parse(board('', withSettings(settings(lost), settings(lost))));
+    expect(two.pins).toEqual(reference.pins); expect(noteOf(two)).toEqual(['2 KiCad teardrop settings lack their opening parenthesis; they were read as KiCad reads them.']);
+  });
+  it('reads the same in elements that are only checked and never built (a via, a zone)', () => {
+    const via = (text: string) => `(via (at 1 1) (size 0.8) (drill 0.4) (layers "F.Cu" "B.Cu") (net 1) ${text})`;
+    const b = parse(board(via(settings(lost)) + ' ' + via(settings(lost)) + ' ' + via(settings(whole))));
+    expect(b.pins).toEqual(parse(board()).pins); expect(noteOf(b)[0]).toMatch(/^2 KiCad teardrop settings/);
+    expect(noteOf(parse(board(via(settings(whole)))))).toEqual([]);
+    expect(() => parse(board(`(zone (net 1) (net_name "GND") (layer "F.Cu") ${settings(lost)})`))).not.toThrow();
+  });
+  it('the allowance is for the settings list only: the same text anywhere else is still a malformed document', () => {
+    expect(() => parse(board('', withSettings(lost)))).toThrow(/Malformed/);
+    expect(() => parse(board(`(via (at 1 1) (size 0.8) (drill 0.4) (layers "F.Cu" "B.Cu") (net 1) (curved_edges no)filter_ratio 0.9))`))).toThrow(/Malformed|unmatched closing/);
+  });
+  it('a missing parenthesis that is not the one of an element still leaves the document unbalanced and is refused', () => {
+    expect(() => parse(board('', withSettings('(teardrops filter_ratio 0.9)')))).toThrow(/Malformed/);
+    expect(() => parse(board('', withSettings('(teardrops (max_length 1)')))).toThrow(/Malformed/);
+  });
+  it('the nesting limit counts the element that lost its parenthesis, built or skipped', () => {
+    const built = (depth: number) => board('', fp.replace('(pinfunction "IN")', `(pinfunction "IN") ${'(a '.repeat(depth)}(teardrops x))${')'.repeat(depth)}`));
+    const skipped = (depth: number) => board(`(via ${'(a '.repeat(depth)}(teardrops x))${')'.repeat(depth)})`);
+    for (const [label, make] of [['built', built], ['skipped', skipped]] as const) {
+      let deepest = 0;
+      for (let depth = 100; depth < 130; depth++) { try { parse(make(depth)); deepest = depth; } catch (error) { expect((error as BoardFormatError).message, label).toMatch(/nesting/); } }
+      expect(deepest, label).toBeGreaterThan(100); expect(deepest, label).toBeLessThan(129);
+      expect(() => parse(make(deepest + 1)), label).toThrow(/nesting/);
+      // the same document with the element written out has the same depth: the limit is the same one
+      expect(() => parse(make(deepest).replace('(teardrops x))', '(teardrops (x))')), label).not.toThrow();
+      expect(() => parse(make(deepest + 1).replace('(teardrops x))', '(teardrops (x))')), label).toThrow(/nesting/);
+    }
   });
 });

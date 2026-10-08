@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SCHEMATIC_LIMITS, SchematicError, symbolRef, type SchDiagnostic, type SchPin, type Schematic, type SchSheetDef, type SchSymbol } from './model';
 import { parseKicadLegacySch } from './kicad-legacy';
+import { catching, expectScaling } from '../../test-support/timing';
 
 // ---------------------------------------------------------------------------------------------------------------
 // Synthetic fixtures (original, written for these tests). Coordinates in the text are mils, Y down; the library is Y up.
@@ -624,10 +625,13 @@ NoConn ~ 2500 1500`));
   });
 
   it('reads a 40,000-digit coordinate and rejects a malformed one in linear time', () => {
-    const started = performance.now();
-    expect(root(must(sheet(`NoConn ~ ${'0'.repeat(40_000)}1000 2000`))).noConnects).toEqual([{ id: 'nc0', at: { x: 25.4, y: 50.8 } }]);
-    for (const token of [`${'1'.repeat(40_000)}x`, `${'1'.repeat(40_000)}.x`]) expect(thrown(sheet(`NoConn ~ ${token} 2000`)).message).toMatch(/not a number/);
-    expect(performance.now() - started).toBeLessThan(250);
+    const noConn = (x: string) => sheet(`NoConn ~ ${x} 2000`);
+    const inputs = (size: number) => ({ padded: noConn(`${'0'.repeat(size)}1000`), malformed: [`${'1'.repeat(size)}x`, `${'1'.repeat(size)}.x`].map(noConn) });
+    // A pattern that retries every position of the digits needs about 1 s for 40,000 of them, so a regression fails at the first pair.
+    expectScaling('legacy coordinate', [2500, 10_000, 40_000], size => { const { padded, malformed } = inputs(size), data = [padded, ...malformed].map(enc); return () => { parseKicadLegacySch({ name: 'demo.sch', data: data[0], companions: {} }); for (const file of data.slice(1)) catching(() => parseKicadLegacySch({ name: 'demo.sch', data: file, companions: {} }))(); }; });
+    const { padded, malformed } = inputs(40_000);
+    expect(root(must(padded)).noConnects).toEqual([{ id: 'nc0', at: { x: 25.4, y: 50.8 } }]);
+    for (const file of malformed) expect(thrown(file).message).toMatch(/not a number/);
   });
 });
 
@@ -1043,6 +1047,35 @@ describe('malformed input', () => {
 });
 
 describe('robustness', () => {
+  it('refuses a page size that is not a finite number or lies beyond the coordinate limit, as it does a point (found by the parser fuzzer)', () => {
+    const withPaper = (width: string, height: string) => sheet('').replace('$Descr A4 11693 8268', `$Descr A4 ${width} ${height}`);
+    expect(thrown(withPaper('11693', '9'.repeat(400))).code).toBe('LIMIT_EXCEEDED');
+    expect(thrown(withPaper('9'.repeat(400), '8268')).code).toBe('LIMIT_EXCEEDED');
+    const beyond = String(Math.floor(SCHEMATIC_LIMITS.maxCoordinateMm / 0.0254) + 10_000);
+    expect(thrown(withPaper(beyond, '8268')).code).toBe('LIMIT_EXCEEDED');
+    // A large page within the limit is read as before.
+    expect(root(parse(withPaper('59055', '41732'))).paper).toEqual({ width: 1500, height: 1060 });
+  });
+
+  it('reads a library symbol that repeats one pin thousands of times in linear time, with a distinct id for each pin (found by the parser fuzzer)', () => {
+    const repeated = (count: number) => lib(`DEF Device_R R 0 0 N Y 1 F N\nF0 "R" 80 0 50 V V C CNN\nF1 "Device_R" 0 0 50 V V C CNN\nDRAW\n${'X ~ 1 0 150 50 D 50 50 1 1 P\n'.repeat(count)}ENDDRAW\nENDDEF`);
+    const read = (count: number) => must(sheet(comp({ lib: 'Device_R', ref: 'R1', x: 0, y: 0 })), { 'demo-cache.lib': repeated(count) });
+    const pins = sym(read(60), 'R1').pins;
+    expect(pins).toHaveLength(60);
+    expect(new Set(pins.map(pin => pin.id)).size).toBe(60);
+    expect(pins.slice(0, 3).map(pin => pin.id)).toEqual(['5F000001#1@1', '5F000001#1@1.1', '5F000001#1@1.2']);
+    expect(pins[59].id).toBe('5F000001#1@1.59');
+    expectScaling('repeated pin', [500, 2000, 8000], count => { const text = sheet(comp({ lib: 'Device_R', ref: 'R1', x: 0, y: 0 })), companions = files({ 'demo-cache.lib': repeated(count) }); return () => parseKicadLegacySch({ name: 'demo.sch', data: enc(text), companions }); });
+  });
+
+  it('refuses a pin length that is not a finite number instead of passing NaN into the model (found by the parser fuzzer)', () => {
+    // 400 digits read as infinity; a pin pointing right has its other end at x + length * 1 and y + length * 0: infinity and NaN.
+    const odd = lib(`DEF ODD O 0 0 Y Y 1 N\nDRAW\nX A 1 0 0 ${'9'.repeat(400)} R 0 50 1 1 Q\nENDDEF`);
+    expect(thrown(sheet(comp({ lib: 'ODD', ref: 'O1', x: 0, y: 0 })), { 'demo-cache.lib': odd }).code).toBe('LIMIT_EXCEEDED');
+    const nearLimit = lib(`DEF ODD O 0 0 Y Y 1 N\nDRAW\nX A 1 0 0 ${Math.floor(SCHEMATIC_LIMITS.maxCoordinateMm / 0.0254) + 10_000} R 0 50 1 1 Q\nENDDEF`);
+    expect(thrown(sheet(comp({ lib: 'ODD', ref: 'O1', x: 0, y: 0 })), { 'demo-cache.lib': nearLimit }).code).toBe('LIMIT_EXCEEDED');
+  });
+
   it('turns every cut or corrupted input into a result or a SchematicError, never another exception', () => {
     let seed = 20240607;
     const random = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
@@ -1066,17 +1099,14 @@ describe('robustness', () => {
   });
 
   it('reads an AR record padded with a long run of word characters in linear time, and still finds every attribute', () => {
-    const timed = <T>(work: () => T): { value: T; ms: number } => { const started = performance.now(); const value = work(); return { value, ms: performance.now() - started }; };
     const attributes = 'Path="/5F000001" Ref="R7" Part="2"';
-    // Ascending sizes: a pattern that restarts at every letter of the run needs about 1 s for 40,000 characters, so a regression fails at the second size.
-    for (const count of [1000, 40_000, 200_000]) {
-      const run = 'a'.repeat(count);
-      for (const [label, entry] of [['after', `${attributes} ${run}`], ['before', `${run} ${attributes}`], ['between', `Path="/5F000001" ${run} Ref="R7" Part="2"`], ['ending in "="', `${attributes} ${run}=`]] as const) {
-        const result = timed(() => must(sheet(comp({ lib: 'Device_R', ref: 'R1', x: 0, y: 0, ar: [entry] })), withCache()));
-        expect(sym(result.value, 'R1').instances, `${count}: ${label}`).toEqual({ '': { ref: 'R7', unit: 2 } });
-        expect(result.ms, `${count}: ${label}`).toBeLessThan(250);
-      }
-    }
+    const sizes = [1000, 5000, 40_000, 200_000];
+    const shapes: Array<[string, (run: string) => string]> = [['after', run => `${attributes} ${run}`], ['before', run => `${run} ${attributes}`], ['between', run => `Path="/5F000001" ${run} Ref="R7" Part="2"`], ['ending in "="', run => `${attributes} ${run}=`]];
+    const fileOf = (entry: string) => sheet(comp({ lib: 'Device_R', ref: 'R1', x: 0, y: 0, ar: [entry] }));
+    const companions = files(withCache());
+    // Ascending sizes: a pattern that restarts at every letter of the run needs about 1 s for 40,000 characters, so a regression fails at the second pair.
+    for (const [label, entry] of shapes) expectScaling(label, sizes, count => { const data = enc(fileOf(entry('a'.repeat(count)))); return () => parseKicadLegacySch({ name: 'demo.sch', data, companions }); });
+    for (const count of sizes) for (const [label, entry] of shapes) expect(sym(must(fileOf(entry('a'.repeat(count))), withCache()), 'R1').instances, `${count}: ${label}`).toEqual({ '': { ref: 'R7', unit: 2 } });
     // Names start at a word boundary and values keep their escapes.
     const read = (entry: string) => sym(must(sheet(comp({ lib: 'Device_R', ref: 'R1', x: 0, y: 0, ar: [entry] })), withCache()), 'R1').instances;
     expect(read('Path="/5F000001" Ref="R\\"7" Part="1"')).toEqual({ '': { ref: 'R"7', unit: 1 } });

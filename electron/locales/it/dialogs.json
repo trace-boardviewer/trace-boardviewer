@@ -1,0 +1,26 @@
+{
+  "help.title": "Scorciatoie a portata di mano",
+  "help.open": "Apri file",
+  "help.search": "Cerca componenti",
+  "help.fit": "Adatta alla scheda",
+  "help.rotate": "Ruota",
+  "help.measure": "Misura distanza",
+  "help.labels": "Etichette",
+  "help.note": "Nota",
+  "help.zoom": "Zoom avanti / indietro",
+  "help.layout": "Laboratorio / Focus",
+  "help.escape": "Rimuovi evidenziazione / termina misurazione",
+  "help.footer": "Rotellina del mouse: zoom sul cursore. Trascinamento: sposta la scheda. Clic: seleziona un componente o un pin.",
+  "help.diagnosticReport": "Rapporto di diagnostica del formato…",
+  "help.diagnosticHint": "Descrive un file che non si apre, senza il suo contenuto.",
+
+  "recents.title": "Schede recenti",
+  "recents.empty": "Non è ancora stato aperto alcun file.",
+  "recents.openOther": "Apri un altro file",
+
+  "info.title": "Informazioni sulla scheda",
+  "info.format": "Formato",
+  "info.size": "Dimensioni della scheda",
+  "info.counts": "Componenti / pin / net",
+  "info.footer": "Le linee ausiliarie mostrano la connettività dei net. Non sostituiscono la geometria delle piste in rame presenti nel file."
+}

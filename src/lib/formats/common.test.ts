@@ -4,6 +4,7 @@ import {
   BoardFormatError, MAX_IMPORT_BYTES, MAX_MM, TextDecodeError, asciiPrefix, buildBoard, decodeText, note, number, padExtent, startsWithBytes,
   stitchOutline, stitchOutlines, textInput, vendorDisconnected, type RawBoard, type RawPart, type RawPin,
 } from './common';
+import { catching, expectScaling } from '../../test-support/timing';
 
 const p = (x: number, y: number): Point => ({ x, y });
 const edge = (a: Point, b: Point): readonly [Point, Point] => [a, b];
@@ -17,6 +18,26 @@ const part = (key = 'U1', extra: Partial<RawPart> = {}): RawPart => ({ key, ref:
 const pin = (partKey: string, number: string, x: number, y: number, extra: Partial<RawPin> = {}): RawPin => ({ part: partKey, number, x, y, ...extra });
 const raw = (overrides: Partial<RawBoard> = {}): RawBoard => ({ format: 'TEST', unitsToMm: 1, parts: [part()], pins: [pin('U1', '1', 0, 0, { net: 'GND' })], outline: [p(0, 0), p(10, 0), p(10, 10), p(0, 10)], ...overrides });
 const keys = (board: { warnings: { key: string }[] }) => board.warnings.map(warning => warning.key);
+
+describe('buildBoard: names that are not identities', () => {
+  const build = (parts: RawPart[], pins: RawPin[]) => buildBoard(input(), raw({ parts, pins }));
+  it('a component with a reference of its own is not flagged; one without (or flagged by its adapter) is, and keeps the placeholder as its shown reference', () => {
+    const at = { position: { x: 1, y: 1 } };
+    const board = build([part('U1'), { key: 'part:7', side: 'top', ...at }, { key: 'x', ref: 'FP2', refGenerated: true, side: 'top', ...at }, { key: 'y', ref: '', side: 'top', ...at }], [pin('U1', '1', 0, 0)]);
+    expect(board.components.map(component => [component.ref, component.refGenerated])).toEqual([['U1', undefined], ['part:7', true], ['FP2', true], ['', undefined]]);
+    expect('refGenerated' in board.components[0]).toBe(false);
+  });
+  it('a pin with a number is not flagged; an empty number takes the position in the board and is, and so is a number its adapter flagged', () => {
+    const board = build([part('U1')], [pin('U1', '1', 0, 0), pin('U1', '', 1, 0), pin('U1', '#3', 2, 0, { numberGenerated: true }), pin('U1', '0', 3, 0)]);
+    expect(board.pins.map(item => [item.number, item.numberGenerated])).toEqual([['1', undefined], ['2', true], ['#3', true], ['0', undefined]]);
+    expect('numberGenerated' in board.pins[0]).toBe(false);
+  });
+  it('the importer ids stay positional handles of the session (note keys never use them)', () => {
+    const board = build([part('U1'), part('U2')], [pin('U1', '1', 0, 0), pin('U2', '1', 1, 0)]);
+    expect(board.components.map(component => component.id)).toEqual(['part:0', 'part:1']);
+    expect(board.pins.map(item => item.id)).toEqual(['pin:0', 'pin:1']);
+  });
+});
 
 describe('stitchOutlines (B05)', () => {
   const A = p(0, 0), B = p(10, 0), C = p(10, 10), D = p(0, 10);
@@ -81,13 +102,16 @@ describe('stitchOutlines (B05)', () => {
     expect(() => stitchOutline([edge(p(Number.NaN, 0), B)])).toThrow(BoardFormatError);
   });
   it('scales to thousands of sampled arc segments', () => {
-    const circle = Array.from({ length: 4096 }, (_, index) => {
-      const a = index / 4096 * 2 * Math.PI, b = (index + 1) / 4096 * 2 * Math.PI;
-      return edge(p(Math.cos(a), Math.sin(a)), p(Math.cos(b), Math.sin(b)));
-    });
-    const start = performance.now();
-    const result = stitchOutlines([...circle, ...rectangle(-5, -5, 5, 5)]);
-    expect(performance.now() - start).toBeLessThan(2000);
+    const outline = (segments: number) => {
+      const circle = Array.from({ length: segments }, (_, index) => {
+        const a = index / segments * 2 * Math.PI, b = (index + 1) / segments * 2 * Math.PI;
+        return edge(p(Math.cos(a), Math.sin(a)), p(Math.cos(b), Math.sin(b)));
+      });
+      return [...circle, ...rectangle(-5, -5, 5, 5)];
+    };
+    // A vertex lookup that compares with every earlier vertex needs about 0.1 s for 4096 segments; the exponent of the time over the segment count tells it from the grid lookup.
+    expectScaling('stitching sampled arcs', [256, 1024, 4096], segments => { const edges = outline(segments); return () => stitchOutlines(edges); });
+    const result = stitchOutlines(outline(4096));
     expect(result.loops).toHaveLength(2); expect(result.loops[0]).toHaveLength(4); expect(result.loops[1]).toHaveLength(4096);
   });
 });
@@ -324,12 +348,12 @@ describe('helpers', () => {
     expect(number(0x10)).toBe(16); expect(() => number(Number.POSITIVE_INFINITY)).toThrow(BoardFormatError);
   });
   it('number() takes a 40,000-digit token in linear time and keeps its results', () => {
-    const started = performance.now();
-    expect(number('0'.repeat(40_000) + '12')).toBe(12);
-    expect(number('0'.repeat(40_000) + '.5')).toBe(0.5);
-    expect(number('7.' + '0'.repeat(40_000))).toBe(7);
-    for (const token of ['1'.repeat(40_000) + 'x', '1'.repeat(40_000) + 'e', '1'.repeat(40_000) + '.x', '1'.repeat(40_000)]) expect(() => number(token)).toThrow(BoardFormatError);
-    expect(performance.now() - started).toBeLessThan(250);
+    const tokens = (size: number) => ({ valid: ['0'.repeat(size) + '12', '0'.repeat(size) + '.5', '7.' + '0'.repeat(size)], malformed: ['1'.repeat(size) + 'x', '1'.repeat(size) + 'e', '1'.repeat(size) + '.x', '1'.repeat(size)] });
+    // A pattern that retries every position of the digits needs about 1 s for 40,000 of them, so a regression fails at the first pair.
+    expectScaling('number() on a long token', [2500, 10_000, 40_000], size => { const { valid, malformed } = tokens(size); return () => { for (const token of valid) number(token); for (const token of malformed) catching(() => number(token))(); }; });
+    const { valid, malformed } = tokens(40_000);
+    expect(valid.map(token => number(token))).toEqual([12, 0.5, 7]);
+    for (const token of malformed) expect(() => number(token)).toThrow(BoardFormatError);
   });
   it('decodeText reports a UTF-16 BOM followed by invalid data as a descriptive TextDecodeError, never a raw TypeError', () => {
     for (const bytes of [[0xff, 0xfe, 0x41], [0xfe, 0xff, 0x41], [0xff, 0xfe, 0x00, 0xd8], [0xfe, 0xff, 0xdc, 0x00]]) {

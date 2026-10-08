@@ -149,8 +149,10 @@ function parseBvr3(input: ParseInput, text: string): Board {
         parts.push({ key, ref: owner.name, side: owner.side ?? 'both', position: origin });
         owner.pins.forEach((item, ordinal) => {
           if (!item.side) tally.defaultedSides++;
-          const number = item.number || item.name || String(ordinal + 1);
-          pins.push({ part: key, number, name: item.name || number, net: tally.net(item.net ?? ''), side: item.side ?? 'both',
+          // A pad with neither PIN_NUMBER nor PIN_NAME (fiducial, mounting hole, unconnected pad) gets "~" and its position in the part, like the KiCad reader
+          // numbers its unnumbered pads: the marker cannot be a real pin number of the part, and a board fingerprint leaves such pads out.
+          const given = item.number || item.name, number = given || `~${ordinal + 1}`;
+          pins.push({ part: key, number, ...(given ? {} : { numberGenerated: true }), name: item.name || number, net: tally.net(item.net ?? ''), side: item.side ?? 'both',
             x: origin.x + item.origin!.x, y: origin.y + item.origin!.y, ...item.radius === undefined ? {} : { radius: item.radius } });
         });
         part = undefined; break;

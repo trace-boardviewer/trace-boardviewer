@@ -1,9 +1,9 @@
 {
   "name": "trace-boardviewer",
-  "version": "1.3.0",
+  "version": "1.3.1-rc.1",
   "private": true,
   "type": "module",
-  "description": "TRACE — offline desktop GENCAD boardviewer",
+  "description": "Free, offline boardviewer and repair workspace for boards, schematics and PDFs",
   "author": "TRACE",
   "license": "MIT",
   "main": "electron/main.cjs",
@@ -17,7 +17,10 @@
     "setup:electron": "install-electron",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
-    "test:desktop": "node --test tests/desktop-checks.cjs tests/store-checks.cjs tests/workspace-checks.cjs tests/portable-config-checks.cjs tests/portable-isolation-checks.cjs tests/payload-manifest-checks.cjs tests/portable-startup-measurement-checks.cjs",
+    "test:types": "tsc --noEmit -p tests/tsconfig.json",
+    "fuzz": "node scripts/fuzz-parsers.cjs",
+    "fuzz:long": "node scripts/fuzz-parsers.cjs --mode long --minutes 30 --save",
+    "test:desktop": "node --test tests/desktop-checks.cjs tests/store-checks.cjs tests/workspace-checks.cjs tests/portable-config-checks.cjs tests/portable-isolation-checks.cjs tests/payload-manifest-checks.cjs tests/portable-startup-measurement-checks.cjs tests/release-version-checks.cjs tests/support-verification-checks.cjs",
     "qa:browser": "node scripts/qa-smoke.cjs --browser",
     "qa:electron": "node scripts/qa-smoke.cjs --electron",
     "qa:packaged": "node scripts/qa-smoke.cjs --packaged",
@@ -25,6 +28,11 @@
     "qa:localization": "node scripts/qa-localization.cjs",
     "qa:renderer": "node scripts/qa-renderer.cjs",
     "qa:performance": "node scripts/qa-performance.cjs",
+    "qa:performance:synthetic": "node scripts/qa-performance.cjs --synthetic=100k",
+    "bench:synthetic": "node scripts/qa-performance.cjs --synthetic=all",
+    "bench:baseline": "node scripts/qa-performance.cjs --synthetic=all --label=baseline --wait-quiet=300",
+    "bench:report": "node scripts/perf-report.cjs",
+    "gen:board": "node scripts/gen-synthetic-board.cjs",
     "qa:workspace": "node scripts/qa-workspace-ui.cjs",
     "qa:e2e": "node scripts/qa-workspace-e2e.cjs",
     "start": "electron .",
@@ -42,12 +50,15 @@
     "react-dom": "19.3.0"
   },
   "devDependencies": {
+    "@tesseract.js-data/eng": "1.0.0",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "cfb": "1.2.2",
     "electron": "44.5.1",
     "electron-builder": "26.15.3",
+    "fast-check": "4.10.2",
     "playwright": "1.62.1",
+    "tesseract.js-core": "7.0.0",
     "typescript": "7.0.2",
     "vite": "8.3.2",
     "vitest": "5.0.3"
@@ -58,6 +69,7 @@
     "directories": {
       "output": "release"
     },
+    "publish": null,
     "electronDist": "node_modules/electron/dist",
     "files": [
       "dist/**/*",
@@ -65,7 +77,8 @@
       "package.json",
       "assets/**/*",
       "LICENSE",
-      "THIRD_PARTY_NOTICES.md"
+      "THIRD_PARTY_NOTICES.md",
+      "!node_modules/@napi-rs/**"
     ],
     "asar": true,
     "electronFuses": {

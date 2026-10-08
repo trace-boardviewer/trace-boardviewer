@@ -15,7 +15,7 @@ function subscribe(channel, listener) {
 // message and stack ONLY: `code`, `name` and `cause` are dropped (verified with Electron 44 in
 // tests/electron-smoke.cjs). The only channel that reaches the renderer is therefore the message. The main
 // process starts the text of an error that has a stable machine code with "[CODE] " (STORE_CLOSING,
-// BOARD_MISMATCH, MANIFEST_INVALID, DOCUMENT_*, EXPORT_*, WORKSPACE_*). Here Electron's wrapper is removed
+// BOARD_MISMATCH, MANIFEST_INVALID, DOCUMENT_*, EXPORT_*, WORKSPACE_*, READINGS_*). Here Electron's wrapper is removed
 // so the message is exactly "[CODE] text", and `.code` is set as well (it survives wherever no bridge
 // copy is involved, e.g. tests). The renderer reads the code from the message prefix. Any other rejection
 // is passed on untouched, and the raw IPC machinery is never exposed.
@@ -66,11 +66,29 @@ contextBridge.exposeInMainWorld('traceDesktop', Object.freeze({
   readDocument: (path, options) => call('trace:read-document', path, options),
   locateDocuments: (boardPath, requests) => call('trace:locate-documents', boardPath, requests),
   exportWorkspace: (request) => call('trace:export-workspace', request),
-  // Support notice: the renderer names one of three fixed links by id ('stripe' | 'kofi' | 'bug'); main.cjs holds the URLs and rejects anything else.
+  // Format diagnostic report (Help): main opens both dialogs; the first call takes no argument, the second forwards only the report.
+  pickDiagnosticFile: () => call('trace:diagnostic-pick'),
+  saveDiagnosticReport: (report) => call('trace:diagnostic-save', report),
+  // Readings (repair store, docs/READINGS_FORMAT.md): a family is named by its 64-hex id. readReadings hands the readings over as the
+  // text of a JSON array (one string crosses the bridge, not 100,000 objects). importReadings and exportReadings open main-owned dialogs:
+  // the renderer never sends a path; it gets a base name and the text back, and sends a pack to be validated and written.
+  listReadingFamilies: () => call('trace:list-readings-families'),
+  readReadings: (familyId, options) => call('trace:read-readings', familyId, options),
+  appendReadings: (familyId, events) => call('trace:append-readings', familyId, events),
+  importReadings: () => call('trace:import-readings'),
+  exportReadings: (request) => call('trace:export-readings', request),
+  // Support notice and top bar heart: the renderer names one of four fixed links by id ('stripe' | 'kofi' | 'bug' | 'support'); main.cjs holds the URLs and rejects anything else.
   openSupportLink: (id) => call('trace:open-support-link', id),
+  getSupportStatus: () => call('trace:get-support-status'),
+  prepareSupport: () => call('trace:prepare-support'),
+  checkSupport: () => call('trace:check-support'),
   // Update notification: neither call takes an argument (none is forwarded). The main process fetches the release info itself and keeps the validated tag; the renderer never sends a URL or a tag.
   checkForUpdates: () => call('trace:check-for-updates'),
   openUpdatePage: () => call('trace:open-update-page'),
+  // Network activity (Settings > Network): neither call takes an argument (none is forwarded). The log is read-only for the renderer, which can only empty it;
+  // it can neither name a URL or a host nor start a request.
+  getNetworkActivity: () => call('trace:get-network-activity'),
+  clearNetworkActivity: () => call('trace:clear-network-activity'),
   minimize: () => ipcRenderer.send('trace:minimize'),
   maximize: () => ipcRenderer.send('trace:maximize'),
   close: () => ipcRenderer.send('trace:close'),

@@ -9,6 +9,7 @@ import {
   mapSchematicNetToBoard, mapSchematicSelectionToBoard, naturalCompare, normalizeKey, resolvePdfDocuments, resolvePdfRefHits, searchAll,
 } from './crossprobe';
 import type { BoardIndex, SchematicIndex } from './crossprobe';
+import { expectCostAtMost, expectScaling } from '../test-support/timing';
 
 // ---------------------------------------------------------------------------------------------------------------
 // Original synthetic builders (nothing shared with the parsers)
@@ -652,15 +653,20 @@ describe('PDF hits -> board', () => {
     expect(link.reasons).toEqual(expect.arrayContaining(['duplicate-hits', 'unverified-hit-text']));
   });
   it('compares the letters of a hit in linear time when a name or the hit text holds a long run of punctuation', () => {
-    const timed = <T>(work: () => T): { value: T; ms: number } => { const started = performance.now(); const value = work(); return { value, ms: performance.now() - started }; };
-    // Ascending sizes: an end-anchored `[...]+$` pattern retries every position of the run and needs about 1 s for 40,000 characters, so a regression fails at the second size.
-    for (const count of [1000, 40_000, 200_000]) {
+    const sizes = [1000, 40_000, 200_000];
+    const candidates = (count: number) => {
       const dots = '.'.repeat(count), long = `x${dots}y`, pairs = '. '.repeat(count / 2);
-      const result = timed(() => resolvePdfRefHits([
+      return [
         cand('net', long, [hit(1, 1, long), hit(2, 2, `X${dots}Y`), hit(3, 3, 'unrelated text')]),
         cand('net', `x${pairs}y`, [hit(1, 4, `x${pairs}y`)]),
         cand('ref', 'R2', [hit(1, 5, `${dots}R2${dots}`), hit(1, 6, `see (r2)${dots}`)]),
-      ], board));
+      ];
+    };
+    // Ascending sizes: an end-anchored `[...]+$` pattern retries every position of the run and needs about 1 s for 40,000 characters, so a regression fails at the first pair.
+    expectScaling('letters of a hit', sizes, count => { const input = candidates(count); return () => resolvePdfRefHits(input, board); });
+    for (const count of sizes) {
+      const dots = '.'.repeat(count), long = `x${dots}y`, pairs = '. '.repeat(count / 2);
+      const result = { value: resolvePdfRefHits(candidates(count), board) };
       const link = (name: string) => result.value.links.find(l => l.name === name)!;
       expect(link(long), `${count}`).toMatchObject({ status: 'missing', hitsTotal: 2, caseInsensitiveHitsTotal: 1 });
       expect(link(long).hits.map(h => h.literal), `${count}`).toEqual(['exact', 'unknown']);
@@ -669,7 +675,6 @@ describe('PDF hits -> board', () => {
       expect(link('R2'), `${count}`).toMatchObject({ status: 'unique', hitsTotal: 1, caseInsensitiveHitsTotal: 1 });
       expect(link('R2').hits.map(h => h.literal), `${count}`).toEqual(['exact']);
       expect(link('R2').caseInsensitiveHits.map(h => h.literal), `${count}`).toEqual(['case-differs']);
-      expect(result.ms, `${count}`).toBeLessThan(250);
     }
   });
   it('resolves several documents independently', () => {
@@ -786,8 +791,11 @@ describe('unified search', () => {
 });
 
 describe('scale: 5,000 components', () => {
-  it('builds, links and searches within generous bounds', () => {
-    const count = 5000, netPool = 700;
+  /** The board and the schematic of `count` resistors on 700 nets and ground, built once per size. */
+  const fixtures = new Map<number, ReturnType<typeof build>>();
+  const fixture = (count: number) => { let found = fixtures.get(count); if (!found) fixtures.set(count, found = build(count)); return found; };
+  const build = (count: number) => {
+    const netPool = 700;
     const board = makeBoard(Array.from({ length: count }, (_, i) => ({ ref: `R${i + 1}`, value: `${(i % 97) + 1}k`, pkg: i % 2 ? '0402' : '0603', side: (i % 2 ? 'top' : 'bottom') as BoardSide, pins: [['1', `N${i % netPool}`], ['2', 'GND']] as Array<[string, string]> })));
     const design = makeDesign({
       defs: [{ id: 'root', symbols: Array.from({ length: count }, (_, i) => ({ id: `s${i}`, ref: `R${i + 1}`, value: `${(i % 97) + 1}k`, pins: ['1', '2'] })) }],
@@ -797,15 +805,22 @@ describe('scale: 5,000 components', () => {
         { name: 'GND', pins: Array.from({ length: count }, (_, i) => ['', `s${i}`, '2'] as PinRef) },
       ],
     });
-    const time = <T>(fn: () => T): [T, number] => { const t = performance.now(); const value = fn(); return [value, performance.now() - t]; };
-    const [boardIndex, tBoard] = time(() => buildBoardIndex(board));
-    const [schIndex, tSch] = time(() => buildSchematicIndex([design]));
-    const [report, tLink] = time(() => linkBoardSchematic(boardIndex, schIndex));
-    const [search, tSearch] = time(() => searchAll({ query: 'R1', board: boardIndex, schematic: schIndex }));
-    const [, tSearch2] = time(() => { for (let i = 0; i < 20; i++) searchAll({ query: `r${i}`, board: boardIndex, schematic: schIndex }); });
-    const [map, tMap] = time(() => mapBoardSelectionToSchematic(boardIndex, schIndex, { componentId: 'c2500' }));
-    // eslint-disable-next-line no-console
-    console.log(`crossprobe 5000 components: board index ${tBoard.toFixed(1)} ms, schematic index ${tSch.toFixed(1)} ms, link ${tLink.toFixed(1)} ms, search ${tSearch.toFixed(2)} ms (20 more: ${tSearch2.toFixed(1)} ms), mapping ${tMap.toFixed(2)} ms`);
+    return { board, design, boardIndex: buildBoardIndex(board), schIndex: buildSchematicIndex([design]) };
+  };
+  it('builds, links and searches in linear time', () => {
+    // A lookup that scans the components for every symbol or every pin is quadratic: 16 times the time for 4 times the components.
+    const sizes = [1250, 5000, 20_000];
+    expectScaling('board index', sizes, count => { const { board } = fixture(count); return () => buildBoardIndex(board); });
+    expectScaling('schematic index', sizes, count => { const { design } = fixture(count); return () => buildSchematicIndex([design]); });
+    expectScaling('link', sizes, count => { const { boardIndex, schIndex } = fixture(count); return () => linkBoardSchematic(boardIndex, schIndex); });
+    expectScaling('search', sizes, count => { const { boardIndex, schIndex } = fixture(count); return () => searchAll({ query: 'R1', board: boardIndex, schematic: schIndex }); });
+    // Mapping one selection is a lookup in the indexes: it costs less than a single pass over the components of the board.
+    const large = fixture(20_000);
+    expectCostAtMost('mapping one selection', () => mapBoardSelectionToSchematic(large.boardIndex, large.schIndex, { componentId: 'c10000' }), () => { let total = 0; for (const component of large.board.components) total += component.ref.length; return total; }, 1);
+    const count = 5000, { boardIndex, schIndex } = fixture(count);
+    const report = linkBoardSchematic(boardIndex, schIndex);
+    const search = searchAll({ query: 'R1', board: boardIndex, schematic: schIndex });
+    const map = mapBoardSelectionToSchematic(boardIndex, schIndex, { componentId: 'c2500' });
     expect(report.summary.refs.unique).toBe(count);
     expect(report.summary.pins).toMatchObject({ compared: count * 2, match: count * 2 });
     expect(report.summary.disagreements.total).toBe(0);
@@ -813,9 +828,6 @@ describe('scale: 5,000 components', () => {
     expect(search.groups[0].total).toBeGreaterThan(1000);
     expect(search.groups[0].rows[0]).toMatchObject({ ref: 'R1', match: { tier: 'exact' } });
     expect(map.status).toBe('unique');
-    expect(tBoard + tSch + tLink).toBeLessThan(5000);
-    expect(tSearch).toBeLessThan(500);
-    expect(tMap).toBeLessThan(100);
   });
 });
 

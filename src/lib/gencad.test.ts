@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { GENCAD_LIMITS, GenCadParseError, parseGenCad } from './gencad';
 import { formatIssue, LANGUAGES } from './i18n';
+import { catching, expectCostAtMost, expectScaling } from '../test-support/timing';
 
 interface FixtureOptions {
   units?: string; board?: string; pads?: string; stacks?: string; shape?: string;
@@ -354,13 +355,15 @@ describe('output budget and contour robustness', () => {
   it('rejects shape instancing whose planned pin count exceeds the budget before expanding it (B22)', () => {
     expect(GENCAD_LIMITS).toEqual({ components: 250_000, pins: 1_000_000, geometryPoints: 8_000_000, lines: 8_000_000 });
     expect(parseGenCad(instanced(8, 8), 'control.cad').pins).toHaveLength(64);
-    const start = performance.now();
     let thrown: unknown;
     try { parseGenCad(instanced(5000, 201), 'expansion.cad'); } catch (error) { thrown = error; }
     expect(thrown).toBeInstanceOf(GenCadParseError);
     expect((thrown as GenCadParseError).issue.key).toBe('parse.error.tooManyRecords');
-    // 126 KiB of text planning 1,005,000 pins must fail during preflight, not after allocating them.
-    expect(performance.now() - start).toBeLessThan(1500);
+    // 126 KiB of text planning 1,005,000 pins must fail during preflight, not after allocating them: the refusal costs less than reading the same text
+    // and expanding a fifth of it (100,000 pins, within the budget); expanding all of it first costs about ten times that.
+    const refused = instanced(5000, 201), expanded = instanced(5000, 20);
+    expect(parseGenCad(expanded, 'expanded.cad').pins).toHaveLength(100_000);
+    expectCostAtMost('refusing 1,005,000 planned pins', catching(() => parseGenCad(refused, 'expansion.cad')), () => parseGenCad(expanded, 'expanded.cad'), 1);
   });
 
   it('reads a file of more than half a million physical lines and 200,000 round pads: the line cap no longer stops the documented budgets', () => {
@@ -382,21 +385,60 @@ describe('output budget and contour robustness', () => {
     const placed = (count: number) => fixture({ shape: `${body}\nPIN 1 PS 0 0 TOP 0 0`, component: Array.from({ length: count }, (_, index) => `COMPONENT U${index}\nPLACE 0 0\nLAYER TOP\nSHAPE S 0 0`).join('\n'), signals: 'SIGNAL GND\nNODE U0 1' });
     expect(parseGenCad(placed(10), 'bodies.cad').components).toHaveLength(10);
     // 2,000 body points placed twice per component: 2,001 placements plan 8,004,000 points, above the 8,000,000 budget.
-    const start = performance.now();
     let thrown: unknown;
     try { parseGenCad(placed(2001), 'bodies.cad'); } catch (error) { thrown = error; }
     expect(thrown).toBeInstanceOf(GenCadParseError);
     expect((thrown as GenCadParseError).issue.key).toBe('parse.error.tooManyRecords');
-    expect(performance.now() - start).toBeLessThan(1500);
+    // Refusing the plan costs less than expanding a fifth of it (400 placements, 1.6 million points, within the budget); expanding all of it first costs about five times that.
+    const refused = placed(2001), expanded = placed(400);
+    expect(parseGenCad(expanded, 'bodies.cad').components).toHaveLength(400);
+    expectCostAtMost('refusing 8,004,000 planned points', catching(() => parseGenCad(refused, 'bodies.cad')), () => parseGenCad(expanded, 'bodies.cad'), 1);
   });
 
   it('still refuses a file above the line cap before reading any record', () => {
-    const start = performance.now();
+    const flood = `$HEADER\n${'\n'.repeat(GENCAD_LIMITS.lines)}$ENDHEADER\n`;
     let thrown: unknown;
-    try { parseGenCad(`$HEADER\n${'\n'.repeat(GENCAD_LIMITS.lines)}$ENDHEADER\n`, 'flood.cad'); } catch (error) { thrown = error; }
+    try { parseGenCad(flood, 'flood.cad'); } catch (error) { thrown = error; }
     expect(thrown).toBeInstanceOf(GenCadParseError);
     expect((thrown as GenCadParseError).issue.key).toBe('parse.error.tooManyRecords');
-    expect(performance.now() - start).toBeLessThan(5000);
+    // The refusal is the split into lines and a length test: it costs about as much as the plain split of the same text and not a multiple of it.
+    expectCostAtMost('refusing a flood of lines', catching(() => parseGenCad(flood, 'flood.cad')), () => flood.split(/\r\n|\n|\r/), 3);
+  });
+
+  it('chains an outline of thousands of identical segments in time that grows linearly (the fuzzer found 6,000 of them to take hours)', () => {
+    const board = (count: number) => fixture({ board: `ARC 0 -10 0 10 0 0\n${'LINE 0 10 0 -10\n'.repeat(count)}` });
+    const reference = parseGenCad(board(1), 'coincident.cad').outline;
+    expect(reference.length).toBeGreaterThan(8);
+    for (const count of [2, 50, 500]) {
+      const result = parseGenCad(board(count), 'coincident.cad');
+      expect(result.outline, `${count} copies`).toEqual(reference);
+      expect(result.warnings.map(warning => warning.key), `${count} copies`).toContain('parse.warning.boardCutouts');
+    }
+    expectScaling('coincident outline segments', [250, 1000, 4000], count => { const text = board(count); return () => parseGenCad(text, 'coincident.cad'); });
+    expectScaling('coincident segments of a shape', [250, 1000, 4000], count => { const text = fixture({ shape: `ARC 0 -10 0 10 0 0\n${'LINE 0 10 0 -10\n'.repeat(count)}PIN 1 PS 0 0 TOP 0 0` }); return () => parseGenCad(text, 'coincident.cad'); });
+  });
+
+  it('chains a long outline listed in any order to one closed contour in linear time, and a pile of segments at one corner is left without an outline', () => {
+    // A square perimeter of n unit segments, shuffled and half of them reversed.
+    const square = (n: number) => {
+      const side = n / 4, lines: string[] = [];
+      for (let i = 0; i < side; i++) lines.push(`LINE ${i} 0 ${i + 1} 0`, `LINE ${side} ${i} ${side} ${i + 1}`, `LINE ${side - i} ${side} ${side - i - 1} ${side}`, `LINE 0 ${side - i} 0 ${side - i - 1}`);
+      let seed = 20260517;
+      for (let i = lines.length - 1; i > 0; i--) { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; const j = seed % (i + 1); [lines[i], lines[j]] = [lines[j], lines[i]]; }
+      return lines.map((line, i) => { if (i % 2) return line; const a = line.split(' '); return `LINE ${a[3]} ${a[4]} ${a[1]} ${a[2]}`; });
+    };
+    const small = parseGenCad(fixture({ board: square(400).join('\n') }), 'square.cad');
+    expect(small.outline).toHaveLength(401);
+    expect(small.warnings.map(warning => warning.key)).not.toContain('parse.warning.missingBoardOutline');
+    expectScaling('long outline', [2000, 8000, 32_000], n => { const text = fixture({ board: square(n).join('\n') }); return () => parseGenCad(text, 'square.cad'); });
+    // More than the work budget of the chaining: thousands of segments at one corner and thousands more 0.000012 mm away from it, which are
+    // neighbours in the hash but not the same point. No outline is built, the bounding box is drawn, and it costs no more than a clean outline of as many segments (within a factor).
+    const pile = fixture({ board: `${'LINE 0 0 5 5\n'.repeat(3000)}${'LINE -0.000012 0 9 9\n'.repeat(3000)}` });
+    const drawn = parseGenCad(pile, 'pile.cad');
+    expect(drawn.warnings.map(warning => warning.key)).toContain('parse.warning.missingBoardOutline');
+    expect(drawn.outline).toHaveLength(5);
+    const clean = fixture({ board: square(6000).join('\n') });
+    expectCostAtMost('a pile of segments at one corner', () => parseGenCad(pile, 'pile.cad'), () => parseGenCad(clean, 'square.cad'), 20);
   });
 
   const rectangle = ['LINE 0 0 40 0', 'LINE 40 0 40 30', 'LINE 40 30 0 30', 'LINE 0 30 0 0'];

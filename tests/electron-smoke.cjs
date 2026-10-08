@@ -93,9 +93,10 @@ test('real Electron: bridge surface, native errors with codes, workspace and doc
   await t.test('the bridge exposes the TraceDesktop API and nothing generic', async () => {
     const names = await page.evaluate(() => Object.keys(window.traceDesktop).sort());
     assert.deepEqual(names, [
-      'acceptBoard', 'checkForUpdates', 'close', 'droppedFilePath', 'exportWorkspace', 'getNotes', 'getSettings', 'initialBoard', 'isMaximized', 'loadWorkspace', 'locateDocuments', 'maximize',
-      'minimize', 'onFlushRequest', 'onMaximized', 'onOpenBoard', 'openBoard', 'openSupportLink', 'openUpdatePage', 'pickDocuments', 'readBoard', 'readDocument', 'recentBoards', 'saveNotes', 'saveSettings', 'saveWorkspace',
-    ]);
+      'acceptBoard', 'appendReadings', 'checkForUpdates', 'clearNetworkActivity', 'close', 'droppedFilePath', 'exportReadings', 'exportWorkspace', 'getNetworkActivity', 'getNotes', 'getSettings', 'importReadings', 'initialBoard', 'isMaximized',
+      'checkSupport', 'getSupportStatus', 'prepareSupport', 'listReadingFamilies', 'loadWorkspace', 'locateDocuments', 'maximize', 'minimize', 'onFlushRequest', 'onMaximized', 'onOpenBoard', 'openBoard', 'openSupportLink', 'openUpdatePage', 'pickDiagnosticFile', 'pickDocuments', 'readBoard', 'readDocument', 'readReadings',
+      'recentBoards', 'saveDiagnosticReport', 'saveNotes', 'saveSettings', 'saveWorkspace',
+    ].sort());
     assert.equal(await page.evaluate(() => typeof window.ipcRenderer + typeof window.require + typeof window.process), 'undefinedundefinedundefined');
   });
 
@@ -167,33 +168,54 @@ test('real Electron: bridge surface, native errors with codes, workspace and doc
   });
 
   // New IPC 'trace:open-support-link'.
-  await t.test('support notice: openSupportLink sends an id over the real bridge; main opens exactly the three constant URLs and rejects everything else', async () => {
+  await t.test('support notice: openSupportLink sends an id over the real bridge; main opens exactly the four constant URLs and rejects everything else', async () => {
+    const status = await run('() => window.traceDesktop.getSupportStatus()');
+    assert.equal(status.value.status, 'inactive');
+    const supportEnabled = require('../electron/support-verification.json').enabled;
+    assert.equal(status.value.available, supportEnabled);
+    const prepared = await run('() => window.traceDesktop.prepareSupport()');
+    assert.match(prepared.value.code, /^[a-f0-9]{32}$/);
+    assert.equal((await run('() => window.traceDesktop.prepareSupport()')).value.code, prepared.value.code);
+    await app.evaluate(({ session }) => { const partition = session.fromPartition('trace-egress', { cache: false }); globalThis.__supportRealFetch = partition.fetch; partition.fetch = async () => new Response('{"status":"pending"}', { status: 404 }); });
+    assert.equal((await run('() => window.traceDesktop.checkSupport()')).value.status, supportEnabled ? 'pending' : 'unavailable');
+    await app.evaluate(({ session }) => { session.fromPartition('trace-egress', { cache: false }).fetch = globalThis.__supportRealFetch; delete globalThis.__supportRealFetch; });
     await app.evaluate(({ shell }) => { globalThis.__supportOpened = []; shell.openExternal = async (url) => { globalThis.__supportOpened.push(url); }; });
     assert.equal((await run('() => window.traceDesktop.openSupportLink("stripe")')).ok, true);
     assert.equal((await run('() => window.traceDesktop.openSupportLink("kofi")')).ok, true);
     assert.equal((await run('() => window.traceDesktop.openSupportLink("bug")')).ok, true);
-    for (const bad of ['paypal', 'https://ko-fi.com/tracerboardview', 'constructor', '']) {
+    assert.equal((await run('() => window.traceDesktop.openSupportLink("support")')).ok, true);
+    for (const bad of ['paypal', 'https://ko-fi.com/tracerboardview', 'https://trace-boardviewer.github.io/support.html', 'Support', 'constructor', '']) {
       const refused = await run('(id) => window.traceDesktop.openSupportLink(id)', bad);
       assert.equal(refused.ok, false, JSON.stringify(bad));
       assert.match(refused.message, /Unknown support link/);
     }
-    assert.deepEqual(await app.evaluate(() => globalThis.__supportOpened), ['https://donate.stripe.com/7sYaEZeET2op8PxaGE5EY00', 'https://ko-fi.com/tracerboardview', 'https://github.com/trace-boardviewer/trace-boardviewer/issues/new?template=bug_report.yml']);
+    const stripeUrl = new URL('https://donate.stripe.com/7sYaEZeET2op8PxaGE5EY00');
+    if (supportEnabled) stripeUrl.searchParams.set('client_reference_id', prepared.value.code);
+    assert.deepEqual(await app.evaluate(() => globalThis.__supportOpened), [stripeUrl.href, 'https://ko-fi.com/tracerboardview', 'https://github.com/trace-boardviewer/trace-boardviewer/issues/new?template=bug_report.yml', 'https://trace-boardviewer.github.io/support.html']);
+    const supportActivity = (await run('() => window.traceDesktop.getNetworkActivity()')).value;
+    assert.equal(JSON.stringify(supportActivity).includes(prepared.value.code), false, 'the support reference never appears in network activity');
+    await run('() => window.traceDesktop.clearNetworkActivity()');
   });
 
   // New IPC 'trace:check-for-updates' and 'trace:open-update-page'.
-  // The REAL net.fetch is called (so Electron 44 really accepts the request options and returns a readable body), but it is pointed at the local page that answers like releases/latest.
-  await t.test('update notification: checkForUpdates and openUpdatePage over the real bridge; main fetches with the real net.fetch, validates the tag and opens exactly the tag URL', async () => {
+  // Since the egress layer (electron/net/egress.cjs) main fetches through the in-memory partition 'trace-egress' only. The fetch of that session is replaced by a stand-in that records
+  // what main asked and forwards the same request options to the REAL session.fetch of a second in-memory partition (so Electron 44 really accepts the request options and returns a
+  // readable body), pointed at the local page that answers like releases/latest.
+  await t.test('update notification: checkForUpdates and openUpdatePage over the real bridge; main fetches through the egress partition, validates the tag and opens exactly the tag URL', async () => {
     const early = await run('() => window.traceDesktop.openUpdatePage()');
     assert.equal(early.ok, false, 'nothing to open before a check');
     assert.match(early.message, /No update available/);
-    await app.evaluate(({ net, shell }, target) => {
-      const realFetch = net.fetch.bind(net);
+    await app.evaluate(({ session, shell }, target) => {
+      const egressSession = session.fromPartition('trace-egress', { cache: false });
+      const standIn = session.fromPartition('trace-smoke-standin');
+      globalThis.__realEgressFetch = egressSession.fetch.bind(egressSession);
+      const realFetch = standIn.fetch.bind(standIn);
       globalThis.__updateRequests = [];
       globalThis.__updateOpened = [];
-      net.fetch = async (url, init) => {
+      egressSession.fetch = async (url, init) => {
         globalThis.__updateRequests.push({ url, method: init.method, redirect: init.redirect, credentials: init.credentials, referrerPolicy: init.referrerPolicy, headers: { ...init.headers } });
         const real = await realFetch(target, init);
-        // net.fetch documents Response.url as unreliable: hand main.cjs a plain Response with the same status, headers and bytes.
+        // session.fetch documents Response.url as unreliable: hand main.cjs a plain Response with the same status, headers and bytes.
         return new Response(await real.arrayBuffer(), { status: real.status, headers: real.headers });
       };
       shell.openExternal = async (url) => { globalThis.__updateOpened.push(url); };
@@ -211,7 +233,7 @@ test('real Electron: bridge surface, native errors with codes, workspace and doc
     assert.deepEqual(await app.evaluate(() => globalThis.__updateOpened), ['https://github.com/trace-boardviewer/trace-boardviewer/releases/tag/v99.0.0'], 'arguments are ignored; the page is the validated tag, never html_url');
     // Inside the cooldown (30 s after a request) a check makes no request and repeats the answer; once the clock of the main process is past it, a failing
     // request is the bare "unavailable" and forgets the tag.
-    await app.evaluate(({ net }) => { net.fetch = async (url) => { globalThis.__updateRequests.push({ url }); throw new Error('offline'); }; });
+    await app.evaluate(({ session }) => { session.fromPartition('trace-egress', { cache: false }).fetch = async (url) => { globalThis.__updateRequests.push({ url }); throw new Error('offline'); }; });
     assert.deepEqual((await run('() => window.traceDesktop.checkForUpdates()')).value, { status: 'available', version: '99.0.0' }, 'the answer of the first request again');
     assert.equal((await app.evaluate(() => globalThis.__updateRequests)).length, 1, 'no request inside the cooldown');
     await app.evaluate(() => { globalThis.__realNow = Date.now; Date.now = () => globalThis.__realNow() + 60000; });
@@ -226,6 +248,18 @@ test('real Electron: bridge surface, native errors with codes, workspace and doc
     const saved = await run('(s) => window.traceDesktop.saveSettings(s).then(() => window.traceDesktop.getSettings())', { ...settings, updateCheck: false });
     assert.equal(saved.value.updateCheck, false);
     await run('(s) => window.traceDesktop.saveSettings(s)', { ...saved.value, updateCheck: true });
+    // The network activity over the real bridge: the two real calls of main are two entries (host and path only), and the renderer can empty the list.
+    const activity = (await run('() => window.traceDesktop.getNetworkActivity()')).value;
+    assert.deepEqual(activity.features.map((feature) => [feature.id, feature.hosts, feature.optIn]), [['update-check', ['api.github.com'], 'updateCheck'], ['support-verification', require('../electron/support.cjs').FEATURE.hosts, 'supportVerification']]);
+    assert.deepEqual(activity.entries.map((entry) => [entry.feature, entry.host, entry.path, entry.outcome, entry.status, entry.error]), [
+      ['update-check', 'api.github.com', '/repos/trace-boardviewer/trace-boardviewer/releases/latest', 'ok', 200, null],
+      ['update-check', 'api.github.com', '/repos/trace-boardviewer/trace-boardviewer/releases/latest', 'error', null, 'network'],
+    ]);
+    // The request filter of the network session (a second line of defence) cancels a URL that no feature may reach, here a local page that would answer.
+    const reached = await app.evaluate(async (_modules, target) => { try { await globalThis.__realEgressFetch(target); return 'answered'; } catch { return 'cancelled'; } }, `http://127.0.0.1:${server.address().port}/__latest-release`);
+    assert.equal(reached, 'cancelled');
+    assert.equal((await run('() => window.traceDesktop.clearNetworkActivity()')).ok, true);
+    assert.deepEqual((await run('() => window.traceDesktop.getNetworkActivity()')).value.entries, []);
   });
 
   await t.test('quit: a write submitted after the quit intent is rejected with [STORE_CLOSING]; the write accepted before it is drained before the app exits', async () => {

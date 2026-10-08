@@ -3,6 +3,7 @@ import { SCHEMATIC_LIMITS, SchematicError, symbolRef, type Schematic, type SchSy
 import { computeConnectivity } from './connectivity';
 import { readSexpr } from './sexpr';
 import { KICAD_SCH_MAX_VERSION, KICAD_SCH_MIN_VERSION, parseKicadSch, parseKicadSchWithLimits } from './kicad-sch';
+import { expectCostAtMost } from '../../test-support/timing';
 
 // ---------------------------------------------------------------------------------------------------------------
 // Original synthetic fixtures (inline generators, no real KiCad project data).
@@ -899,10 +900,16 @@ describe('repeated ids', () => {
   const SAME = U(77);
 
   it('keeps 20 000 wires that share one uuid unique with "~n" suffixes in linear time', () => {
-    const wires = Array.from({ length: 20_000 }, (_, i) => wire(`${(i % 200) * 2} ${Math.floor(i / 200) * 2}`, `${(i % 200) * 2 + 1} ${Math.floor(i / 200) * 2}`, SAME)).join('\n');
-    const start = performance.now();
-    const s = run(file(wires, { tail: '(sheet_instances (path "/" (page "1")))' }));
-    expect(performance.now() - start).toBeLessThan(2000);
+    const sheetWith = (count: number, id: (index: number) => string) => file(Array.from({ length: count }, (_, i) => wire(`${(i % 200) * 2} ${Math.floor(i / 200) * 2}`, `${(i % 200) * 2 + 1} ${Math.floor(i / 200) * 2}`, id(i))).join('\n'), { tail: '(sheet_instances (path "/" (page "1")))' });
+    const sheetOf = (count: number) => sheetWith(count, () => SAME);
+    // The same sheet with a distinct uuid on every wire is the work the repeats must not exceed by much more than the suffix bookkeeping: a suffix probe
+    // that restarts at ~2 for every repeat costs 50 times that or more (1.5 s against 30 ms for 5,000 wires) and grows with the square of the count; a correct
+    // run measures 0.4 to about 3 times it, because garbage collection decides much of a parse of 20,000 wires, so the factor of 10 sits between the two.
+    // Both are parsed in this process one after the other, so a busy machine slows them alike; a size exponent over 4x steps is not used here, because
+    // an object graph of 20,000 wires makes even a linear parse measure close to size^1.5 (garbage collection and caches).
+    const repeated = enc(sheetOf(20_000)), distinct = enc(sheetWith(20_000, i => U(1000 + i)));
+    expectCostAtMost('repeated ids', () => parseKicadSch({ name: 'main.kicad_sch', data: repeated, companions: {} }), () => parseKicadSch({ name: 'main.kicad_sch', data: distinct, companions: {} }), 10);
+    const s = run(sheetOf(20_000));
     const ids = s.defs[0]!.wires.map((w) => w.id);
     expect(ids).toHaveLength(20_000);
     expect(new Set(ids).size).toBe(20_000);

@@ -4,11 +4,11 @@ import { createFakeDesktop } from '../app/testing';
 import { LANGUAGES, catalogs, translate } from './i18n';
 import type { Language } from './i18n';
 import {
-  BUG_REPORT_FAILED_KEY, SUPPORT_LINK_IDS, SUPPORT_NOTICE_KEYS, SUPPORT_NOTICE_OPT_OUT, WEB_SUPPORT_LINKS,
-  claimSupportNotice, closesOnBackdrop, createBackdropDismisser, createSupportLinkRequester, isSupportLinkId, openSupportLinkInBrowser,
-  resetSupportNoticeLaunch, resolveSupportLinkOpener, supportNoticeAllowed,
+  BUG_REPORT_FAILED_KEY, SUPPORT_BUTTON_FAILED_KEY, SUPPORT_BUTTON_KEY, SUPPORT_LINK_IDS, SUPPORT_NOTICE_KEYS, SUPPORT_NOTICE_OPT_OUT, WEB_SUPPORT_LINKS,
+  claimSupportNotice, closesOnBackdrop, createBackdropDismisser, createSupportLinkRequester, isSupportLinkId, openFixedLink, openSupportLinkInBrowser,
+  resetSupportNoticeLaunch, resolveSupportLinkOpener, supportNoticeAllowed, postponeSupportNotice, SUPPORT_REMINDER_INTERVAL_MS,
 } from './support-notice';
-import type { SupportLinkId } from './support-notice';
+import type { SupportLinkId, SupportLinkOpener } from './support-notice';
 
 /**
  * Support notice (a short notice on EVERY start, easy to skip, never blocking). These tests cover the pure
@@ -18,18 +18,20 @@ import type { SupportLinkId } from './support-notice';
 const STRIPE = 'https://donate.stripe.com/7sYaEZeET2op8PxaGE5EY00';
 const KOFI = 'https://ko-fi.com/tracerboardview';
 const BUG = 'https://github.com/trace-boardviewer/trace-boardviewer/issues/new?template=bug_report.yml';
+const SUPPORT_PAGE = 'https://trace-boardviewer.github.io/support.html';
 const readSource = (relative: string): string => readFileSync(new URL(`../../${relative}`, import.meta.url), 'utf8');
 
 describe('link ids', () => {
-  it('there are exactly three ids, stripe, kofi and bug, in this order', () => {
-    expect([...SUPPORT_LINK_IDS]).toEqual(['stripe', 'kofi', 'bug']);
+  it('there are exactly four ids, stripe, kofi, bug and support, in this order', () => {
+    expect([...SUPPORT_LINK_IDS]).toEqual(['stripe', 'kofi', 'bug', 'support']);
   });
 
-  it('isSupportLinkId accepts those three strings and nothing else (case, spacing, prototype names, URLs, non-strings)', () => {
+  it('isSupportLinkId accepts those four strings and nothing else (case, spacing, prototype names, URLs, non-strings)', () => {
     expect(isSupportLinkId('stripe')).toBe(true);
     expect(isSupportLinkId('kofi')).toBe(true);
     expect(isSupportLinkId('bug')).toBe(true);
-    for (const value of ['Stripe', 'KOFI', ' stripe', 'kofi ', '', 'ko-fi', 'Bug', 'bug ', 'issues', 'constructor', '__proto__', 'toString', STRIPE, KOFI, BUG, 'https://evil.example/', undefined, null, 0, true, ['stripe'], { id: 'stripe' }, new String('stripe')]) {
+    expect(isSupportLinkId('support')).toBe(true);
+    for (const value of ['Stripe', 'KOFI', ' stripe', 'kofi ', '', 'ko-fi', 'Bug', 'bug ', 'issues', 'Support', 'SUPPORT', ' support', 'support ', 'supports', 'website', 'constructor', '__proto__', 'toString', STRIPE, KOFI, BUG, SUPPORT_PAGE, 'https://evil.example/', undefined, null, 0, true, ['stripe'], ['support'], { id: 'stripe' }, { id: 'support' }, new String('stripe'), new String('support')]) {
       expect(isSupportLinkId(value), String(value)).toBe(false);
     }
   });
@@ -42,6 +44,30 @@ describe('once per launch', () => {
     expect(claimSupportNotice()).toBe(true);
     expect(claimSupportNotice()).toBe(false);
     expect(claimSupportNotice()).toBe(false);
+  });
+
+  it('waits a full hour, allows one reminder at the boundary and never catches up with several missed reminders', () => {
+    expect(claimSupportNotice(100)).toBe(true);
+    expect(claimSupportNotice(100 + SUPPORT_REMINDER_INTERVAL_MS - 1)).toBe(false);
+    expect(claimSupportNotice(100 + SUPPORT_REMINDER_INTERVAL_MS)).toBe(true);
+    expect(claimSupportNotice(100 + SUPPORT_REMINDER_INTERVAL_MS)).toBe(false);
+    expect(claimSupportNotice(100 + 8 * SUPPORT_REMINDER_INTERVAL_MS)).toBe(true);
+    expect(claimSupportNotice(100 + 8 * SUPPORT_REMINDER_INTERVAL_MS)).toBe(false);
+  });
+
+  it('gives another full hour after dismissal, even when the reminder was left open for longer', () => {
+    expect(claimSupportNotice(0)).toBe(true);
+    postponeSupportNotice(2 * SUPPORT_REMINDER_INTERVAL_MS);
+    expect(claimSupportNotice(3 * SUPPORT_REMINDER_INTERVAL_MS - 1)).toBe(false);
+    expect(claimSupportNotice(3 * SUPPORT_REMINDER_INTERVAL_MS)).toBe(true);
+  });
+
+  it('handles an invalid or backwards clock without repeated popups', () => {
+    expect(claimSupportNotice(NaN)).toBe(false);
+    expect(claimSupportNotice(1000)).toBe(true);
+    expect(claimSupportNotice(500)).toBe(false);
+    expect(claimSupportNotice(500)).toBe(false);
+    expect(claimSupportNotice(500 + SUPPORT_REMINDER_INTERVAL_MS)).toBe(true);
   });
 
   it('a new launch (fresh module state) shows the notice again: there is no "do not show again" memory', () => {
@@ -70,6 +96,30 @@ describe('copy', () => {
       title: 'support.title', body: 'support.body', thanks: 'support.thanks', testing: 'support.testing', stripe: 'support.stripe', kofi: 'support.kofi', bug: 'support.bug', notNow: 'support.notNow',
     });
     expect(BUG_REPORT_FAILED_KEY).toBe('support.bugFailed');
+  });
+
+  it('the top bar heart button has its own two keys, support.button and support.buttonFailed, apart from the notice keys', () => {
+    expect(SUPPORT_BUTTON_KEY).toBe('support.button');
+    expect(SUPPORT_BUTTON_FAILED_KEY).toBe('support.buttonFailed');
+    expect(Object.values(SUPPORT_NOTICE_KEYS)).not.toContain(SUPPORT_BUTTON_KEY);
+  });
+
+  it('the heart button reads "Support TRACE" in all eight languages (the label and the tooltip are the same string)', () => {
+    const expected: Record<Language, string> = {
+      hu: 'TRACE támogatása', en: 'Support TRACE', de: 'TRACE unterstützen', fr: 'Soutenir TRACE', it: 'Sostieni TRACE', sk: 'Podporiť TRACE', pl: 'Wesprzyj TRACE', uk: 'Підтримати TRACE',
+    };
+    for (const lang of LANGUAGES) expect((catalogs[lang] as Record<string, string>)[SUPPORT_BUTTON_KEY], lang).toBe(expected[lang]);
+  });
+
+  it.each(LANGUAGES)('%s: the heart button label names TRACE and is short; its failure toast is a one-line sentence', (lang: Language) => {
+    const catalog = catalogs[lang] as Record<string, string>;
+    expect(translate(lang, SUPPORT_BUTTON_KEY), lang).toBe(catalog[SUPPORT_BUTTON_KEY]);
+    expect(translate(lang, SUPPORT_BUTTON_FAILED_KEY), lang).toBe(catalog[SUPPORT_BUTTON_FAILED_KEY]);
+    expect(catalog[SUPPORT_BUTTON_KEY], `${lang} label`).toContain('TRACE');
+    expect(catalog[SUPPORT_BUTTON_KEY].length, `${lang} label length`).toBeLessThanOrEqual(30);
+    expect(catalog[SUPPORT_BUTTON_FAILED_KEY], `${lang} toast ends like a sentence`).toMatch(/\.$/);
+    expect(catalog[SUPPORT_BUTTON_FAILED_KEY], `${lang} toast is single-line`).not.toMatch(/[\r\n]/);
+    expect(catalog[SUPPORT_BUTTON_KEY], `${lang} label differs from the bug button`).not.toBe(catalog[SUPPORT_NOTICE_KEYS.bug]);
   });
 
   it('English reference text', () => {
@@ -136,13 +186,14 @@ describe('link requests (the renderer sends an id, never a URL)', () => {
     expect(open).toHaveBeenCalledTimes(1);
     expect(open).toHaveBeenCalledWith('stripe');
     await expect(requester.request('kofi')).resolves.toBe(true);
-    expect(open.mock.calls).toEqual([['stripe'], ['kofi']]);
+    await expect(requester.request('support')).resolves.toBe(true);
+    expect(open.mock.calls).toEqual([['stripe'], ['kofi'], ['support']]);
   });
 
   it('an unknown id, a URL or a non-string never reaches the opener and resolves false', async () => {
     const open = vi.fn();
     const requester = createSupportLinkRequester(open);
-    for (const value of ['paypal', STRIPE, KOFI, '', 'Stripe', undefined, null, 5, {}, ['stripe']]) {
+    for (const value of ['paypal', STRIPE, KOFI, SUPPORT_PAGE, '', 'Stripe', 'Support', undefined, null, 5, {}, ['stripe'], ['support']]) {
       await expect(requester.request(value), String(value)).resolves.toBe(false);
     }
     expect(open).not.toHaveBeenCalled();
@@ -181,12 +232,46 @@ describe('link requests (the renderer sends an id, never a URL)', () => {
   });
 });
 
+describe('openFixedLink (the top bar link buttons)', () => {
+  it('asks the opener of the moment for exactly the id, once, and reports nothing on success', async () => {
+    const open = vi.fn(async (_id: SupportLinkId) => undefined);
+    const failed = vi.fn();
+    await expect(openFixedLink('support', () => open, failed)).resolves.toBeUndefined();
+    expect(open.mock.calls).toEqual([['support']]);
+    expect(failed).not.toHaveBeenCalled();
+  });
+
+  it('a rejected opener, a throwing opener and a throwing resolver each report the failure once and never reject', async () => {
+    for (const resolver of [
+      () => async () => { throw new Error('no browser'); },
+      () => () => { throw new Error('sync'); },
+      () => { throw new Error('no bridge'); },
+    ] as Array<() => SupportLinkOpener>) {
+      const failed = vi.fn();
+      await expect(openFixedLink('support', resolver, failed)).resolves.toBeUndefined();
+      expect(failed).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('goes through the desktop bridge when there is one and never falls back to window.open inside it', async () => {
+    const openSupportLink = vi.fn(async (_id: SupportLinkId) => undefined);
+    const openWindow = vi.fn();
+    await openFixedLink('support', () => resolveSupportLinkOpener({ openSupportLink }, openWindow), () => undefined);
+    expect(openSupportLink.mock.calls).toEqual([['support']]);
+    const failed = vi.fn();
+    await openFixedLink('support', () => resolveSupportLinkOpener({}, openWindow), failed);
+    expect(failed).toHaveBeenCalledTimes(1);
+    expect(openWindow).not.toHaveBeenCalled();
+  });
+});
+
 describe('opener selection and the browser-only fallback', () => {
   it('the desktop bridge gets the id and nothing else', async () => {
     const openSupportLink = vi.fn(async (_id: SupportLinkId) => undefined);
     const open = resolveSupportLinkOpener({ openSupportLink }, () => { throw new Error('the browser fallback must not run in the desktop app'); });
     await open('kofi');
-    expect(openSupportLink.mock.calls).toEqual([['kofi']]);
+    await open('support');
+    expect(openSupportLink.mock.calls).toEqual([['kofi'], ['support']]);
   });
 
   it('an older desktop bridge without openSupportLink rejects instead of opening a window (the renderer never falls back to window.open inside Electron)', async () => {
@@ -201,14 +286,16 @@ describe('opener selection and the browser-only fallback', () => {
     const open = resolveSupportLinkOpener(undefined, openWindow);
     await open('stripe');
     await open('kofi');
-    expect(openWindow.mock.calls).toEqual([[STRIPE, '_blank', 'noopener'], [KOFI, '_blank', 'noopener']]);
+    await open('support');
+    expect(openWindow.mock.calls).toEqual([[STRIPE, '_blank', 'noopener'], [KOFI, '_blank', 'noopener'], [SUPPORT_PAGE, '_blank', 'noopener']]);
   });
 
-  it('the web constants are exactly the three links of the main process, keyed by the three ids; the bug form address comes from the one repository slug', () => {
-    expect({ ...WEB_SUPPORT_LINKS }).toEqual({ stripe: STRIPE, kofi: KOFI, bug: BUG });
+  it('the web constants are exactly the four links of the main process, keyed by the four ids; the bug form address comes from the one repository slug', () => {
+    expect({ ...WEB_SUPPORT_LINKS }).toEqual({ stripe: STRIPE, kofi: KOFI, bug: BUG, support: SUPPORT_PAGE });
     expect(Object.isFrozen(WEB_SUPPORT_LINKS)).toBe(true);
     const main = readSource('electron/main.cjs');
-    for (const url of [STRIPE, KOFI]) expect(main.split(url).length - 1, `${url} appears once in electron/main.cjs`).toBe(1);
+    for (const url of [STRIPE, KOFI, SUPPORT_PAGE]) expect(main.split(url).length - 1, `${url} appears once in electron/main.cjs`).toBe(1);
+    expect(readSource('src/lib/support-notice.ts').split(SUPPORT_PAGE).length - 1, 'the browser-only table names the support page once').toBe(1);
     for (const id of SUPPORT_LINK_IDS) expect(main, `main.cjs maps ${id}`).toMatch(new RegExp(`\\b${id}:\\s*[\`']https://`));
     // The slug is written once, in electron/repository.json; both processes build the bug form address from it and neither names a repository of its own.
     expect(JSON.parse(readSource('electron/repository.json'))).toEqual({ repository: 'trace-boardviewer/trace-boardviewer' });
@@ -221,6 +308,8 @@ describe('opener selection and the browser-only fallback', () => {
     const openWindow = vi.fn();
     await expect(openSupportLinkInBrowser('paypal' as SupportLinkId, openWindow)).rejects.toThrow(/unknown support link/i);
     await expect(openSupportLinkInBrowser(STRIPE as SupportLinkId, openWindow)).rejects.toThrow(/unknown support link/i);
+    await expect(openSupportLinkInBrowser(SUPPORT_PAGE as SupportLinkId, openWindow)).rejects.toThrow(/unknown support link/i);
+    await expect(openSupportLinkInBrowser('Support' as SupportLinkId, openWindow)).rejects.toThrow(/unknown support link/i);
     expect(openWindow).not.toHaveBeenCalled();
   });
 });
@@ -230,9 +319,10 @@ describe('fake desktop bridge (src/app/testing.ts)', () => {
     const desktop = createFakeDesktop();
     await desktop.openSupportLink!('stripe');
     await desktop.openSupportLink!('kofi');
-    expect(desktop.log).toEqual(['openSupportLink:stripe', 'openSupportLink:kofi']);
-    for (const value of ['paypal', STRIPE, '', undefined, null, 5]) await expect(desktop.openSupportLink!(value as unknown as SupportLinkId), String(value)).rejects.toThrow(/unknown support link/i);
-    expect(desktop.log).toHaveLength(2);
+    await desktop.openSupportLink!('support');
+    expect(desktop.log).toEqual(['openSupportLink:stripe', 'openSupportLink:kofi', 'openSupportLink:support']);
+    for (const value of ['paypal', STRIPE, SUPPORT_PAGE, 'Support', '', undefined, null, 5]) await expect(desktop.openSupportLink!(value as unknown as SupportLinkId), String(value)).rejects.toThrow(/unknown support link/i);
+    expect(desktop.log).toHaveLength(3);
   });
 
   it('holds and failures apply to openSupportLink like to every other call', async () => {

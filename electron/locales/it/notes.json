@@ -1,0 +1,23 @@
+{
+  "notes.unresolvedTitle": "Note non associate",
+  "notes.unresolvedIntro": "Queste note salvate non sono associate a nessun componente di questa scheda. Non è stato eliminato nulla. Copia il testo se ti serve ancora, poi elimina la voce.",
+  "notes.unresolvedEmpty": "Non ci sono note non associate.",
+  "notes.wasAttachedTo": "Era associata a",
+  "notes.targetPart": "Componente",
+  "notes.copyText": "Copia il testo della nota",
+  "notes.measureVoltage": "Tensione",
+  "notes.measureResistance": "Resistenza",
+  "notes.measureOther": "Altro",
+  "notes.reasonComponentMissing": "Nessun componente di questa scheda ha quel riferimento o quella posizione.",
+  "notes.reasonComponentAmbiguous": "Corrispondono più componenti di questa scheda, quindi non ne è stato scelto nessuno.",
+  "notes.reasonPinMissing": "Il componente non ha alcun pin con quel numero o quella posizione.",
+  "notes.reasonPinAmbiguous": "Corrispondono più pin del componente, quindi non ne è stato scelto nessuno.",
+  "notes.reasonLegacyIdMissing": "La nota è stata salvata con un ID interno che questa scheda non ha.",
+  "notes.reasonLegacyIndistinguishable": "Il componente o il pin non si distingue da un altro né per nome né per posizione.",
+  "notes.reasonDuplicateTarget": "Un’altra nota è già associata allo stesso componente o pin.",
+  "notes.fallbackDuplicateRef": "Più componenti hanno questo riferimento, quindi la nota è legata alla posizione di questo componente sulla scheda.",
+  "notes.fallbackUnnamedPart": "Il file non assegna alcun riferimento a questo componente, quindi la nota è legata alla sua posizione sulla scheda.",
+  "notes.fallbackUnnamedPin": "Il file non assegna alcun numero a questo pin, quindi la nota è legata alla sua posizione sulla scheda.",
+  "notes.refusePart": "Per questo componente non si può salvare alcuna nota: un altro componente con lo stesso riferimento si trova esattamente nella stessa posizione, quindi i due non si distinguono.",
+  "notes.refusePin": "Per questo pin non si può salvare alcuna nota: un altro pin senza numero si trova esattamente nella stessa posizione, quindi i due non si distinguono."
+}

@@ -1,0 +1,1 @@
+Add a local readings store and documented JSON/CSV readings packs, with comparison, reference capture and opt-in migration from pin notes. Local OpenBoardData imports retain their licence and provenance. The readings interface will be added separately.

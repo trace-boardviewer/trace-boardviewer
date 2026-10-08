@@ -1,0 +1,11 @@
+/* Support button of the top bar (a heart; the label and tooltip come from the catalogs, the click opens the project's support page through the main process).
+   Once in a while the icon glows softly: one 240 s cycle holds a single glow of 1.5 s (25% to 25.625%, the first one a minute after the window opens), so it
+   can never come more often than every four minutes. Only the filter of the icon changes: no size, position or margin, so the layout never moves. Colours are
+   theme tokens (the heart is --muted like its neighbours, the glow --accent), so both themes read well. The resting stops carry the same shadow in a fully
+   transparent accent instead of `none`, so the glow fades in and out in one colour (from `none` the browser fades through transparent black).
+   The two motion switches of src/styles.css (prefers-reduced-motion and the Motion setting, data-motion=off) already stop every animation; the rules at the
+   end repeat that for this one on purpose. */
+.support-heart>svg{animation:support-heart-glow 240s ease-in-out infinite}
+@keyframes support-heart-glow{0%,25%{filter:drop-shadow(0 0 0 color-mix(in srgb,var(--accent) 0%,transparent))}25.3125%{filter:drop-shadow(0 0 5px color-mix(in srgb,var(--accent) 85%,transparent))}25.625%,100%{filter:drop-shadow(0 0 0 color-mix(in srgb,var(--accent) 0%,transparent))}}
+@media(prefers-reduced-motion:reduce){.support-heart>svg{animation:none}}
+:root[data-motion=off] .support-heart>svg{animation:none}

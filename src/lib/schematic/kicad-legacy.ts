@@ -12,6 +12,7 @@
  * Units: file and library coordinates are mils; the schematic is Y down, the library Y up. Output is millimetres, Y
  * down, absolute on the sheet (see model.ts).
  */
+import { boundText } from '../bounded-text';
 import {
   SCHEMATIC_LIMITS, SchematicError,
   type SchBounds, type SchDiagnostic, type SchField, type SchGraphic, type SchLabel, type SchLabelKind, type SchPin, type SchPinType,
@@ -33,7 +34,8 @@ const exceeded = (message: string) => new SchematicError(message, 'LIMIT_EXCEEDE
 /** mils → mm, rounded to 1e-6 mm so exact mil inputs give clean decimals; `+ 0` folds -0 into 0. */
 function mm(mil: number): number {
   const value = Math.round(mil * MIL_MM * 1e6) / 1e6;
-  if (Math.abs(value) > SCHEMATIC_LIMITS.maxCoordinateMm) throw exceeded(`Coordinate ${mil} mil exceeds the ${SCHEMATIC_LIMITS.maxCoordinateMm} mm limit`);
+  // Written so that NaN (0 times an infinite length) and infinity fail the test too.
+  if (!(Math.abs(value) <= SCHEMATIC_LIMITS.maxCoordinateMm)) throw exceeded(`Coordinate ${mil} mil exceeds the ${SCHEMATIC_LIMITS.maxCoordinateMm} mm limit`);
   return value + 0;
 }
 const pt = (x: number, y: number): SchPoint => ({ x: mm(x), y: mm(y) });
@@ -106,7 +108,7 @@ class Diags {
   add(severity: SchSeverity, code: string, message: string, extra: { defId?: string; at?: SchPoint } = {}): void {
     const count = (this.counts.get(code) ?? 0) + 1;
     this.counts.set(code, count);
-    if (count <= DIAG_CAP) this.list.push({ severity, code, message, ...extra });
+    if (count <= DIAG_CAP) this.list.push({ severity, code, message: boundText(message), ...extra });
   }
   finish(): SchDiagnostic[] {
     for (const [code, count] of this.counts) if (count > DIAG_CAP) this.list.push({ severity: 'info', code: 'DIAGNOSTICS_TRUNCATED', message: `${count - DIAG_CAP} further ${code} diagnostics were suppressed` });
@@ -637,7 +639,12 @@ function assignIds(stamps: string[], prefix: string, what: string, defId: string
 
 /** Hierarchical sheets can only be taken from the same directory; a path component means another directory. */
 const companionKey = (file: string): string | null => (file === '' || /[\\/]/.test(file) ? null : file.toLowerCase());
-const paperMm = (mil: number) => Math.round(mil * MIL_MM * 10) / 10;
+/** The page size from the $Descr line, held to the same coordinate limit as every point (a size of 300 digits is infinity: the sheet would have no bounds). */
+function paperMm(mil: number): number {
+  const value = Math.round(mil * MIL_MM * 10) / 10;
+  if (!(value <= SCHEMATIC_LIMITS.maxCoordinateMm)) throw exceeded(`Page size ${mil} mil exceeds the ${SCHEMATIC_LIMITS.maxCoordinateMm} mm limit`);
+  return value;
+}
 
 class Loader {
   private readonly diags = new Diags();
@@ -828,10 +835,18 @@ class Loader {
     const perNumber = new Map<string, number>();
     for (const p of pins) perNumber.set(p.number, (perNumber.get(p.number) ?? 0) + 1);
     const used = new Set<string>();
+    const nextSuffix = new Map<string, number>();
     for (const p of pins) {
       let pinId = `${id}#${p.number}`;
       if (perNumber.get(p.number)! > 1) pinId += `@${p.unit}`;
-      if (used.has(pinId)) { let k = 1; while (used.has(`${pinId}.${k}`)) k++; pinId += `.${k}`; }
+      if (used.has(pinId)) {
+        // Ids are never released, so the probe resumes where the previous repeat of this id stopped; the result is the same lowest
+        // free suffix a search from 1 would find, and a library that repeats one pin thousands of times stays linear.
+        let k = nextSuffix.get(pinId) ?? 1;
+        while (used.has(`${pinId}.${k}`)) k++;
+        nextSuffix.set(pinId, k + 1);
+        pinId += `.${k}`;
+      }
       used.add(pinId);
       p.id = pinId;
     }

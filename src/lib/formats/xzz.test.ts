@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BoardFormatError } from './common';
 import { createDes, xzzKeyParityValid } from './crypto';
+import { expectScaling } from '../../test-support/timing';
 import { parseXzz } from './xzz';
 
 const encode = (text: string) => [...new TextEncoder().encode(text)];
@@ -53,6 +54,15 @@ function error(run: () => unknown): BoardFormatError {
   try { run(); } catch (caught) { if (caught instanceof BoardFormatError) return caught; throw caught; }
   throw new Error('expected a BoardFormatError');
 }
+
+describe('placeholder names', () => {
+  it('flags the names it makes up (a component, a pin and a test pad without a name) so that notes never key on them', () => {
+    const outline = [line(28, 0, 0, 40_000_000, 0), line(28, 40_000_000, 0, 40_000_000, 30_000_000), line(28, 40_000_000, 30_000_000, 0, 30_000_000), line(28, 0, 30_000_000, 0, 0)];
+    const board = parse(build({ blocks: [...outline, block(0x07, part('', 'IC', [pin('', 1_000_000, 2_000_000, 1), pin('B', 1_500_000, 2_000_000, 1)])), block(0x07, part('R1', 'RES', [pin('A', 0, 0, 2)])), testPad('', 3_000_000, 3_000_000, 2), testPad('TP2', 4_000_000, 3_000_000, 2)] }))!;
+    expect(board.components.map(part => [part.ref, part.refGenerated])).toEqual([['part:0', true], ['R1', undefined], ['1', true], ['TP2', undefined]]);
+    expect(board.pins.map(item => [item.number, item.numberGenerated])).toEqual([['1', true], ['B', undefined], ['A', undefined], ['1', true], ['TP2', undefined]]);
+  });
+});
 
 describe('parseXzz', () => {
   it('parses a plaintext file: nets, components, pins in 1/10000 mil, test pads, outline from layer 28 and warnings', () => {
@@ -249,7 +259,7 @@ describe('parseXzz', () => {
     expect(parse(data)!.components[0].ref).toBe('\u00ff\u00fe\u0041\u00d8');
   });
 
-  it('bounds record counts (LIMIT_EXCEEDED) for net tables, outline segments and components', { timeout: 120_000 }, () => {
+  it('bounds record counts (LIMIT_EXCEEDED) for net tables, outline segments and components', { timeout: 300_000 }, () => {
     const assemble = (main: Uint8Array, net: Uint8Array): Uint8Array => {
       const out = new Uint8Array(0x30 + 4 + main.length + 4 + net.length), view = new DataView(out.buffer), netAt = 0x34 + main.length;
       out.set(encode('XZZPCB')); view.setUint32(0x20, 0x10, true); view.setUint32(0x28, netAt - 0x20, true);
@@ -298,7 +308,6 @@ describe('parseXzz malformed input', () => {
   });
 });
 
-
 describe('parseXzz: vendor "no connection" net names (BRDBoard.cpp applies the UNCONNECTED prefix rule to every boardview format)', () => {
   it('treats UNCONNECTED<n> as no net, in component pins and test pads, and keeps look-alike names', () => {
     const board = parse(build({ nets: [[1, 'GND'], [2, 'UNCONNECTEDLY'], [3, 'UNCONNECTED7']] }))!;
@@ -325,15 +334,15 @@ describe('parseXzz: components without pins (OpenBoardView keeps them; this read
 });
 
 describe('parseXzz: name fields are as long as their records, so cleaning them must be linear', () => {
-  it('strips trailing NULs from a net name, keeps NULs elsewhere, and reads a 200,000-NUL name followed by a letter in under 200 ms', () => {
+  it('strips trailing NULs from a net name, keeps NULs elsewhere, and reads a 200,000-NUL name followed by a letter in linear time', () => {
     const nul = String.fromCharCode(0);
-    const timed = <T>(work: () => T): { value: T; ms: number } => { const started = performance.now(); const value = work(); return { value, ms: performance.now() - started }; };
-    // Ascending sizes: a quadratic scan needs about 2 s for the middle size, so a regression fails early and loudly.
-    for (const count of [1000, 60_000, 200_000]) {
+    const sizes = [1000, 60_000, 200_000];
+    const file = (count: number) => build({ nets: [[1, 'GND' + nul.repeat(count)], [2, nul.repeat(count) + 'x'], [3, 'NC']] });
+    // Ascending sizes: a quadratic scan needs about 2 s for the middle size, so a regression fails at the first pair, early and loudly.
+    expectScaling('net names with a run of NULs', sizes, count => { const bytes = file(count); return () => parse(bytes); });
+    for (const count of sizes) {
       const inside = nul.repeat(count) + 'x';
-      const result = timed(() => parse(build({ nets: [[1, 'GND' + nul.repeat(count)], [2, inside], [3, 'NC']] }))!);
-      expect(result.value.nets.map(net => net.name).sort(), `${count} NULs`).toEqual([inside, 'GND'].sort());
-      expect(result.ms, `${count} NULs`).toBeLessThan(200);
+      expect(parse(file(count))!.nets.map(net => net.name).sort(), `${count} NULs`).toEqual([inside, 'GND'].sort());
     }
     const mixed = parse(build({ nets: [[1, 'G' + nul + 'ND' + nul + nul], [2, 'VCC'], [3, 'NC']] }))!;
     expect(mixed.nets.map(net => net.name)).toContain('G' + nul + 'ND');

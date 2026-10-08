@@ -3,11 +3,11 @@ import { createRequire } from 'node:module';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WORKSPACE_LIMITS } from './documents';
 import type { DocumentLocateResult, DocumentRecord, WorkspaceManifest } from './documents';
-import type { BoardNote } from './types';
+import type { BoardNote, KeyedNote, LegacyNote } from './types';
 import {
   BOARD_SOURCE, WORKSPACE_MODEL_LIMITS, WorkspaceError, acceptChangedDocument, addDocument, applyLocateResults, boardIdentityKey,
   createManifest, createWorkspaceSaver, noteFor, noteTarget, reconcileManifest, relativeToBoard, relinkDocument, removeAlias,
-  removeAnnotation, removeBookmark, removeDocument, resolveRelative, setActiveTab, setAlias, setCalibration, setCamera, setPageCount,
+  removeAnnotation, removeBookmark, removeDocument, removeNote, resolveRelative, setActiveTab, setAlias, setCalibration, setCamera, setPageCount,
   setSplit, touch, upsertAnnotation, upsertBookmark, upsertNote, validateKey, validateManifest, validateNotes,
 } from './workspace';
 import type { SaveFailure, SaverState } from './workspace';
@@ -152,7 +152,7 @@ describe('validateManifest', () => {
 });
 
 describe('validateNotes (B15: one note per target)', () => {
-  const note = (over: Partial<BoardNote> = {}): BoardNote => ({ id: 'n1', componentId: 'U1', text: 'hot', updatedAt: T0, ...over });
+  const note = (over: Partial<LegacyNote> = {}): LegacyNote => ({ id: 'n1', componentId: 'U1', text: 'hot', updatedAt: T0, ...over });
 
   it('accepts component notes, pin notes and measurements, and normalizes empty measurements away', () => {
     const list = [note(), note({ id: 'n2', pinId: 'U1.3', measurements: { voltage: '1.8 V', other: '' } }), note({ id: 'n3', componentId: 'C5', measurements: {} })];
@@ -180,6 +180,52 @@ describe('validateNotes (B15: one note per target)', () => {
     const many = (n: number) => Array.from({ length: n }, (_, i) => note({ id: `n${i}`, componentId: `C${i}` }));
     expect(validateNotes(many(500))).toHaveLength(500);
     expectCode(() => validateNotes(many(501)), 'TOO_MANY_NOTES');
+  });
+
+  const keyed = (over: Record<string, unknown> = {}) => ({ id: 'k1', target: { ref: 'U1' }, text: 'hot', updatedAt: T0, ...over });
+
+  it('reads keyed notes, positional notes and positional notes marked unresolved in one list', () => {
+    const marked = note({ id: 'n9', componentId: 'part:9', pinId: 'pin:41', unresolved: { reason: 'legacy-id-missing', at: T1 } });
+    const list = [keyed(), keyed({ id: 'k2', target: { ref: 'U1', pin: '3' }, measurements: { voltage: '1.8 V' } }), note({ id: 'n1' }), marked,
+      keyed({ id: 'k3', target: { at: { side: 'top', x: 1, y: 2 }, pinAt: { side: 'bottom', x: 3, y: 4 } } })];
+    expect(validateNotes(clone(list))).toEqual(list);
+    expect(validateNotes(JSON.parse(JSON.stringify(list)))).toEqual(list);
+  });
+
+  it('keeps the stored form of an old file: a note without a target is a positional note, one per component or pin as before', () => {
+    const old = [{ id: 'a', componentId: 'u1', text: 'old', updatedAt: T0 }, { id: 'b', componentId: 'u1', pinId: 'u1.2', text: 'older', measurements: { voltage: '0.4 V' }, updatedAt: T0 }];
+    expect(validateNotes(clone(old))).toEqual(old);
+  });
+
+  it('canonicalizes a key (NFKC and trim for names, 1 um for positions) and drops unknown fields', () => {
+    const [stored] = validateNotes([keyed({ target: { ref: ' \uff35\uff11 ', pin: ' 3 ', pinAt: undefined, extra: 1 } })]) as KeyedNote[];
+    expect(stored.target).toEqual({ ref: 'U1', pin: '3' });
+    const [placed] = validateNotes([keyed({ target: { at: { side: 'top', x: 1.23456, y: -0.0004, extra: 1 }, pinAt: { side: 'both', x: 2.0006, y: 3 } } })]) as KeyedNote[];
+    expect(placed.target).toEqual({ at: { side: 'top', x: 1.235, y: 0 }, pinAt: { side: 'both', x: 2.001, y: 3 } });
+  });
+
+  it('two spellings of one key are one target: duplicates are found after normalization', () => {
+    expect(() => validateNotes([keyed(), keyed({ id: 'k2', target: { ref: ' \uff35\uff11' } })])).toThrow('notes[1].target (duplicate note for this target)');
+    expect(() => validateNotes([keyed({ target: { ref: 'U1', at: { side: 'top', x: 1, y: 2 } } }), keyed({ id: 'k2', target: { ref: 'U1', at: { side: 'top', x: 1.0004, y: 2 } } })])).toThrow('duplicate note for this target');
+    expect(validateNotes([keyed(), keyed({ id: 'k2', target: { ref: 'u1' } }), keyed({ id: 'k3', target: { ref: 'U1', pin: '1' } }), keyed({ id: 'k4', target: { ref: 'U1', at: { side: 'top', x: 1, y: 2 } } })])).toHaveLength(4);
+    // a positional note and a keyed one never collide
+    expect(validateNotes([note({ componentId: 'U1' }), keyed({ id: 'k2' })])).toHaveLength(2);
+  });
+
+  it('rejects a malformed key, a note with both kinds of target and a malformed unresolved record', () => {
+    for (const target of [{}, { pin: '3' }, { ref: '' }, { ref: 'x'.repeat(257) }, { ref: 'U1', pin: '' }, { ref: 'U1', pin: '1', pinAt: { side: 'top', x: 0, y: 0 } },
+      { at: { side: 'top', x: 'a', y: 0 } }, { at: { side: 'middle', x: 0, y: 0 } }, { ref: 'U1', at: [] }, { at: { side: 'top', x: 2e9, y: 0 } }, null, 'U1', []]) {
+      expectCode(() => validateNotes([keyed({ target })]), 'NOTES_INVALID');
+    }
+    expectCode(() => validateNotes([keyed({ componentId: 'U1' })]), 'NOTES_INVALID');
+    expectCode(() => validateNotes([keyed({ pinId: 'x' })]), 'NOTES_INVALID');
+    expectCode(() => validateNotes([keyed({ unresolved: { reason: 'legacy-id-missing', at: T1 } })]), 'NOTES_INVALID');
+    for (const unresolved of [{}, { reason: 'because', at: T1 }, { reason: 'legacy-id-missing' }, { reason: 'legacy-id-missing', at: 'later' }, 'x', []]) {
+      expectCode(() => validateNotes([note({ unresolved } as never)]), 'NOTES_INVALID');
+    }
+    expectCode(() => validateNotes([keyed({ text: 'x'.repeat(8001) })]), 'NOTES_INVALID');
+    expectCode(() => validateNotes([keyed({ updatedAt: 'later' })]), 'NOTES_INVALID');
+    expectCode(() => validateNotes([keyed({ measurements: { voltage: 'v'.repeat(65) } })]), 'NOTES_INVALID');
   });
 });
 
@@ -380,6 +426,9 @@ describe('parity with electron/workspace.cjs', () => {
   });
 
   const n = (over: Record<string, unknown> = {}) => ({ id: 'n1', componentId: 'U1', text: 'hot', updatedAt: T0, ...over });
+  const k = (over: Record<string, unknown> = {}) => ({ id: 'k1', target: { ref: 'U1' }, text: 'hot', updatedAt: T0, ...over });
+  const anchor = (over: Record<string, unknown> = {}) => ({ side: 'top', x: 1, y: 2, ...over });
+  const manyKeyed = (count: number) => Array.from({ length: count }, (_, i) => k({ id: `k${i}`, target: { ref: `C${i}` } }));
   const manyNotes = (count: number) => Array.from({ length: count }, (_, i) => n({ id: `n${i}`, componentId: `C${i}` }));
   const notesCorpus: Array<[string, unknown]> = [
     ['empty', []], ['single', [n()]], ['not a list', {}], ['null', null], ['string', 'x'],
@@ -402,6 +451,25 @@ describe('parity with electron/workspace.cjs', () => {
     ['measurement 64', [n({ measurements: { voltage: longText(64) } })]], ['measurement 65', [n({ measurements: { other: longText(65) } })]],
     ['measurements null', [n({ measurements: null })]], ['measurements array', [n({ measurements: [] })]], ['measurement number', [n({ measurements: { voltage: 1.8 } })]],
     ['unknown note fields dropped', [n({ extra: 1 })]],
+    ['keyed part', [k()]], ['keyed pin', [k({ target: { ref: 'U1', pin: '3' } })]], ['keyed and positional', [k(), n(), n({ id: 'n2', pinId: 'U1.1' })]],
+    ['keyed names normalized', [k({ target: { ref: ' \uff35\uff11 ', pin: ' \uff13' } })]],
+    ['keyed duplicate after normalization', [k(), k({ id: 'k2', target: { ref: ' \uff35\uff11' } })]], ['keyed duplicate', [k(), k({ id: 'k2' })]],
+    ['keyed duplicate position within 1 um', [k({ target: { ref: 'R1', at: anchor() } }), k({ id: 'k2', target: { ref: 'R1', at: anchor({ x: 1.0004 }) } })]],
+    ['keyed positions differ by 1 um', [k({ target: { ref: 'R1', at: anchor() } }), k({ id: 'k2', target: { ref: 'R1', at: anchor({ x: 1.001 }) } })]],
+    ['keyed anchor only', [k({ target: { at: anchor() } })]], ['keyed pad anchor', [k({ target: { ref: 'U1', pinAt: anchor() } })]], ['keyed both anchors', [k({ target: { at: anchor(), pinAt: anchor({ side: 'bottom' }) } })]],
+    ['keyed anchor rounded', [k({ target: { at: anchor({ x: 1.23456, y: -7.00049 }) } })]], ['keyed anchor 1e9', [k({ target: { at: anchor({ x: 1e9 }) } })]], ['keyed anchor over 1e9', [k({ target: { at: anchor({ x: 1e9 + 1 }) } })]],
+    ['keyed anchor NaN', [k({ target: { at: anchor({ x: NaN }) } })]], ['keyed anchor string', [k({ target: { at: anchor({ x: '1' }) } })]], ['keyed anchor side', [k({ target: { at: anchor({ side: 'left' }) } })]],
+    ['keyed anchor not an object', [k({ target: { ref: 'U1', at: 'x' } })]], ['keyed pin and pad anchor', [k({ target: { ref: 'U1', pin: '1', pinAt: anchor() } })]],
+    ['keyed empty target', [k({ target: {} })]], ['keyed pin only', [k({ target: { pin: '3' } })]], ['keyed target null', [k({ target: null })]], ['keyed target string', [k({ target: 'U1' })]], ['keyed target array', [k({ target: [] })]],
+    ['keyed ref empty', [k({ target: { ref: '' } })]], ['keyed ref blank', [k({ target: { ref: '  ' } })]], ['keyed ref 256', [k({ target: { ref: longText(256) } })]], ['keyed ref 257', [k({ target: { ref: longText(257) } })]],
+    ['keyed ref number', [k({ target: { ref: 4 } })]], ['keyed pin 256', [k({ target: { ref: 'U1', pin: longText(256) } })]], ['keyed pin 257', [k({ target: { ref: 'U1', pin: longText(257) } })]],
+    ['keyed ref with reserved characters', [k({ target: { ref: 'A/B@C%D\u0000\u007f' } }), k({ id: 'k2', target: { ref: 'A/B@C%D' } })]],
+    ['keyed with componentId', [k({ componentId: 'U1' })]], ['keyed with pinId', [k({ pinId: 'x' })]], ['keyed with unresolved', [k({ unresolved: { reason: 'legacy-id-missing', at: T0 } })]],
+    ['keyed text 8001', [k({ text: longText(8001) })]], ['keyed updatedAt invalid', [k({ updatedAt: 'later' })]], ['keyed measurements', [k({ measurements: { voltage: '1 V', ignored: 'x' } })]],
+    ['unresolved mark', [n({ unresolved: { reason: 'legacy-id-missing', at: T0 } })]], ['unresolved every reason', ['component-missing', 'component-ambiguous', 'pin-missing', 'pin-ambiguous', 'legacy-id-missing', 'legacy-indistinguishable', 'duplicate-target'].map((reason, i) => n({ id: `u${i}`, componentId: `C${i}`, unresolved: { reason, at: T0 } }))],
+    ['unresolved reason unknown', [n({ unresolved: { reason: 'because', at: T0 } })]], ['unresolved without time', [n({ unresolved: { reason: 'legacy-id-missing' } })]],
+    ['unresolved not an object', [n({ unresolved: true })]], ['unresolved time invalid', [n({ unresolved: { reason: 'legacy-id-missing', at: 'later' } })]],
+    ['500 keyed notes', manyKeyed(500)], ['501 keyed notes', manyKeyed(501)],
   ];
   it.each(notesCorpus)('notes: %s', (label, input) => {
     const native = nativeWorkspace();
@@ -1103,30 +1171,39 @@ describe('manifest operations', () => {
 
 describe('notes helpers', () => {
   const seq = () => { let n = 0; return () => `note-${++n}`; };
-  const U1 = noteTarget('U1');
-  const U1pin = noteTarget('U1', 'U1.3');
+  const U1 = noteTarget({ ref: 'U1' });
+  const U1pin = noteTarget({ ref: 'U1', pin: '3' });
 
-  it('noteTarget keeps component and pin targets apart and rejects empty names', () => {
-    expect(noteTarget('U1')).toEqual({ componentId: 'U1' });
-    expect(noteTarget('U1', 'U1.3')).toEqual({ componentId: 'U1', pinId: 'U1.3' });
-    expect('pinId' in noteTarget('U1')).toBe(false);
-    expect(() => noteTarget('')).toThrow(WorkspaceError);
-    expect(() => noteTarget('U1', '')).toThrow(WorkspaceError);
-    expect(() => noteTarget('x'.repeat(257))).toThrow(WorkspaceError);
-    expect(noteTarget('x'.repeat(256), 'y'.repeat(256)).pinId).toHaveLength(256);
+  it('noteTarget keeps part and pin targets apart, normalizes names and rejects what is not a key', () => {
+    expect(noteTarget({ ref: 'U1' })).toEqual({ ref: 'U1' });
+    expect(noteTarget({ ref: 'U1', pin: '3' })).toEqual({ ref: 'U1', pin: '3' });
+    expect('pin' in noteTarget({ ref: 'U1' })).toBe(false);
+    // NFKC and trim like every other identity in the app; case is kept
+    expect(noteTarget({ ref: '  Ｕ１ ', pin: ' A１ ' })).toEqual({ ref: 'U1', pin: 'A1' });
+    expect(noteTarget({ ref: 'u1' })).toEqual({ ref: 'u1' });
+    // the position fallbacks are rounded to 1 um and the unknown fields are dropped
+    expect(noteTarget({ ref: 'R1', at: { side: 'top', x: 1.23456, y: -2.5 }, extra: 1 } as never)).toEqual({ ref: 'R1', at: { side: 'top', x: 1.235, y: -2.5 } });
+    expect(noteTarget({ at: { side: 'both', x: 0, y: 0 }, pinAt: { side: 'bottom', x: 5, y: 6 } })).toEqual({ at: { side: 'both', x: 0, y: 0 }, pinAt: { side: 'bottom', x: 5, y: 6 } });
+    for (const bad of [
+      {}, { pin: '3' }, { ref: '' }, { ref: '   ' }, { ref: 'x'.repeat(257) }, { ref: 'U1', pin: '' }, { ref: 'U1', pin: 'p'.repeat(257) }, { ref: 5 }, { ref: 'U1', pin: 3 },
+      { ref: 'U1', pin: '1', pinAt: { side: 'top', x: 0, y: 0 } }, { at: { side: 'left', x: 0, y: 0 } }, { at: { side: 'top', x: Infinity, y: 0 } }, { at: { side: 'top', x: 0, y: 2e9 } },
+      { at: { side: 'top', x: '1', y: 0 } }, { ref: 'U1', at: 'here' }, null, undefined, 'U1', [],
+    ]) expect(() => noteTarget(bad as never), JSON.stringify(bad)).toThrow(WorkspaceError);
+    expect(noteTarget({ ref: 'x'.repeat(256), pin: 'y'.repeat(256) }).pin).toHaveLength(256);
   });
 
-  it('creates, finds, updates in place and deletes by target; a pin note never answers for its component', () => {
+  it('creates, finds, updates in place and deletes by target; a pin note never answers for its part', () => {
     const newId = seq();
     let notes: BoardNote[] = [];
     notes = upsertNote(notes, U1, { text: '  hot after 10 s  ' }, T0, newId);
-    expect(notes).toEqual([{ id: 'note-1', componentId: 'U1', text: 'hot after 10 s', updatedAt: T0 }]);
+    expect(notes).toEqual([{ id: 'note-1', target: { ref: 'U1' }, text: 'hot after 10 s', updatedAt: T0 }]);
     notes = upsertNote(notes, U1pin, { text: 'shorted', measurements: { voltage: ' 0.02 V ', resistance: '', other: '  ' } }, T0, newId);
-    expect(notes[1]).toEqual({ id: 'note-2', componentId: 'U1', pinId: 'U1.3', text: 'shorted', measurements: { voltage: '0.02 V' }, updatedAt: T0 });
+    expect(notes[1]).toEqual({ id: 'note-2', target: { ref: 'U1', pin: '3' }, text: 'shorted', measurements: { voltage: '0.02 V' }, updatedAt: T0 });
     expect(noteFor(notes, U1)!.id).toBe('note-1');
     expect(noteFor(notes, U1pin)!.id).toBe('note-2');
-    expect(noteFor(notes, noteTarget('U1', 'U1.4'))).toBeUndefined();
-    expect(noteFor(notes, noteTarget('U2'))).toBeUndefined();
+    expect(noteFor(notes, noteTarget({ ref: 'U1', pin: '4' }))).toBeUndefined();
+    expect(noteFor(notes, noteTarget({ ref: 'U2' }))).toBeUndefined();
+    expect(noteFor(notes, noteTarget({ ref: 'u1' }))).toBeUndefined();
     const updated = upsertNote(notes, U1, { text: 'hot after 3 s' }, T1, newId);
     expect(updated.map(n => n.id)).toEqual(['note-1', 'note-2']);
     expect(updated[0]).toMatchObject({ text: 'hot after 3 s', updatedAt: T1 });
@@ -1134,6 +1211,15 @@ describe('notes helpers', () => {
     expect(validateNotes(JSON.parse(JSON.stringify(updated)))).toEqual(updated);
     const without = upsertNote(updated, U1pin, { text: '', measurements: null }, T1, newId);
     expect(without.map(n => n.id)).toEqual(['note-1']);
+  });
+
+  it('a legacy note never answers for a key, and a key never answers for a legacy note', () => {
+    const newId = seq();
+    const legacy: BoardNote = { id: 'old', componentId: 'U1', text: 'positional', updatedAt: T0 };
+    expect(noteFor([legacy], U1)).toBeUndefined();
+    const notes = upsertNote([legacy], U1, { text: 'keyed' }, T1, newId);
+    expect(notes.map(n => n.id)).toEqual(['old', 'note-1']);
+    expect(notes[0]).toBe(legacy);
   });
 
   it('empty text AND no measurements deletes; measurements alone keep the note', () => {
@@ -1173,33 +1259,58 @@ describe('notes helpers', () => {
     expectCode(() => upsertNote([], U1, { measurements: { voltage: 5 as unknown as string } }, T0, newId), 'NOTES_INVALID');
     expectCode(() => upsertNote([], U1, { text: 5 as unknown as string }, T0, newId), 'NOTES_INVALID');
     expectCode(() => upsertNote([], U1, { text: 'x' }, 'never', newId), 'NOTES_INVALID');
-    const full = Array.from({ length: 500 }, (_, i) => ({ id: `n${i}`, componentId: `C${i}`, text: 't', updatedAt: T0 }));
-    expectCode(() => upsertNote(full, noteTarget('NEW'), { text: 'x' }, T0, newId), 'TOO_MANY_NOTES');
-    expect(upsertNote(full, noteTarget('C3'), { text: 'changed' }, T0, newId)).toHaveLength(500);
-    expect(upsertNote(full, noteTarget('C3'), { text: '' }, T0, newId)).toHaveLength(499);
+    const full: BoardNote[] = Array.from({ length: 500 }, (_, i) => ({ id: `n${i}`, target: { ref: `C${i}` }, text: 't', updatedAt: T0 }));
+    expectCode(() => upsertNote(full, noteTarget({ ref: 'NEW' }), { text: 'x' }, T0, newId), 'TOO_MANY_NOTES');
+    expect(upsertNote(full, noteTarget({ ref: 'C3' }), { text: 'changed' }, T0, newId)).toHaveLength(500);
+    expect(upsertNote(full, noteTarget({ ref: 'C3' }), { text: '' }, T0, newId)).toHaveLength(499);
   });
 
   it('rejects ids that are invalid or already used', () => {
     const notes = upsertNote([], U1, { text: 'x' }, T0, () => 'same');
-    expectCode(() => upsertNote(notes, noteTarget('U2'), { text: 'y' }, T0, () => 'same'), 'NOTES_INVALID');
+    expectCode(() => upsertNote(notes, noteTarget({ ref: 'U2' }), { text: 'y' }, T0, () => 'same'), 'NOTES_INVALID');
     expectCode(() => upsertNote([], U1, { text: 'x' }, T0, () => ''), 'NOTES_INVALID');
   });
 
-  it('B15: touches only the note of the exact target, never every note of the same component', () => {
+  it('B15: touches only the note of the exact target, never every note of the same part', () => {
     const newId = seq();
     let notes: BoardNote[] = [];
     notes = upsertNote(notes, U1, { text: 'component' }, T0, newId);
     notes = upsertNote(notes, U1pin, { text: 'pin' }, T0, newId);
-    notes = upsertNote(notes, noteTarget('U1', 'U1.4'), { text: 'other pin' }, T0, newId);
+    notes = upsertNote(notes, noteTarget({ ref: 'U1', pin: '4' }), { text: 'other pin' }, T0, newId);
+    const pinOf = (n: BoardNote) => (n as KeyedNote).target.pin ?? '-';
     const edited = upsertNote(notes, U1, { text: 'component edited' }, T1, newId);
-    expect(edited.map(n => [n.pinId ?? '-', n.text])).toEqual([['-', 'component edited'], ['U1.3', 'pin'], ['U1.4', 'other pin']]);
+    expect(edited.map(n => [pinOf(n), n.text])).toEqual([['-', 'component edited'], ['3', 'pin'], ['4', 'other pin']]);
     const deleted = upsertNote(notes, U1, { text: '' }, T1, newId);
-    expect(deleted.map(n => n.pinId)).toEqual(['U1.3', 'U1.4']);
+    expect(deleted.map(pinOf)).toEqual(['3', '4']);
     // a list that is already malformed (hand edited) is not "repaired" by silently dropping the hidden duplicate
-    const malformed: BoardNote[] = [{ id: 'a', componentId: 'U9', text: 'first', updatedAt: T0 }, { id: 'b', componentId: 'U9', text: 'second', updatedAt: T0 }];
-    expect(() => validateNotes(malformed)).toThrow('duplicate note for this component');
-    const touched = upsertNote(malformed, noteTarget('U9'), { text: 'edited' }, T1, newId);
+    const malformed: BoardNote[] = [{ id: 'a', target: { ref: 'U9' }, text: 'first', updatedAt: T0 }, { id: 'b', target: { ref: 'U9' }, text: 'second', updatedAt: T0 }];
+    expect(() => validateNotes(malformed)).toThrow('target (duplicate note for this target)');
+    const touched = upsertNote(malformed, noteTarget({ ref: 'U9' }), { text: 'edited' }, T1, newId);
     expect(touched.map(n => n.text)).toEqual(['edited', 'second']);
+  });
+
+  it('a note on a part with a position fallback is a different target from the plain reference and from another position', () => {
+    const newId = seq();
+    const at = (x: number) => noteTarget({ ref: 'R1', at: { side: 'top', x, y: 0 } });
+    let notes = upsertNote([], at(1), { text: 'first R1' }, T0, newId);
+    notes = upsertNote(notes, at(2), { text: 'second R1' }, T0, newId);
+    expect(noteFor(notes, noteTarget({ ref: 'R1' }))).toBeUndefined();
+    expect(noteFor(notes, at(1))!.text).toBe('first R1');
+    expect(noteFor(notes, at(2))!.text).toBe('second R1');
+    // 1 um is the resolution: 0.0004 mm is the same place, 0.001 mm is another
+    expect(noteFor(notes, noteTarget({ ref: 'R1', at: { side: 'top', x: 1.0004, y: 0 } }))!.text).toBe('first R1');
+    expect(noteFor(notes, noteTarget({ ref: 'R1', at: { side: 'top', x: 1.001, y: 0 } }))).toBeUndefined();
+    expect(noteFor(notes, noteTarget({ ref: 'R1', at: { side: 'bottom', x: 1, y: 0 } }))).toBeUndefined();
+  });
+
+  it('removeNote drops one note by id and returns the SAME array when there is none', () => {
+    const newId = seq();
+    let notes = upsertNote([], U1, { text: 'a' }, T0, newId);
+    notes = upsertNote(notes, U1pin, { text: 'b' }, T0, newId);
+    const legacy: BoardNote[] = [...notes, { id: 'old', componentId: 'X', text: 'c', updatedAt: T0 }];
+    expect(removeNote(legacy, 'old').map(n => n.id)).toEqual(['note-1', 'note-2']);
+    expect(removeNote(legacy, 'note-1')).toHaveLength(2);
+    expect(removeNote(legacy, 'ghost')).toBe(legacy);
   });
 });
 

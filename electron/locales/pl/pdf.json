@@ -1,0 +1,19 @@
+{
+  "pdf.ocr.recognize": "Rozpoznaj tekst",
+  "pdf.ocr.recognizeTitle": "Odczytuje tekst stron bez warstwy tekstowej na tym komputerze. Nic nie jest wysyłane.",
+  "pdf.ocr.stop": "Zatrzymaj",
+  "pdf.ocr.pageOffer": "Ta strona jest obrazem bez warstwy tekstowej. Rozpoznaj jej tekst, aby ją przeszukiwać i powiązać oznaczenia z płytką.",
+  "pdf.ocr.documentOffer": "Brak warstwy tekstowej: to zeskanowany lub rastrowy PDF. Rozpoznaj jego tekst, aby go przeszukiwać i powiązać oznaczenia z płytką.",
+  "pdf.ocr.starting": "Uruchamianie rozpoznawania tekstu…",
+  "pdf.ocr.running": "Rozpoznawanie tekstu: strona {page} ({done} z {total})",
+  "pdf.ocr.summary": "Rozpoznany tekst · strony: {pages} · słowa: {words}",
+  "pdf.ocr.linkRule": "Rozpoznane słowa są oznaczone. Łączami stają się tylko dokładne nazwy z płytki odczytane z pewnością co najmniej {floor}%.",
+  "pdf.ocr.cancelled": "Rozpoznawanie tekstu zatrzymano po {done} z {total} stron. Rozpoznane strony nadal można przeszukiwać.",
+  "pdf.ocr.timeouts": "Strony nierozpoznane w limicie czasu: {pages}",
+  "pdf.ocr.failed": "Rozpoznawanie tekstu nie powiodło się: {message}",
+  "pdf.ocr.unavailable": "Rozpoznawanie tekstu jest tu niedostępne: {message}",
+  "pdf.ocr.badge": "Rozpoznany tekst",
+  "pdf.ocr.badgeTitle": "Tekst rozpoznany przez OCR na tym komputerze, średnia pewność {confidence}%",
+  "pdf.ocr.wordTitle": "Rozpoznany tekst, pewność {confidence}%",
+  "pdf.ocr.linkLabel": "{name}, rozpoznany tekst, pewność {confidence}%"
+}

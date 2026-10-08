@@ -1,5 +1,7 @@
 import type { Board, BoardComponent, BoardNet, BoardPin, BoardSide, Bounds, Point } from './types';
+import { boundText, MAX_QUOTED_CHARS } from './bounded-text';
 import { formatIssue, type ParseIssue, type ParseKey, type Params } from './i18n';
+import { reportParseProgress } from './parse-progress';
 
 interface RecordLine { tokens: string[]; line: number }
 interface Path { points: Point[]; kind: string }
@@ -34,14 +36,17 @@ export const GENCAD_LIMITS = Object.freeze({ components: 250_000, pins: 1_000_00
 export class GenCadParseError extends Error {
   readonly issue: ParseIssue;
   constructor(issue: ParseIssue) {
-    super(formatIssue('en', issue)); // Developer-facing fallback text only.
+    super(boundText(formatIssue('en', issue))); // Developer-facing fallback text only.
     this.name = 'GenCadParseError';
     this.issue = issue;
   }
 }
 
+/** What the file says is quoted in the message: a name or token of any length is cut, the message stays readable. */
+const quoted = (params: Params): Params => Object.fromEntries(Object.entries(params).map(([name, value]) => [name, typeof value === 'string' ? boundText(value, MAX_QUOTED_CHARS) : value]));
+
 function fail(key: ParseKey, line?: number, params?: Params): never {
-  throw new GenCadParseError({ key, ...(params ? { params } : {}), ...(line ? { line } : {}) });
+  throw new GenCadParseError({ key, ...(params ? { params: quoted(params) } : {}), ...(line ? { line } : {}) });
 }
 
 /** Quoted names may contain spaces, escaped quotes, or a literal #. */
@@ -85,6 +90,7 @@ function sectionsFrom(text: string): Map<string, RecordLine[]> {
   const lines = text.replace(/^\uFEFF/, '').split(/\r\n|\n|\r/);
   if (lines.length > GENCAD_LIMITS.lines) fail('parse.error.tooManyRecords');
   for (let index = 0; index < lines.length; index++) {
+    if ((index & 4095) === 0) reportParseProgress(index, lines.length * 2); // the first half of the work
     const line = lines[index].trim();
     if (!line || /^(#|;|\/\/)/.test(line)) continue;
     if (line.startsWith('$')) {
@@ -222,7 +228,15 @@ function samePoint(a: Point, b: Point): boolean { return Math.hypot(a.x - b.x, a
 
 /** Join unordered segments; use the outer closed contour instead of bridging cutouts.
  * Paths that already close stand alone and dangling branches are pruned before chaining, so a
- * stray open edge can never consume the edges of a valid loop, whatever the record order. */
+ * stray open edge can never consume the edges of a valid loop, whatever the record order.
+ *
+ * The work is bounded: a live path is found through a hash of its end points, paths that are used up leave the hash, a search stops
+ * at the first match where one is enough, and a contour grows at both ends in constant time per segment. A board outline has
+ * a few thousand segments; a file whose outline would take more than the budget below to chain (thousands of identical or
+ * coincident segments meeting at one point, which no board has) gets no outline here and the caller draws the bounding box. */
+const CONTOUR_BUDGET_BASE = 1_000_000, CONTOUR_BUDGET_PER_PATH = 200;
+class ContourBudgetExceeded extends Error {}
+
 function outerContour(paths: Path[]): { outline: Point[]; extras: number } {
   const segments = paths.filter(path => path.points.length > 1 && !path.points.every(p => samePoint(p, path.points[0]))).map(path => [...path.points]);
   const contours: Point[][] = [];
@@ -230,59 +244,86 @@ function outerContour(paths: Path[]): { outline: Point[]; extras: number } {
   for (const segment of segments) (samePoint(segment[0], segment[segment.length - 1]) ? contours : open).push(segment);
   const remaining = new Set(open.map((_, index) => index));
   const ends = open.map(segment => [segment[0], segment[segment.length - 1]] as const);
-  const endpoints = new Map<string, number[]>();
   const bucket = (p: Point) => [Math.round(p.x * 1e5), Math.round(p.y * 1e5)];
-  for (const [index, pair] of ends.entries()) {
-    for (const p of pair) {
-      const key = bucket(p).join(','); const matches = endpoints.get(key) ?? [];
-      matches.push(index); endpoints.set(key, matches);
+  const keysOf = ends.map(pair => pair.map(p => bucket(p).join(',')));
+  /** Live open paths by the cell of each of their end points, in path order. */
+  const endpoints = new Map<string, Set<number>>();
+  for (const [index, keys] of keysOf.entries()) {
+    for (const key of keys) {
+      const cell = endpoints.get(key);
+      if (cell) cell.add(index); else endpoints.set(key, new Set([index]));
     }
   }
+  const retire = (index: number) => {
+    remaining.delete(index);
+    for (const key of keysOf[index]) endpoints.get(key)?.delete(index);
+  };
+  const budget = CONTOUR_BUDGET_BASE + CONTOUR_BUDGET_PER_PATH * open.length;
+  let work = 0;
+  /** Calls `take` for each other live path with an end at p, in the order of the cells and of the paths; stops when `take` answers true. */
+  const scan = (p: Point, self: number, take: (index: number) => boolean): void => {
+    const [x, y] = bucket(p);
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+      const cell = endpoints.get(`${x + dx},${y + dy}`);
+      if (!cell) continue;
+      for (const index of cell) {
+        if (++work > budget) throw new ContourBudgetExceeded();
+        if (index !== self && ends[index].some(end => samePoint(p, end)) && take(index)) return;
+      }
+    }
+  };
   /** Other remaining open paths with an endpoint at p. */
   const touching = (p: Point, self: number): number[] => {
-    const [x, y] = bucket(p); const result: number[] = [];
-    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
-      for (const index of endpoints.get(`${x + dx},${y + dy}`) ?? []) {
-        if (index !== self && remaining.has(index) && !result.includes(index) && ends[index].some(end => samePoint(p, end))) result.push(index);
-      }
-    }
-    return result;
+    const result = new Set<number>();
+    scan(p, self, index => { result.add(index); return false; });
+    return [...result];
   };
-  // An open path with a free end cannot belong to any loop; removing it may free its neighbour's end.
-  const dangling = (index: number) => ends[index].some(p => touching(p, index).length === 0);
-  let pruned = 0;
-  const queue = [...remaining].filter(dangling);
-  while (queue.length) {
-    const index = queue.pop()!;
-    if (!remaining.has(index)) continue;
-    remaining.delete(index); pruned++;
-    for (const p of ends[index]) for (const other of touching(p, index)) if (dangling(other)) queue.push(other);
-  }
-  const findAdjacent = (p: Point): number | undefined => touching(p, -1)[0];
-  while (remaining.size) {
-    const first = remaining.values().next().value as number;
-    const contour = open[first]; remaining.delete(first);
-    while (!samePoint(contour[0], contour[contour.length - 1])) {
-      const last = contour[contour.length - 1];
-      const appendIndex = findAdjacent(last);
-      const index = appendIndex ?? findAdjacent(contour[0]);
-      if (index === undefined) break;
-      const candidate = open[index]; remaining.delete(index);
-      if (appendIndex !== undefined) {
-        if (!samePoint(last, candidate[0])) candidate.reverse();
-        contour.push(...candidate.slice(1));
-      } else {
-        if (!samePoint(contour[0], candidate[candidate.length - 1])) candidate.reverse();
-        contour.unshift(...candidate.slice(0, -1));
-      }
+  const touched = (p: Point, self: number): boolean => { let found = false; scan(p, self, () => (found = true)); return found; };
+  const firstTouching = (p: Point): number | undefined => { let first: number | undefined; scan(p, -1, index => { first = index; return true; }); return first; };
+  try {
+    // An open path with a free end cannot belong to any loop; removing it may free its neighbour's end.
+    const dangling = (index: number) => ends[index].some(p => !touched(p, index));
+    let pruned = 0;
+    const queue = [...remaining].filter(dangling);
+    const queued = new Set(queue);
+    while (queue.length) {
+      const index = queue.pop()!;
+      queued.delete(index);
+      if (!remaining.has(index)) continue;
+      retire(index); pruned++;
+      for (const p of ends[index]) for (const other of touching(p, index)) if (!queued.has(other) && dangling(other)) { queue.push(other); queued.add(other); }
     }
-    contours.push(contour);
+    while (remaining.size) {
+      const first = remaining.values().next().value as number;
+      retire(first);
+      // The contour grows at its end (`tail`) and at its start (`head`, kept reversed so that adding to it is cheap).
+      const tail = open[first], head: Point[] = [];
+      const start = () => (head.length ? head[head.length - 1] : tail[0]);
+      while (!samePoint(start(), tail[tail.length - 1])) {
+        const last = tail[tail.length - 1];
+        const appendIndex = firstTouching(last);
+        const index = appendIndex ?? firstTouching(start());
+        if (index === undefined) break;
+        const candidate = open[index]; retire(index);
+        if (appendIndex !== undefined) {
+          if (!samePoint(last, candidate[0])) candidate.reverse();
+          for (let at = 1; at < candidate.length; at++) tail.push(candidate[at]);
+        } else {
+          if (!samePoint(start(), candidate[candidate.length - 1])) candidate.reverse();
+          for (let at = candidate.length - 2; at >= 0; at--) head.push(candidate[at]);
+        }
+      }
+      contours.push(head.length ? head.reverse().concat(tail) : tail);
+    }
+    const closed = contours.filter(points => points.length >= 4 && samePoint(points[0], points[points.length - 1]));
+    const area = (points: Point[]) => Math.abs(points.slice(1).reduce((sum, p, index) => sum + points[index].x * p.y - p.x * points[index].y, 0));
+    const sorted = closed.map(points => ({ points, area: area(points) })).sort((a, b) => b.area - a.area);
+    // Pruned branches are separate contours the view does not show, so they count as extras too.
+    return { outline: sorted[0]?.points ?? [], extras: Math.max(0, contours.length - 1) + pruned };
+  } catch (error) {
+    if (error instanceof ContourBudgetExceeded) return { outline: [], extras: 0 };
+    throw error;
   }
-  const closed = contours.filter(points => points.length >= 4 && samePoint(points[0], points[points.length - 1]));
-  const area = (points: Point[]) => Math.abs(points.slice(1).reduce((sum, p, index) => sum + points[index].x * p.y - p.x * points[index].y, 0));
-  closed.sort((a, b) => area(b) - area(a));
-  // Pruned branches are separate contours the view does not show, so they count as extras too.
-  return { outline: closed[0] ?? [], extras: Math.max(0, contours.length - 1) + pruned };
 }
 
 function units(header: RecordLine[]): number {
@@ -413,7 +454,9 @@ export function parseGenCad(text: string, fileName: string): Board {
     }
     return extent;
   };
+  let placedCount = 0;
   for (const item of placements) {
+    if ((++placedCount & 255) === 0) reportParseProgress(placements.length + placedCount, placements.length * 2); // the second half
     if (!item.hasPlace) fail('parse.error.missingPlace', item.line, { ref: item.ref });
     const definition = shapes.get(item.shape);
     if (!definition) {
@@ -504,7 +547,7 @@ export function parseGenCad(text: string, fileName: string): Board {
     } else if (t[0] === 'NODE') {
       args(row, 3); if (!activeNet) fail('parse.error.nodeWithoutSignal', row.line);
       const related = nodePins.get(JSON.stringify([t[1], t[2]]));
-      if (!related) { danglingNodes++; if (danglingExamples.length < 3) danglingExamples.push(`${t[1]}.${t[2]}`); continue; }
+      if (!related) { danglingNodes++; if (danglingExamples.length < 3) danglingExamples.push(boundText(`${t[1]}.${t[2]}`, MAX_QUOTED_CHARS)); continue; }
       for (const pin of related) {
         if (pin.net && pin.net !== activeNet.name) fail('parse.error.pinMultipleNets', row.line, { ref: t[1], pin: t[2] });
         pin.net = activeNet.name;

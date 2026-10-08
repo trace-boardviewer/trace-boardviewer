@@ -1,0 +1,44 @@
+{
+  "head": {
+    "docType": "3",
+    "editorVersion": "6.5.1",
+    "newgId": true,
+    "c_para": {},
+    "hasIdFlag": true,
+    "x": "400",
+    "y": "300"
+  },
+  "canvas": "CA~2400~2400~#000000~yes~#FFFFFF~10~1200~1200~line~1~mil~1~45~visible~0.5~400~300",
+  "shape": [
+    "TRACK~1~10~~100 100 500 100~gge1",
+    "TRACK~1~10~~500 100 500 400~gge2",
+    "TRACK~1~10~~500 400 100 400~gge3",
+    "TRACK~1~10~~100 400 100 100~gge4",
+    "LIB~200~200~package`R0603`value`10k`Contributor`synthetic`~0~~gge10~0#@$TEXT~P~190~188~0.7~0~~3~~4.5~R1~M 0 0 L 1 1~~gge11#@$PAD~RECT~195~200~3.2~3.6~1~NET_A~1~0~193.4 198.2 196.6 198.2 196.6 201.8 193.4 201.8~0~gge12~0~~Y~0#@$PAD~RECT~205~200~3.2~3.6~1~GND~2~0~203.4 198.2 206.6 198.2 206.6 201.8 203.4 201.8~0~gge13~0~~Y~0#@$TRACK~0.8~3~~190 196 210 196 210 204 190 204 190 196~gge14",
+    "LIB~300~300~package`C0603`value`100nF`~90~~gge20~0#@$TEXT~P~290~288~0.7~0~~4~~4.5~C1~M 0 0 L 1 1~~gge21#@$PAD~RECT~300~295~3.6~3.2~2~NET_A~1~0~298.2 293.4 301.8 293.4 301.8 296.6 298.2 296.6~0~gge22~0~~Y~0#@$PAD~RECT~300~305~3.6~3.2~2~GND~2~0~298.2 303.4 301.8 303.4 301.8 306.6 298.2 306.6~0~gge23~0~~Y~0#@$TRACK~0.8~4~~296 290 304 290 304 310 296 310 296 290~gge24",
+    "LIB~400~300~package`DIP-4`~0~~gge30~0#@$TEXT~P~390~284~0.7~0~~3~~4.5~U1~M 0 0 L 1 1~~gge31#@$PAD~RECT~390~310~6~6~11~VCC~1~1.4~387 307 393 307 393 313 387 313~0~gge32~0~~Y~0#@$PAD~ELLIPSE~390~300~6~6~11~NET_A~2~1.4~~0~gge33~0~~Y~0#@$PAD~OVAL~410~300~6~9~11~GND~3~1.4~410 297 410 303~0~gge34~0~~Y~0#@$PAD~ELLIPSE~410~310~6~6~11~~4~1.4~~0~gge35~0~~Y~0#@$TRACK~1~3~~385 295 415 295 415 315 385 315 385 295~gge36",
+    "PAD~ELLIPSE~450~350~5~5~1~TP_OUT~1~0~~0~gge40~0~~Y~0",
+    "PAD~ELLIPSE~120~120~6~6~11~~~1.6~~0~gge41~0~~Y~0",
+    "TRACK~1~1~NET_A~195 200 300 295~gge50",
+    "VIA~250~250~3.2~NET_A~0.8~gge51",
+    "COPPERAREA~2px~1~GND~150 150 250 150 250 250 150 250~1~solid~gge52~spoke~none~[]",
+    "TEXT~L~150~350~0.8~0~none~3~~8~LABEL~M 0 0 L 1 1~~gge53",
+    "HOLE~130~380~4~gge54"
+  ],
+  "layers": [
+    "1~TopLayer~#FF0000~true~true~true",
+    "2~BottomLayer~#0000FF~true~false~true",
+    "3~TopSilkLayer~#FFFF00~true~false~true",
+    "4~BottomSilkLayer~#808000~true~false~true",
+    "10~BoardOutline~#FF00FF~true~false~true",
+    "11~Multi-Layer~#C0C0C0~true~false~true"
+  ],
+  "DRCRULE": {
+    "trackWidth": 0.7,
+    "track2Track": 0.7,
+    "pad2Pad": 0.8,
+    "track2Pad": 0.8,
+    "hole2Hole": 1,
+    "holeSize": 1.6
+  }
+}

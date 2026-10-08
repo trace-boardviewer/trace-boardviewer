@@ -61,7 +61,8 @@ const payloads = {
   C: { name: 'Race-C.cad', path: 'C:/qa/Race-C.cad', key: 'c'.repeat(64), text: fixture.replace('$ENDCOMPONENTS', 'COMPONENT AR1\nPLACE 25 20\nLAYER TOP\nROTATION 0\nSHAPE S 0 0\nDEVICE D\n$ENDCOMPONENTS') },
   D: { name: 'Race-D.cad', path: 'C:/qa/Race-D.cad', key: 'd'.repeat(64), text: '$HEADER\nGENCAD 1.4\nUNITS MM\n$ENDHEADER\n$BOARD\nRECTANGLE 0 0 40 30\n$ENDBOARD\n' },
 };
-const note = (id, componentId, text) => ({ id, componentId, text, updatedAt: '2026-10-05T12:00:00.000Z' });
+// Keyed notes (reference designator); positional notes would be converted, and written back, when the board opens.
+const note = (id, ref, text) => ({ id, target: { ref }, text, updatedAt: '2026-10-05T12:00:00.000Z' });
 const report = { startedAt: new Date().toISOString(), runtime: (process.env.TRACE_BROWSER_CHANNEL || 'Chromium') + ' / Playwright', url: URL, fixture: 'Synthetic GENCAD 1.4 fixtures; no user dataset copied', checks: [] };
 
 async function contextFor(browser, options = {}) {
@@ -242,8 +243,8 @@ async function runCase(browser, label, options, work) {
       await page.locator('.note-preview').waitFor();
       const state = await page.evaluate(() => window.__traceQA.state);
       assert.equal(state.saveCalls.length, 1);
-      assert.deepEqual(state.notes[AKEY].find(value => value.componentId === 'R2'), recovered[1]);
-      assert.equal(state.notes[AKEY].find(value => value.componentId === 'R1').text, 'Revised after explicit recovery');
+      assert.deepEqual(state.notes[AKEY].find(value => value.target?.ref === 'R2'), recovered[1]);
+      assert.equal(state.notes[AKEY].find(value => value.target?.ref === 'R1').text, 'Revised after explicit recovery');
       return { boardOpenedDespiteCorruption: true, saveCallsBeforeRecovery: 0, unrelatedNotePreserved: true, savedAfterExplicitReread: true };
     });
 

@@ -3,12 +3,14 @@ import type { DocumentOverlay, DocumentRuntime, Notice, WorkspaceActions, Worksp
 import { createStatusStore } from './statusStore';
 import type { ViewerCamera, ViewerProbeRegion } from '../components/viewer-contracts';
 import {
-  boardComponentsByRef, buildBoardIndex, buildSchematicIndex, linkBoardSchematic, mapBoardNetToSchematic, mapBoardSelectionToSchematic, mapSchematicNetToBoard, mapSchematicSelectionToBoard, resolvePdfRefHits, searchAll,
+  boardComponentsByRef, buildSchematicIndex, linkBoardSchematic, mapBoardNetToSchematic, mapBoardSelectionToSchematic, mapSchematicNetToBoard, mapSchematicSelectionToBoard, resolvePdfRefHits, searchAll,
 } from '../lib/crossprobe';
 import type { BoardIndex, DocumentSearchSource, Mapping, PdfLinkReport, SchematicIndex, SchematicTarget, SearchRow } from '../lib/crossprobe';
 import type { DocumentRecord, WorkspaceAliases, WorkspaceManifest } from '../lib/documents';
+import { boardIndexOf } from '../lib/board-index';
 import { buildPdfFixture } from '../lib/pdf/pdf-fixture';
 import type { PdfSession } from '../lib/pdf/session-contract';
+import { bundledOcrEngine } from '../lib/ocr/bundled';
 import { createPdfSession } from '../lib/pdf/session';
 import type { Hit } from '../lib/pdf/search';
 import { computeConnectivity } from '../lib/schematic/connectivity';
@@ -16,7 +18,8 @@ import { pinKey, symbolKey } from '../lib/schematic/model';
 import type { SchSheetInstance, SchematicDesign } from '../lib/schematic/model';
 import { SheetBuilder, buildSchematic } from '../lib/schematic/testing';
 import type { Board, BoardComponent, BoardNote, BoardPin, BoardSide } from '../lib/types';
-import { upsertNote as applyNote } from '../lib/workspace';
+import { noteKeyIndex } from '../lib/note-keys';
+import { removeNote as dropNote, upsertNote as applyNote } from '../lib/workspace';
 
 /**
  * Complete mock of the application core for the UI harness and QA scripts: ORIGINAL SYNTHETIC data (a board with a
@@ -141,7 +144,7 @@ function makePdf(id: string): PdfSession {
       pdfPage(3, [[72, 680, 'J1'], [140, 680, 'Q1'], [72, 640, 'SDA SCL pull-ups R1 R2']])],
     outline: [{ title: 'Block diagram', page: 1 }, { title: 'Power', page: 2, children: [{ title: 'Core rail', page: 2 }] }, { title: 'Connectors', page: 3 }],
   });
-  return createPdfSession({ id, data });
+  return createPdfSession({ id, data, ocr: { engine: bundledOcrEngine } });
 }
 async function makePng(): Promise<Uint8Array> {
   const canvas = Object.assign(document.createElement('canvas'), { width: 640, height: 420 });
@@ -158,7 +161,7 @@ const NO_CAMERA: ViewerCamera = Object.freeze({});
 
 export function createMockWorkspace(options: MockOptions = {}): MockWorkspace {
   const board = makeBoard();
-  const boardIndex: BoardIndex = buildBoardIndex(board);
+  const boardIndex: BoardIndex = boardIndexOf(board);
   const statusStore = createStatusStore();
   statusStore.setSource('KiCad PCB · mm · real geometry');
   const calls: MockCall[] = [];
@@ -185,17 +188,17 @@ export function createMockWorkspace(options: MockOptions = {}): MockWorkspace {
     docs.push({ record: record('chg1', 'pdf', 'changed-notes.pdf'), status: 'changed', message: 'The file changed on disk since it was attached.' });
   }
   const notes: BoardNote[] = options.empty ? [] : [
-    { id: 'n1', componentId: 'c:U1', text: 'Replaced after short on VIN. Check the inductor next.', measurements: { voltage: '3.28 V', resistance: '4.7 kΩ to GND' }, updatedAt: '2026-10-05T09:00:00.000Z' },
-    { id: 'n2', componentId: 'c:U1', pinId: 'c:U1.3', text: 'SDA idles low.', measurements: { voltage: '0.12 V' }, updatedAt: '2026-10-05T09:05:00.000Z' },
+    { id: 'n1', target: { ref: 'U1' }, text: 'Replaced after short on VIN. Check the inductor next.', measurements: { voltage: '3.28 V', resistance: '4.7 kΩ to GND' }, updatedAt: '2026-10-05T09:00:00.000Z' },
+    { id: 'n2', target: { ref: 'U1', pin: '3' }, text: 'SDA idles low.', measurements: { voltage: '0.12 V' }, updatedAt: '2026-10-05T09:05:00.000Z' },
   ];
   const rootPath = (id: string) => docs.find(d => d.record.id === id)?.design?.schematic.instances[0]?.path ?? '';
   let state: WorkspaceState = {
-    board: options.empty ? null : board, boardKey: options.empty ? null : boardKey, boardPath: 'C:/service/mainboard.kicad_pcb', manifest: null, activeTab: 'board',
+    board: options.empty ? null : board, boardIndex: options.empty ? null : boardIndex, boardKey: options.empty ? null : boardKey, boardPath: 'C:/service/mainboard.kicad_pcb', manifest: null, activeTab: 'board',
     split: { enabled: false, ratio: 0.5, right: null }, documents: docs, notes, notesBlocked: options.notesBlocked ? { text: 'notes.json is unreadable (invalid JSON).' } : null,
     save: { dirty: false, saving: false, failure: null }, selection: { componentId: null, pinId: null, net: null },
     probe: { origin: null, nonce: 0, schematic: null, schematicMapping: null, boardMapping: null, documentRef: null, schematicNetMapping: null, boardNetMapping: null },
     search: { query: '', result: null, pending: false }, link: null, pdfLinks: {}, overlays: {}, notices: [], persistence: options.persistence ?? 'native',
-    import: { phase: 'idle', keyRequest: null, recents: [{ name: 'mainboard.kicad_pcb', path: 'C:/service/mainboard.kicad_pcb', openedAt: '2026-10-04T08:00:00.000Z' }, { name: 'older.gc', path: 'C:/service/older.gc', openedAt: '2026-09-01T08:00:00.000Z' }], file: options.empty ? null : { name: 'mainboard.kicad_pcb', path: 'C:/service/mainboard.kicad_pcb', key: boardKey } },
+    import: { phase: 'idle', keyRequest: null, recents: [{ name: 'mainboard.kicad_pcb', path: 'C:/service/mainboard.kicad_pcb', openedAt: '2026-10-04T08:00:00.000Z' }, { name: 'older.gc', path: 'C:/service/older.gc', openedAt: '2026-09-01T08:00:00.000Z' }], file: options.empty ? null : { name: 'mainboard.kicad_pcb', path: 'C:/service/mainboard.kicad_pcb', key: boardKey }, progress: null },
   };
   const emit = () => { for (const listener of [...listeners]) listener(); };
   const set = (patch: Partial<WorkspaceState> | ((s: WorkspaceState) => Partial<WorkspaceState>)) => { state = { ...state, ...(typeof patch === 'function' ? patch(state) : patch) }; emit(); };
@@ -227,7 +230,7 @@ export function createMockWorkspace(options: MockOptions = {}): MockWorkspace {
   // --- cross-probe -------------------------------------------------------------------------------------------------
   const probeFor = (origin: WorkspaceState['probe']['origin'], componentId: string | null, pinId: string | null, center: boolean): Partial<WorkspaceState> => {
     const nonce = state.probe.nonce + (center ? 1 : 0);
-    const component = componentId ? board.components.find(c => c.id === componentId) : undefined;
+    const component = componentId ? boardIndex.componentById.get(componentId) : undefined;
     let mapping: Mapping<SchematicTarget> | null = null;
     let schematic: WorkspaceState['probe']['schematic'] = null;
     if (schIndex && componentId) {
@@ -248,7 +251,7 @@ export function createMockWorkspace(options: MockOptions = {}): MockWorkspace {
   };
   const selectPin: WorkspaceActions['selectPin'] = (id, opts) => {
     record_('selectPin', id, opts);
-    const pin = board.pins.find(p => p.id === id); if (!pin) return;
+    const pin = boardIndex.pinById.get(id); if (!pin) return;
     set({ selection: { componentId: pin.componentId, pinId: id, net: pin.net || null }, ...probeFor(opts?.origin ?? 'inspector', pin.componentId, id, !!opts?.center) });
   };
 
@@ -284,7 +287,8 @@ export function createMockWorkspace(options: MockOptions = {}): MockWorkspace {
     openDropped: async files => { record_('openDropped', files.map(f => f.name)); },
     submitKey: text => { record_('submitKey', text); set(s => ({ import: { ...s.import, keyRequest: null } })); },
     cancelKeyRequest: () => { record_('cancelKeyRequest'); set(s => ({ import: { ...s.import, keyRequest: null } })); },
-    closeBoard: () => { record_('closeBoard'); set({ board: null, boardKey: null, import: { ...state.import, file: null } }); },
+    closeBoard: () => { record_('closeBoard'); set({ board: null, boardIndex: null, boardKey: null, import: { ...state.import, file: null } }); },
+    cancelImport: () => { record_('cancelImport'); set(s => ({ import: { ...s.import, phase: 'idle', progress: null } })); },
     setActiveTab: tab => { record_('setActiveTab', tab); set({ activeTab: tab }); },
     setSplit: patch => {
       record_('setSplit', patch);
@@ -373,9 +377,12 @@ export function createMockWorkspace(options: MockOptions = {}): MockWorkspace {
       if (options.slowNotes) await new Promise(resolve => setTimeout(resolve, options.slowNotes));
       if (state.notesBlocked) { notify('error', 'Notes are locked: nothing was written.'); return; }
       if (failNote) { failNote = false; notify('error', 'The note could not be saved (mock failure).'); return; }
-      const next = applyNote(state.notes, target, patch, now(), () => crypto.randomUUID());
+      const keyed = noteKeyIndex(state.board ?? board).target(target.componentId, target.pinId);
+      if (!keyed.ok) { notify('error', 'The note could not be saved: the part or pin cannot be told apart from another one.'); return; }
+      const next = applyNote(state.notes, keyed.key, patch, now(), () => crypto.randomUUID());
       set({ notes: next });
     },
+    removeNote: async id => { record_('removeNote', id); set({ notes: dropNote(state.notes, id) }); },
     retryNotes: async () => { record_('retryNotes'); set({ notesBlocked: null }); notify('success', 'Notes reloaded.'); },
     dismissNotice: id => { set(s => ({ notices: s.notices.filter(n => n.id !== id) })); },
   };

@@ -1,0 +1,53 @@
+{
+  "schematics": {
+    "s1": {
+      "name": "Schematic1",
+      "sheets": [
+        {
+          "name": "P1",
+          "id": 1,
+          "uuid": "cccccccccccccccccccccccccccccccc"
+        }
+      ]
+    }
+  },
+  "pcbs": {
+    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": "EmptyPCB",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "PCB1"
+  },
+  "footprints": {
+    "11111111111111111111111111111111": {
+      "title": "R0603",
+      "type": 4
+    },
+    "22222222222222222222222222222222": {
+      "title": "SOT-23-3",
+      "type": 4
+    },
+    "33333333333333333333333333333333": {
+      "title": "HDR-1x4",
+      "type": 4
+    }
+  },
+  "devices": {
+    "dev00000000000000000000000000001": {
+      "title": "BC847",
+      "attributes": {
+        "Footprint": "22222222222222222222222222222222",
+        "Name": "BC847"
+      }
+    }
+  },
+  "boards": {
+    "Board1": {
+      "schematic": "s1",
+      "pcb": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  },
+  "config": {
+    "title": "synthetic",
+    "cbbProject": 0,
+    "defaultSheet": "",
+    "editorVersion": "2.2.47.7"
+  }
+}

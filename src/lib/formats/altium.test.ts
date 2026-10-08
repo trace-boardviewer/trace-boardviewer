@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { Board } from '../types';
 import { BoardFormatError, textInput, type FormatErrorCode } from './common';
 import { ALTIUM_ASCII, ALTIUM_BINARY, parseAltium } from './altium';
+import { catching, expectCostAtMost } from '../../test-support/timing';
 
 // --- Original synthetic fixture builders -------------------------------------------------------------------------------------
 const MIL = 10_000; // internal units per mil
@@ -20,7 +21,7 @@ const propText = (record: Record<string, string>) => '|' + Object.entries(record
 const textBlock = (record: Record<string, string> | string) => block([...enc.encode(typeof record === 'string' ? record : propText(record)), 0]);
 const pascal = (text: string) => block([text.length, ...enc.encode(text)]);
 
-interface Pad { name?: string; layer?: number; net?: number; component?: number; x?: number; y?: number; top?: [number, number]; bottom?: [number, number]; shape?: number; bottomShape?: number; rotation?: number; mode?: number; size?: number }
+interface Pad { name?: string; hole?: number; layer?: number; net?: number; component?: number; x?: number; y?: number; top?: [number, number]; bottom?: [number, number]; shape?: number; bottomShape?: number; rotation?: number; mode?: number; size?: number }
 /** Record type 2 followed by six length-prefixed sub-records; sub-record 5 follows the documented byte offsets. */
 function padRecord(pad: Pad = {}): Uint8Array {
   const main = new Uint8Array(pad.size ?? 110), view = new DataView(main.buffer);
@@ -29,7 +30,7 @@ function padRecord(pad: Pad = {}): Uint8Array {
     main[0] = pad.layer ?? 1; view.setUint16(1, 0, true); view.setUint16(3, pad.net ?? 0xffff, true); view.setUint16(5, 0xffff, true); view.setUint16(7, pad.component ?? 0, true);
     view.setInt32(13, pad.x ?? 0, true); view.setInt32(17, pad.y ?? 0, true);
     view.setInt32(21, topW, true); view.setInt32(25, topH, true); view.setInt32(29, topW, true); view.setInt32(33, topH, true); view.setInt32(37, botW, true); view.setInt32(41, botH, true);
-    view.setInt32(45, 0, true); main[49] = pad.shape ?? 2; main[50] = pad.shape ?? 2; main[51] = pad.bottomShape ?? pad.shape ?? 2;
+    view.setInt32(45, pad.hole ?? 0, true); main[49] = pad.shape ?? 2; main[50] = pad.shape ?? 2; main[51] = pad.bottomShape ?? pad.shape ?? 2;
     view.setFloat64(52, pad.rotation ?? 0, true); main[60] = 1; main[62] = pad.mode ?? 0;
   }
   return concat([2], pascal(pad.name ?? '1'), block([]), block([]), block([]), block(main), block([]));
@@ -149,10 +150,21 @@ describe('parseAltium binary PcbDoc (OLE compound file)', () => {
     expect(failure(() => parse(pcbDoc({ components: [withoutX] })), 'INVALID_FORMAT').message).toMatch(/X is missing/);
   });
 
-  it('maps pad layers: Top 1, Bottom 32, Multi-Layer 74; other layers are an unsupported variant', () => {
+  it('maps pad layers: Top 1, Bottom 32, Multi-Layer 74; ids that are no pad layer are an unsupported variant', () => {
     const sides = board(pcbDoc({ pads: [1, 32, 74].map((layer, index) => ({ name: String(index + 1), layer, component: 0 })) })).pins.map(pin => pin.side);
     expect(sides).toEqual(['top', 'bottom', 'both']);
-    for (const layer of [0, 2, 31, 33, 57, 73, 75, 255]) expect(failure(() => parse(pcbDoc({ pads: [{ component: 0, layer }] })), 'UNSUPPORTED_VARIANT').message).toMatch(new RegExp(`layer id ${layer}`));
+    for (const layer of [0, 75, 82, 255]) expect(failure(() => parse(pcbDoc({ pads: [{ component: 0, layer }] })), 'UNSUPPORTED_VARIANT').message).toMatch(new RegExp(`layer id ${layer}`));
+  });
+
+  it('skips and discloses pads on inner copper layers and on layers without copper instead of refusing the board', () => {
+    // Real boards carry paste-only pads (35), pads on mechanical layers (57..72) and net ties on Mid-Layer 1 (2): none of them is drawn on the top or bottom side.
+    const inner = [2, 31, 39, 54], other = [33, 34, 35, 36, 37, 38, 55, 56, 57, 70, 72, 73];
+    const pads: Pad[] = [{ name: '1', layer: 1, net: 0, component: 0 }, ...inner.map(layer => ({ name: 'I', layer, net: 1, component: 0 })), ...other.map(layer => ({ name: 'O', layer, component: 0 })), { name: '2', layer: 32, net: 1, component: 1 }];
+    const result = board(pcbDoc({ pads }));
+    expect(result.pins.map(pin => [pin.number, pin.side, pin.net])).toEqual([['1', 'top', 'GND'], ['2', 'bottom', 'VCC']]);
+    expect(messages(result)).toEqual(expect.arrayContaining([expect.stringMatching(/4 pads on inner copper layers were not imported/), expect.stringMatching(/12 pads on layers without copper .* were not imported/)]));
+    // skipped pads do not have to carry a usable size, shape or pad mode
+    expect(board(pcbDoc({ pads: [{ name: '1', component: 0 }, { name: 'P', layer: 35, component: 0, top: [0, 0], shape: 0, mode: 7 }] })).pins).toHaveLength(1);
   });
 
   it('keeps the pad side independent of the component side', () => {
@@ -160,11 +172,23 @@ describe('parseAltium binary PcbDoc (OLE compound file)', () => {
     expect([result.components[0].side, result.pins[0].side, result.components[1].side, result.pins[1].side]).toEqual(['top', 'bottom', 'bottom', 'top']);
   });
 
-  it('component LAYER accepts TOP/BOTTOM only', () => {
+  it('component LAYER accepts TOP/BOTTOM, and sets MIDn components aside; every other layer is an unsupported variant', () => {
     expect(board(pcbDoc({ components: [{ ...COMPONENTS[0], LAYER: 'top' }, { ...COMPONENTS[1], LAYER: 'Bottom' }] })).components.map(part => part.side)).toEqual(['top', 'bottom']);
-    for (const layer of ['MULTILAYER', 'MID1', 'TOPOVERLAY', '1']) failure(() => parse(pcbDoc({ components: [{ ...COMPONENTS[0], LAYER: layer }] })), 'UNSUPPORTED_VARIANT');
+    for (const layer of ['MULTILAYER', 'TOPOVERLAY', 'MECHANICAL1', 'MID', 'MIDX', '1']) failure(() => parse(pcbDoc({ components: [{ ...COMPONENTS[0], LAYER: layer }] })), 'UNSUPPORTED_VARIANT');
     const { LAYER: _layer, ...withoutLayer } = COMPONENTS[0];
     failure(() => parse(pcbDoc({ components: [withoutLayer] })), 'INVALID_FORMAT');
+  });
+
+  it('sets inner-layer components (net ties) aside without shifting the component numbers the pads refer to', () => {
+    // Component 1 sits on Mid-Layer 1 like the net ties of real boards; pads address components by record index, so R1 must stay component 2.
+    const components = [COMPONENTS[0], { SOURCEDESIGNATOR: 'NT1', PATTERN: 'NetTie_Wide2', LAYER: 'MID1', X: '10mil', Y: '10mil', ROTATION: '270' }, COMPONENTS[1]];
+    const result = board(pcbDoc({ components, pads: [{ name: '1', layer: 1, net: 0, component: 0 }, { name: '1', layer: 2, net: 0, component: 1 }, { name: '2', layer: 2, net: 1, component: 1 }, { name: '1', layer: 32, net: 1, component: 2 }] }));
+    expect(result.components.map(part => part.ref)).toEqual(['U1', 'R1']);
+    expect(result.pins.map(pin => [pin.number, pin.net, result.components.find(part => part.id === pin.componentId)!.ref])).toEqual([['1', 'GND', 'U1'], ['1', 'VCC', 'R1']]);
+    expect(messages(result)).toContainEqual(expect.stringMatching(/1 components sit on an inner layer .* they and their 2 pads were not imported/));
+    // a pad index beyond the component records is still an error, and a board with nothing but inner components has nothing to show
+    failure(() => parse(pcbDoc({ components, pads: [{ component: 3 }] })), 'INVALID_FORMAT');
+    failure(() => parse(pcbDoc({ components: [components[1]], pads: [{ component: 0, layer: 2 }] })), 'INVALID_FORMAT');
   });
 
   it('rejects pads that reference a missing component or net instead of guessing', () => {
@@ -179,6 +203,8 @@ describe('parseAltium binary PcbDoc (OLE compound file)', () => {
   it('skips and discloses free pads (no component) and unnamed pads', () => {
     const result = board(pcbDoc({ pads: [{ name: '1', component: 0 }, { name: 'TP1', component: 0xffff, net: 0 }, { name: '', component: 0 }, { name: '', component: 0 }] }));
     expect(result.pins.map(pin => pin.number)).toEqual(['1', '#2', '#3']);
+    // the placeholder numbers are shown but are not identities: notes never key on them
+    expect(result.pins.map(pin => pin.numberGenerated)).toEqual([undefined, true, true]);
     expect(messages(result)).toEqual(expect.arrayContaining([expect.stringMatching(/1 free pads/), expect.stringMatching(/2 pads have an empty designator/)]));
     expect(result.nets).toEqual([]);
   });
@@ -205,8 +231,20 @@ describe('parseAltium binary PcbDoc (OLE compound file)', () => {
     expect(failure(() => parse(pcbDoc({ pads: [{ component: 0, mode: 3 }] })), 'UNSUPPORTED_VARIANT').message).toMatch(/pad mode 3/);
   });
 
-  it('rejects non-positive pad sizes', () => {
-    for (const top of [[0, 10 * MIL], [10 * MIL, 0], [-MIL, MIL]] as Array<[number, number]>) failure(() => parse(pcbDoc({ pads: [{ component: 0, top }] })), 'INVALID_FORMAT');
+  it('rejects negative and one-sided zero pad sizes', () => {
+    for (const top of [[0, 10 * MIL], [10 * MIL, 0], [-MIL, MIL], [MIL, -MIL], [-MIL, -MIL]] as Array<[number, number]>) failure(() => parse(pcbDoc({ pads: [{ component: 0, top, hole: 20 * MIL }] })), 'INVALID_FORMAT');
+  });
+
+  it('draws a pad without copper size as a round pad of its hole diameter, and leaves out one with neither size nor hole', () => {
+    // Real boards have plated holes whose pad size is 0 x 0 (hole 0.6 mm): the hole is their only extent, and they carry a net.
+    const result = board(pcbDoc({ pads: [{ name: '0', layer: 74, net: 1, component: 0, top: [0, 0], hole: 236_220, shape: 2 }, { name: '1', component: 0 },
+      { name: 'N', layer: 74, net: 0, component: 0, top: [0, 0], hole: 0 }, { name: 'M', layer: 74, net: 0, component: 0, top: [0, 0], hole: -5 * MIL }] }));
+    expect(result.pins.map(pin => [pin.number, pin.net, pin.shape, pin.side])).toEqual([['0', 'VCC', 'round', 'both'], ['1', '', 'rect', 'top']]);
+    const hole = 236_220 * 2.54e-6; // 23.622 mil, the 0.6 mm drill of the real boards
+    expect(result.pins[0].width).toBeCloseTo(hole, 9); expect(result.pins[0].height).toBeCloseTo(hole, 9); expect(result.pins[0].radius).toBeCloseTo(hole / 2, 9);
+    expect(messages(result)).toEqual(expect.arrayContaining([expect.stringMatching(/1 pads have no copper size, only a hole/), expect.stringMatching(/2 pads have neither a copper size nor a hole and were not imported/)]));
+    // the hole is only consulted when the copper size is missing
+    expect(board(pcbDoc({ pads: [{ component: 0, hole: 2 ** 31 - 1 }] })).pins[0].width).toBeCloseTo(MM(60), 9);
   });
 
   it('uses the Board6 outline; chords replace arcs with a disclosure; a repeated first vertex is dropped', () => {
@@ -240,6 +278,7 @@ describe('parseAltium binary PcbDoc (OLE compound file)', () => {
     const { SOURCEDESIGNATOR: _ref, ...unnamed } = COMPONENTS[0];
     const result = board(pcbDoc({ components: [unnamed, { ...COMPONENTS[1], SOURCEDESIGNATOR: 'R1' }, { ...COMPONENTS[1] }, { ...COMPONENTS[1], SOURCEDESIGNATOR: 'r1' }], pads: [{ component: 0 }] }));
     expect(result.components.map(part => part.ref)).toEqual(['#1', 'R1', 'R1', 'r1']);
+    expect(result.components.map(part => part.refGenerated)).toEqual([true, undefined, undefined, undefined]);
     expect(messages(result)).toEqual(expect.arrayContaining([expect.stringMatching(/1 components carry no designator/), expect.stringMatching(/1 component designators occur more than once \(R1\)/)]));
   });
 
@@ -420,15 +459,22 @@ describe('parseAltium binary PcbDoc (OLE compound file)', () => {
   });
 
   it('survives randomly damaged container bytes (header, FAT and directory) without hanging or throwing foreign errors', () => {
-    const valid = pcbDoc({ pads: bigPads(60) }), random = prng(0xc0ffee), started = Date.now();
-    let boards = 0, errors = 0;
+    const valid = pcbDoc({ pads: bigPads(60) }), random = prng(0xc0ffee);
+    const files: Uint8Array[] = [];
     for (let round = 0; round < 800; round++) {
       const damaged = valid.slice(), span = round % 2 ? 1536 : damaged.length;
       for (let hit = 0; hit < 1 + Math.floor(random() * 5); hit++) damaged[Math.floor(random() * span)] = random() < 0.4 ? 0xff : Math.floor(random() * 256);
+      files.push(damaged);
+    }
+    let boards = 0, errors = 0;
+    for (const damaged of files) {
       try { parse(damaged); boards++; }
       catch (caught) { expect(caught).toBeInstanceOf(BoardFormatError); expect(ALLOWED).toContain((caught as BoardFormatError).code); errors++; }
     }
-    expect(errors).toBeGreaterThan(100); expect(boards + errors).toBe(800); expect(Date.now() - started).toBeLessThan(20_000);
+    expect(errors).toBeGreaterThan(100); expect(boards + errors).toBe(800);
+    // A damaged container that sends the reader around a loop or into a huge allocation costs far more than the same file undamaged: all 800 together cost about as much as reading the valid file 800 times (0.8 times here), so one damaged file that takes
+    // a second on its own fails it.
+    expectCostAtMost('800 damaged containers', () => { for (const damaged of files) catching(() => parse(damaged))(); }, () => { for (let round = 0; round < 800; round++) parse(valid); }, 8);
   });
 
   it('turns an unexpected internal failure into a BoardFormatError', () => {
@@ -486,7 +532,8 @@ describe('parseAltium ASCII PcbDoc (|RECORD= lines)', () => {
     const base: Record<string, string> = { NAME: '1', COMPONENT: '0', NET: '0', LAYER: 'TOP', X: '0mil', Y: '0mil', XSIZE: '60mil', YSIZE: '40mil', SHAPE: 'RECTANGLE' };
     const pad = (changes: Record<string, string>) => '|RECORD=Pad' + propText({ ...base, ...changes });
     const doc = (line: string) => asciiDoc(withLine(5, line));
-    failure(() => parseText(doc(pad({ LAYER: 'MID1' }))), 'UNSUPPORTED_VARIANT');
+    failure(() => parseText(doc(pad({ LAYER: 'BANANA' }))), 'UNSUPPORTED_VARIANT');
+    failure(() => parseText(doc(pad({ LAYER: 'MID' }))), 'UNSUPPORTED_VARIANT');
     expect(failure(() => parseText(doc(pad({ COMPONENT: '9' }))), 'INVALID_FORMAT').message).toMatch(/COMPONENT index 9 is out of range \(2 records\)/);
     expect(failure(() => parseText(doc(pad({ NET: '5' }))), 'INVALID_FORMAT').message).toMatch(/NET index 5/);
     failure(() => parseText(doc(pad({ NET: '0x1' }))), 'INVALID_FORMAT');
@@ -498,6 +545,59 @@ describe('parseAltium ASCII PcbDoc (|RECORD= lines)', () => {
     expect(free.pins).toHaveLength(3); expect(messages(free)).toContainEqual(expect.stringMatching(/1 free pads/));
     expect((parseText(doc(pad({ SHAPE: 'OCTAGONAL' }))) as Board).warnings).toContainEqual({ key: 'parse.warning.approximatedPads', params: { count: 1 } });
     expect((parseText(doc(pad({ SHAPE: '1', XSIZE: '10mil', YSIZE: '10mil' }))) as Board).pins[0].shape).toBe('round');
+  });
+
+  const asciiPad = (changes: Record<string, string> = {}) => '|RECORD=Pad' + propText({ NAME: '1', COMPONENT: '0', NET: '0', LAYER: 'TOP', X: '0mil', Y: '0mil', XSIZE: '60mil', YSIZE: '40mil', SHAPE: 'RECTANGLE', ...changes });
+
+  it('sets inner-layer components aside and skips pads on inner or non-copper layers like the binary variant', () => {
+    const lines = [ASCII_LINES[0], ASCII_LINES[1], ASCII_LINES[2], ASCII_LINES[3], '|RECORD=Component|LAYER=MID1|X=10mil|Y=10mil|ROTATION=270|PATTERN=NetTie_Wide2|SOURCEDESIGNATOR=NT1', ASCII_LINES[4],
+      asciiPad(), asciiPad({ COMPONENT: '1', LAYER: 'MID1', NET: '1' }), asciiPad({ NAME: '2', COMPONENT: '1', LAYER: 'MID1' }), asciiPad({ NAME: '3', LAYER: 'MID2' }),
+      // unusable sizes and shapes do not matter on layers that are not drawn
+      ...['MECHANICAL14', 'TOPOVERLAY', 'BOTTOMOVERLAY', 'TOPPASTE', 'BOTTOMPASTE', 'TOPSOLDER', 'BOTTOMSOLDER', 'DRILLGUIDE', 'KEEPOUT', 'DRILLDRAWING'].map(LAYER => asciiPad({ NAME: LAYER, LAYER, XSIZE: '0mil', SHAPE: 'STAR' })),
+      asciiPad({ COMPONENT: '2', LAYER: 'BOTTOM', NET: '1' })];
+    const result = parseText(lines.join('\r\n') + '\r\n') as Board;
+    expect(result.components.map(part => part.ref)).toEqual(['U1', 'R1']);
+    expect(result.pins.map(pin => [pin.number, pin.net, pin.side, result.components.find(part => part.id === pin.componentId)!.ref])).toEqual([['1', 'GND', 'top', 'U1'], ['1', 'VCC', 'bottom', 'R1']]);
+    expect(messages(result)).toEqual(expect.arrayContaining([expect.stringMatching(/1 components sit on an inner layer .* they and their 2 pads were not imported/), expect.stringMatching(/1 pads on inner copper layers were not imported/),
+      expect.stringMatching(/10 pads on layers without copper .* were not imported/)]));
+  });
+
+  it('draws a pad without copper size from its HOLESIZE and leaves out one with neither', () => {
+    const pads = [asciiPad({ NAME: 'H', LAYER: 'MULTILAYER', XSIZE: '0mil', YSIZE: '0mil', HOLESIZE: '24mil', SHAPE: 'RECTANGLE' }), asciiPad({ NAME: 'N', XSIZE: '0mil', YSIZE: '0mil' }),
+      asciiPad({ NAME: 'M', XSIZE: '0mil', YSIZE: '0mil', HOLESIZE: '0mil' }), asciiPad({ NAME: 'P', HOLESIZE: 'abc' })];
+    const result = parseText(asciiDoc(lines => [...lines.slice(0, 5), ...pads])) as Board;
+    expect(result.pins.map(pin => [pin.number, pin.net, pin.shape, pin.side])).toEqual([['H', 'GND', 'round', 'both'], ['P', 'GND', 'rect', 'top']]);
+    expect(result.pins[0].width).toBeCloseTo(MM(24), 9); expect(result.pins[0].height).toBeCloseTo(MM(24), 9);
+    expect(messages(result)).toEqual(expect.arrayContaining([expect.stringMatching(/1 pads have no copper size, only a hole/), expect.stringMatching(/2 pads have neither a copper size nor a hole/)]));
+    failure(() => parseText(asciiDoc(lines => [...lines.slice(0, 5), asciiPad({ XSIZE: '0mil', YSIZE: '0mil', HOLESIZE: '1e300mm' })])), 'INVALID_FORMAT');
+    failure(() => parseText(asciiDoc(lines => [...lines.slice(0, 5), asciiPad({ XSIZE: '0mil', YSIZE: '0mil', HOLESIZE: '24' })])), 'UNSUPPORTED_VARIANT');
+    failure(() => parseText(asciiDoc(lines => [...lines.slice(0, 5), asciiPad({ XSIZE: '-1mil', YSIZE: '1mil', HOLESIZE: '24mil' })])), 'INVALID_FORMAT');
+  });
+
+  it('reads exports whose Text values run over several lines', () => {
+    // Real exports: a Text record whose TEXT value contains line breaks (a stack-up note on a mechanical layer).
+    const text = ['|RECORD=Text|LAYER=MECHANICAL1|X=1mil|Y=1mil|TEXT=Top layer copper foil thickness: 17.5 um', ' Track width = 0.254 mm (10 mils)', '       ', 'Approximate impedance = 49.99 Ohms|WIDTH=11.811mil|FONTNAME=Arial'];
+    const plain = parseText(asciiDoc()) as Board, result = parseText([...ASCII_LINES.slice(0, 9), ...text, ASCII_LINES[9]].join('\r\n') + '\r\n') as Board;
+    expect([result.components, result.pins, result.nets, result.outline]).toEqual([plain.components, plain.pins, plain.nets, plain.outline]);
+    // the continuation belongs to the Text record only: after the next record, and after every other kind, a stray line is an error again
+    const after = (...more: string[]) => [...ASCII_LINES.slice(0, 9), ...text, ASCII_LINES[9], ...more].join('\n');
+    expect(failure(() => parseText(after('stray')), 'INVALID_FORMAT').message).toMatch(/line 15 is not a \|RECORD= record/);
+    failure(() => parseText([ASCII_LINES[0], 'stray', ...ASCII_LINES.slice(1)].join('\n')), 'INVALID_FORMAT');
+    // the line limit still holds for continuation lines, and a flood of them costs nothing but time
+    expect(failure(() => parseText([...ASCII_LINES.slice(0, 9), text[0], 'a'.repeat((4 << 20) + 1)].join('\n')), 'LIMIT_EXCEEDED').message).toMatch(/line 11 is longer/);
+    expect((parseText([...ASCII_LINES.slice(0, 9), text[0], ...Array.from({ length: 300_000 }, (_, index) => `continuation ${index}`), ASCII_LINES[9]].join('\n')) as Board).pins).toHaveLength(4);
+  });
+
+  it('reads exports whose Region and ComponentBody records have no leading bar', () => {
+    // Real exports write these kinds as "RECORD=Region|..." (the first bar is missing); they are counted like any record but not read.
+    const plain = parseText(asciiDoc()) as Board;
+    const result = parseText([...ASCII_LINES.slice(0, 9), 'RECORD=Region|NET=0|LAYER=TOP|KIND=0', 'record=ComponentBody|COMPONENT=0|LAYER=MECHANICAL1', ASCII_LINES[9]].join('\n')) as Board;
+    expect([result.components, result.pins, result.nets]).toEqual([plain.components, plain.pins, plain.nets]);
+    // a bar-less Component is read like a barred one, and the strictness for stray lines is unchanged
+    expect((parseText(asciiDoc(withLine(3, 'RECORD=Component|LAYER=TOP|X=1000mil|Y=2000mil|ROTATION=90.000|PATTERN=QFN16|SOURCEDESIGNATOR=U1'))) as Board).components[0].ref).toBe('U1');
+    failure(() => parseText([...ASCII_LINES.slice(0, 9), 'RECORD=Region|NET=0', 'stray'].join('\n')), 'INVALID_FORMAT');
+    failure(() => parseText([...ASCII_LINES.slice(0, 9), 'RECORDS=Region|NET=0'].join('\n')), 'INVALID_FORMAT');
+    expect(failure(() => parseText(asciiDoc(lines => [...lines, '|NAME=x|RECORD=Pad'])), 'INVALID_FORMAT').message).toMatch(/not a \|RECORD= record/);
   });
 
   it('requires exactly one Board record of KIND=Protel_Advanced_PCB', () => {

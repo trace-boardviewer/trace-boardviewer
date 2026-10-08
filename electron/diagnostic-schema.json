@@ -1,0 +1,344 @@
+{
+  "$id": "trace-format-diagnostic/1",
+  "$comment": [
+    "Closed whitelist of the content-free format diagnostic report (docs/DIAGNOSTIC-REPORT.md). Anything not listed here is excluded:",
+    "objects accept exactly their properties, enumerations are closed, numbers have ranges and rounding rules. Interpreted by",
+    "electron/diagnostics.cjs (the one validator, shared by the main process, the tests and owner-side scripts).",
+    "Node types: object (properties, required; closed), enum (values or a named list in enums), const, boolean, integer (min, max),",
+    "number (min, max, decimals), sig2 (a non-negative integer rounded to two significant digits, max), sig2real (a non-negative number",
+    "rounded to two significant digits, max), share (0..1, two decimals), string (pattern, maxLength), array (items, minItems, maxItems),",
+    "tuple (items), record (keys: enum or pattern; values; maxEntries), ref (a node of definitions). Any node may be nullable.",
+    "level 2 marks a property that only a level-2 report may carry. Adding a field means adding it here AND to",
+    "src/lib/diagnostics/schema.golden.txt; the golden test fails otherwise."
+  ],
+  "rules": [
+    "privacy.level is 1: no property marked level 2 is present.",
+    "privacy.dedupe is true exactly when dedupe is a string.",
+    "detection.outcome is opened exactly when result and plausibility are objects; unrecognized exactly when detection.selected is null and detection.ambiguous is false; ambiguous implies failed."
+  ],
+  "maxBytes": 262144,
+  "enums": {
+    "os": ["win32", "darwin", "linux", "other"],
+    "extension": [
+      "none", "other",
+      ".cad", ".gcd", ".brd", ".bdv", ".bv", ".bvr", ".fz", ".cae", ".asc", ".pcb", ".cst", ".xzz", ".tvw", ".kicad_pcb", ".pcbdoc", ".cmpcbdoc",
+      ".cspcbdoc", ".neu", ".gbr", ".tgz", ".xml", ".cvg", ".obdata", ".bom", ".txt", ".csv", ".json", ".zip", ".gz", ".tar", ".7z", ".rar",
+      ".ipc", ".d356", ".net", ".hyp", ".fab", ".dsn", ".ses", ".epro", ".eprj", ".epcb", ".sch", ".schdoc", ".pcblib", ".schlib", ".kicad_sch",
+      ".kicad_pro", ".drl", ".xln", ".gtl", ".gbl", ".pdf", ".mdb", ".accdb", ".db", ".sqlite", ".dat", ".bin", ".boardview", ".asm", ".lst"
+    ],
+    "container": ["none", "zip", "gzip", "tar", "cfb", "sqlite", "jet", "zlib"],
+    "encoding": ["binary", "ascii", "utf8", "utf8-bom", "utf16le-bom", "utf16be-bom", "windows-1252"],
+    "lineEndings": ["none", "lf", "crlf", "cr", "mixed", "n/a"],
+    "magic": [
+      "none", "gzip", "zip", "ole-cfb", "sqlite", "jet-db", "ace-db", "zlib", "tar", "7z", "rar", "pdf", "png", "jpeg", "xml-prolog",
+      "utf8-bom", "utf16le-bom", "utf16be-bom", "allegro-16.0", "allegro-16.2", "allegro-16.4", "allegro-16.5", "allegro-16.6",
+      "allegro-17.2", "allegro-17.4", "allegro-17.5", "allegro-18", "xzzpcb", "xzzpcb-xor", "brd-encoded", "bdv-encoded", "cst-cdev"
+    ],
+    "formatId": [
+      "allegro-brd", "altium", "asc", "bdv", "brd", "brd2", "bvr", "bvr1", "cst", "eagle", "easyeda-pro", "easyeda-std", "fabmaster", "fz", "gencad",
+      "gerber", "hyperlynx", "ipc2581", "ipc356", "kicad", "mentor-neutral", "odbpp", "pinlist", "samsung-cad", "tvw", "xzz", "zip", "other"
+    ],
+    "sniff": ["none", "possible", "likely", "certain"],
+    "hookId": [
+      "gencad", "brd", "bdv", "bvr", "asc", "fz", "xzz", "cst", "kicad", "eagle", "altium", "samsung-cad", "generic-text", "generic-binary"
+    ],
+    "detectionResult": ["declined", "claimed", "error", "skipped"],
+    "errorCode": [
+      "INVALID_FORMAT", "UNRECOGNIZED", "LIMIT_EXCEEDED", "KEY_REQUIRED", "INVALID_KEY", "COMPANIONS_REQUIRED", "UNSUPPORTED_VARIANT",
+      "WRONG_KIND", "AMBIGUOUS_FORMAT", "INTERNAL"
+    ],
+    "stage": ["header", "container", "decrypt", "decompress", "records", "build"],
+    "keyKind": ["fz", "xzz"],
+    "outcome": ["opened", "failed", "unrecognized"],
+    "structureKind": ["text", "binary"],
+    "variant": [
+      "gencad-1.4", "gencad-other", "kicad-footprint", "kicad-module", "eagle-board", "eagle-schematic", "eagle-library", "altium-cfb",
+      "altium-cfb-v4", "altium-ascii", "altium-schematic", "xzz-plain", "xzz-xor", "cst-int16", "samsung-cad", "bdv-plain", "bdv-encoded",
+      "bvr1", "bvr3", "bvr-other", "brd-landrex", "brd-landrex-encoded", "brd2", "asc-trio", "fz-text", "fz-zlib", "fz-rc6", "cae-text",
+      "cae-zlib", "cae-rc6"
+    ],
+    "unitKind": ["mm", "inch", "mil", "thou", "user", "mil/10000", "per-value", "unknown"],
+    "outline": ["present", "estimated", "absent"],
+    "unitsCandidate": ["x1", "x25.4", "x0.0254"],
+    "asReadUnits": ["x1", "x25.4", "x0.0254", "other", "unknown"],
+    "padAngleCandidate": ["absolute", "relative", "as-read"],
+    "asReadPadAngle": ["absolute", "relative", "none", "unknown"],
+    "bottomCandidate": ["as-read", "mirrored"],
+    "pitch": ["0.4", "0.5", "0.65", "0.8", "1.0", "1.27", "2.54", "below", "between", "above", "none"],
+    "parity": ["valid", "invalid", "n/a"],
+    "headerCode": [
+      "version", "unitCode", "cfbMajorVersion", "cfbSectorShift", "obfuscated", "encrypted", "containerLayout", "contentLog2", "descriptionLog2",
+      "declaredWidthLog2", "declaredHeightLog2"
+    ],
+    "headerCount": [
+      "declaredOutlinePoints", "declaredParts", "declaredPins", "declaredNets", "declaredNails", "blocks", "netRecords", "streams", "otherStreams",
+      "sections", "otherSections", "companionFiles"
+    ],
+    "keyword": [
+      "(none)",
+      "$HEADER", "$ENDHEADER", "$BOARD", "$ENDBOARD", "$PADS", "$ENDPADS", "$PADSTACKS", "$ENDPADSTACKS", "$SHAPES", "$ENDSHAPES",
+      "$COMPONENTS", "$ENDCOMPONENTS", "$DEVICES", "$ENDDEVICES", "$SIGNALS", "$ENDSIGNALS", "$TRACKS", "$ENDTRACKS", "$LAYERS", "$ENDLAYERS",
+      "$ROUTES", "$ENDROUTES", "$MECH", "$ENDMECH", "$TESTPINS", "$ENDTESTPINS", "$POWERPINS", "$ENDPOWERPINS", "$PSEUDOS", "$ENDPSEUDOS",
+      "$CHANGES", "$ENDCHANGES", "$ARTWORKS", "$ENDARTWORKS", "$FIDUCIALS", "$ENDFIDUCIALS",
+      "GENCAD", "USER", "DRAWING", "REVISION", "UNITS", "ORIGIN", "INTERTRACK", "LINE", "ARC", "CIRCLE", "RECTANGLE", "FILLED", "PAD",
+      "PADSTACK", "SHAPE", "INSERT", "HEIGHT", "PIN", "FIDUCIAL", "COMPONENT", "DEVICE", "PLACE", "LAYER", "ROTATION", "MIRROR", "FLIP",
+      "PART", "TYPE", "STYLE", "PACKAGE", "VALUE", "TOL", "NTOL", "PTOL", "VOLTS", "PINCOUNT", "PINDESC", "PINFUNCT", "PULL", "SIGNAL",
+      "NODE", "TRACK", "ROUTE", "VIA", "TESTPAD", "TESTPIN", "ATTRIBUTE", "ARTWORK", "TEXT", "SHEET", "PLANE", "POLYGON", "CUTOUT", "MASK",
+      "LAYERSET", "DRILL", "WIDTH", "SHAPEMODE",
+      "str_length:", "var_data:", "Format:", "format:", "Parts:", "Pins1:", "Pins:", "Pins2:", "Nails:",
+      "BRDOUT:", "NETS:", "PARTS:", "PINS:", "NAILS:",
+      "<<format.asc>>", "<<pins.asc>>", "<<nails.asc>>", "<<Layout>>", "<<Pin>>", "<<Nail>>", "<<other>>", "Part", "format.asc", "pins.asc",
+      "nails.asc",
+      "BVRAW_FORMAT_1", "BVRAW_FORMAT_3", "PART_NAME", "PART_SIDE", "PART_ORIGIN", "PART_MOUNT", "PART_END", "PART_OUTLINE_RELATIVE",
+      "PIN_ID", "PIN_NUMBER", "PIN_NAME", "PIN_SIDE", "PIN_ORIGIN", "PIN_RADIUS", "PIN_NET", "PIN_TYPE", "PIN_COMMENT", "PIN_OUTLINE_RELATIVE",
+      "PIN_END", "OUTLINE_POINTS", "OUTLINE_SEGMENTED",
+      "###Panel Added", "COMP", "C_PIN", "NET", "N_VIA",
+      "UNIT:", "A!", "S!", "A!REFDES", "A!NET_NAME", "A!TESTVIA", "A!GRAPHIC_DATA_NAME", "A!CLASS", "A!LOGOInfo", "A!UnDrawSym", "A!other",
+      "(kicad_pcb", "(version", "(generator", "(generator_version", "(general", "(paper", "(title_block", "(layers", "(setup", "(net",
+      "(net_class", "(footprint", "(module", "(gr_line", "(gr_arc", "(gr_circle", "(gr_rect", "(gr_poly", "(gr_curve", "(gr_text",
+      "(gr_text_box", "(dimension", "(segment", "(arc", "(via", "(zone", "(target", "(group", "(image", "(embedded_fonts", "(embedded_files",
+      "(property", "(generated", "(pad", "(fp_line", "(fp_arc", "(fp_circle", "(fp_rect", "(fp_poly", "(fp_curve", "(fp_text", "(fp_text_box",
+      "(model", "(attr",
+      "<eagle>", "<drawing>", "<settings>", "<setting>", "<grid>", "<layers>", "<layer>", "<board>", "<plain>", "<libraries>", "<library>",
+      "<packages>", "<package>", "<smd>", "<pad>", "<wire>", "<rectangle>", "<circle>", "<polygon>", "<vertex>", "<text>", "<hole>",
+      "<attributes>", "<attribute>", "<elements>", "<element>", "<signals>", "<signal>", "<contactref>", "<via>", "<description>",
+      "<schematic>", "<designrules>", "<param>", "<autorouter>", "<pass>", "<classes>", "<class>", "<variantdefs>", "<variantdef>",
+      "<dimension>", "<frame>", "<compatibility>", "<note>", "<packages3d>", "<package3d>", "<approved>",
+      "/Board6", "/Components6", "/Nets6", "/Pads6", "/Tracks6", "/Vias6", "/Arcs6", "/Fills6", "/Regions6", "/ShapeBasedRegions6", "/Texts6",
+      "/Polygons6", "/Classes6", "/Rules6", "/Dimensions6", "/ComponentBodies6", "/ShapeBasedComponentBodies6", "/Models", "/ModelsNoEmbed",
+      "/FileHeader", "/FileVersionInfo", "/Library", "/WideStrings6", "/Connections6", "/DifferentialPairs6", "/Embeddeds6", "/EmbeddedBoards6",
+      "/EmbeddedFonts6", "/ExtendedPrimitiveInformation", "/FromTos6", "/Coordinates6", "/PadViaLibrary", "/Textures", "/BoardRegions",
+      "/SmartUnions", "/Advanced Placer Options6", "/Design Rule Checker Options6", "/Pin Swap Options6", "/Header", "/Data",
+      "RECORD=Board", "RECORD=Component", "RECORD=Net", "RECORD=Pad", "RECORD=Track", "RECORD=Via", "RECORD=Arc", "RECORD=Fill",
+      "RECORD=Region", "RECORD=Text", "RECORD=Polygon", "RECORD=Class", "RECORD=Rule", "RECORD=Dimension", "RECORD=ComponentBody",
+      "RECORD=Model", "RECORD=other",
+      "CDev", "CPad"
+    ]
+  },
+  "definitions": {
+    "shape": { "type": "string", "pattern": "^[A9 !-/:-@\\[-`{-~]{1,120}$", "maxLength": 120 },
+    "fieldStats": {
+      "type": "object",
+      "properties": {
+        "min": { "type": "integer", "min": 0, "max": 1000000 },
+        "median": { "type": "number", "min": 0, "max": 1000000, "decimals": 1 },
+        "max": { "type": "integer", "min": 0, "max": 1000000 }
+      },
+      "required": ["min", "median", "max"]
+    }
+  },
+  "root": {
+    "type": "object",
+    "required": ["schema", "app", "privacy", "input", "detection", "structure", "result", "plausibility", "keys", "performance", "dedupe"],
+    "properties": {
+      "schema": { "type": "const", "value": "trace-format-diagnostic/1" },
+      "app": {
+        "type": "object",
+        "required": ["version", "adapterSet", "os"],
+        "properties": {
+          "version": { "type": "string", "pattern": "^[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}$", "maxLength": 11 },
+          "adapterSet": { "type": "string", "pattern": "^[0-9a-f]{8}$", "maxLength": 8 },
+          "os": { "type": "enum", "values": "os" }
+        }
+      },
+      "privacy": {
+        "type": "object",
+        "required": ["redaction", "level", "reviewedByUser", "dedupe"],
+        "properties": {
+          "redaction": { "type": "const", "value": 1 },
+          "level": { "type": "integer", "min": 1, "max": 2 },
+          "reviewedByUser": { "type": "boolean" },
+          "dedupe": { "type": "boolean" }
+        }
+      },
+      "input": {
+        "type": "object",
+        "required": ["extension", "sizeLog2", "companions", "container", "textLike", "encoding", "lineEndings", "entropy", "magic"],
+        "properties": {
+          "extension": { "type": "enum", "values": "extension" },
+          "sizeLog2": { "type": "integer", "min": 0, "max": 27 },
+          "companions": {
+            "type": "object",
+            "required": ["count", "extensions"],
+            "properties": {
+              "count": { "type": "integer", "min": 0, "max": 8 },
+              "extensions": { "type": "array", "items": { "type": "enum", "values": "extension" }, "maxItems": 8 }
+            }
+          },
+          "container": { "type": "enum", "values": "container" },
+          "textLike": { "type": "boolean" },
+          "encoding": { "type": "enum", "values": "encoding" },
+          "lineEndings": { "type": "enum", "values": "lineEndings" },
+          "entropy": { "type": "array", "items": { "type": "number", "min": 0, "max": 8, "decimals": 1 }, "minItems": 16, "maxItems": 16 },
+          "magic": { "type": "enum", "values": "magic" }
+        }
+      },
+      "detection": {
+        "type": "object",
+        "required": ["outcome", "selected", "format", "ambiguous", "adapters"],
+        "properties": {
+          "outcome": { "type": "enum", "values": "outcome" },
+          "selected": { "type": "enum", "values": "formatId", "nullable": true },
+          "format": { "type": "enum", "values": "formatId", "nullable": true },
+          "ambiguous": { "type": "boolean" },
+          "adapters": {
+            "type": "array",
+            "maxItems": 48,
+            "items": {
+              "type": "object",
+              "required": ["id", "sniff", "result", "code", "stage", "format", "keyKind"],
+              "properties": {
+                "id": { "type": "enum", "values": "formatId" },
+                "sniff": { "type": "enum", "values": "sniff" },
+                "result": { "type": "enum", "values": "detectionResult" },
+                "code": { "type": "enum", "values": "errorCode", "nullable": true },
+                "stage": { "type": "enum", "values": "stage", "nullable": true },
+                "format": { "type": "enum", "values": "formatId", "nullable": true },
+                "keyKind": { "type": "enum", "values": "keyKind", "nullable": true }
+              }
+            }
+          }
+        }
+      },
+      "structure": {
+        "type": "object",
+        "nullable": true,
+        "required": ["hook", "kind", "variant", "headerOk", "linesLog2", "keywords", "fields", "numbers", "sections", "header", "blocks"],
+        "properties": {
+          "hook": { "type": "enum", "values": "hookId" },
+          "kind": { "type": "enum", "values": "structureKind" },
+          "variant": { "type": "enum", "values": "variant", "nullable": true },
+          "headerOk": { "type": "boolean" },
+          "linesLog2": { "type": "integer", "min": 0, "max": 27, "nullable": true },
+          "keywords": { "type": "record", "keys": { "enum": "keyword" }, "values": { "type": "sig2", "max": 100000000 }, "maxEntries": 400 },
+          "fields": { "type": "record", "keys": { "enum": "keyword" }, "values": { "ref": "fieldStats" }, "maxEntries": 400 },
+          "numbers": {
+            "type": "object",
+            "nullable": true,
+            "required": ["count", "magnitude", "decimals"],
+            "properties": {
+              "count": { "type": "sig2", "max": 100000000 },
+              "magnitude": { "type": "record", "keys": { "pattern": "^(?:zero|-?(?:[0-9]|1[0-5]))$" }, "values": { "type": "sig2", "max": 100000000 }, "maxEntries": 32 },
+              "decimals": { "type": "record", "keys": { "pattern": "^(?:[0-9]|10\\+)$" }, "values": { "type": "sig2", "max": 100000000 }, "maxEntries": 11 }
+            }
+          },
+          "sections": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "type": "object",
+              "required": ["name", "records"],
+              "properties": {
+                "name": { "type": "enum", "values": "keyword" },
+                "records": { "type": "sig2", "max": 100000000 },
+                "distinctShapes": { "type": "sig2", "max": 100000000, "level": 2 },
+                "shapes": {
+                  "type": "array",
+                  "level": 2,
+                  "maxItems": 32,
+                  "items": {
+                    "type": "object",
+                    "required": ["shape", "count"],
+                    "properties": {
+                      "shape": { "ref": "shape" },
+                      "count": { "type": "integer", "min": 1, "max": 32 }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "header": {
+            "type": "object",
+            "required": ["codes", "counts"],
+            "properties": {
+              "codes": { "type": "record", "keys": { "enum": "headerCode" }, "values": { "type": "integer", "min": 0, "max": 4294967295 }, "maxEntries": 16 },
+              "counts": { "type": "record", "keys": { "enum": "headerCount" }, "values": { "type": "sig2", "max": 100000000 }, "maxEntries": 16 }
+            }
+          },
+          "blocks": {
+            "type": "object",
+            "nullable": true,
+            "required": ["tagBits", "tags", "lengths"],
+            "properties": {
+              "tagBits": { "type": "integer", "min": 1, "max": 32 },
+              "tags": { "type": "record", "keys": { "pattern": "^(?:0|[1-9][0-9]{0,4})$" }, "values": { "type": "sig2", "max": 100000000 }, "maxEntries": 256 },
+              "lengths": { "type": "record", "keys": { "pattern": "^(?:[0-9]|[12][0-9]|3[0-2])$" }, "values": { "type": "sig2", "max": 100000000 }, "maxEntries": 33 },
+              "sequence": {
+                "type": "array",
+                "level": 2,
+                "maxItems": 256,
+                "items": { "type": "tuple", "items": [{ "type": "integer", "min": 0, "max": 65535 }, { "type": "integer", "min": 0, "max": 4294967295 }] }
+              }
+            }
+          }
+        }
+      },
+      "result": {
+        "type": "object",
+        "nullable": true,
+        "required": ["parts", "pins", "nets", "sides", "unitKind", "outline", "pinsWithoutNet", "placeholderNets", "padSizeKnown"],
+        "properties": {
+          "parts": { "type": "sig2", "max": 100000000 },
+          "pins": { "type": "sig2", "max": 100000000 },
+          "nets": { "type": "sig2", "max": 100000000 },
+          "sides": {
+            "type": "object",
+            "required": ["top", "bottom", "both"],
+            "properties": { "top": { "type": "share" }, "bottom": { "type": "share" }, "both": { "type": "share" } }
+          },
+          "unitKind": { "type": "enum", "values": "unitKind" },
+          "outline": { "type": "enum", "values": "outline" },
+          "pinsWithoutNet": { "type": "share" },
+          "placeholderNets": { "type": "share" },
+          "padSizeKnown": { "type": "share" }
+        }
+      },
+      "plausibility": {
+        "type": "object",
+        "nullable": true,
+        "required": ["asReadUnits", "asReadPadAngle", "pinDensityTopBottom", "limited", "interpretations"],
+        "properties": {
+          "asReadUnits": { "type": "enum", "values": "asReadUnits" },
+          "asReadPadAngle": { "type": "enum", "values": "asReadPadAngle" },
+          "pinDensityTopBottom": { "type": "sig2real", "max": 1000000, "nullable": true },
+          "limited": { "type": "boolean" },
+          "interpretations": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {
+              "type": "object",
+              "required": ["units", "padAngle", "bottom", "asRead", "pinsInsideOutline", "overlappingPadPairs", "medianPitch"],
+              "properties": {
+                "units": { "type": "enum", "values": "unitsCandidate" },
+                "padAngle": { "type": "enum", "values": "padAngleCandidate" },
+                "bottom": { "type": "enum", "values": "bottomCandidate" },
+                "asRead": { "type": "boolean" },
+                "pinsInsideOutline": { "type": "share", "nullable": true },
+                "overlappingPadPairs": { "type": "sig2", "max": 100000000, "nullable": true },
+                "medianPitch": { "type": "enum", "values": "pitch" }
+              }
+            }
+          }
+        }
+      },
+      "keys": {
+        "type": "object",
+        "required": ["supplied", "parity"],
+        "properties": {
+          "supplied": { "type": "boolean" },
+          "parity": { "type": "enum", "values": "parity" }
+        }
+      },
+      "performance": {
+        "type": "object",
+        "required": ["parseMs", "peakHeapLog2"],
+        "properties": {
+          "parseMs": { "type": "sig2", "max": 100000000 },
+          "peakHeapLog2": { "type": "integer", "min": 0, "max": 40, "nullable": true }
+        }
+      },
+      "dedupe": { "type": "string", "pattern": "^[0-9a-f]{16}$", "maxLength": 16, "nullable": true }
+    }
+  }
+}

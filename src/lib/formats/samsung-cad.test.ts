@@ -22,7 +22,7 @@ function thrown(data: string | Uint8Array): BoardFormatError {
 const notes = (board: Board) => board.warnings.filter(issue => issue.key === 'parse.warning.formatNote').map(issue => String(issue.params?.message));
 const pinRows = (board: Board) => board.pins.map(pin => [board.components.find(c => c.id === pin.componentId)!.ref, pin.number, pin.x, pin.y, pin.net, pin.side] as const);
 
-const UNITS_NOTE = 'Samsung CAD: the format is not documented; coordinates are read as inches, like OpenBoardView, and no vendor file was tested.';
+const UNITS_NOTE = 'Samsung CAD: the format is not documented; coordinates are read as inches, like OpenBoardView.';
 const SAMPLE = [
   '###Panel Added: synthetic sample',
   'COMP  U1   PN-100  0  0  1.000  2.000  1  0',
@@ -45,20 +45,20 @@ describe('Samsung CAD (OpenBoardView CADFile layout)', () => {
     const board = must(text(SAMPLE));
     expect(board.format).toBe('Samsung CAD');
     expect(board.name).toBe('panel');
-    expect(board.components.map(c => [c.ref, c.side, c.pinIds.length])).toEqual([['U1', 'top', 2], ['R1', 'bottom', 2], ['J-1', 'top', 2]]);
+    expect(board.components.map(c => [c.ref, c.side, c.pinIds.length])).toEqual([['U1', 'top', 2], ['R1', 'bottom', 2], ['J-1', 'top', 2], ['TP:VIA:1', 'top', 1], ['TP:VIA:2', 'bottom', 1]]);
     expect(pinRows(board)).toEqual([
       ['U1', '1', inch(1), inch(2), 'VCC', 'top'], ['U1', '2', inch(1.1), inch(2), 'GND', 'top'],
       ['R1', '1', inch(3), -inch(2), 'VCC', 'bottom'], ['R1', '2', inch(3.1), -inch(2), '', 'bottom'],
       ['J-1', '3', inch(2), inch(0.25), 'GND', 'top'], ['J-1', '4', inch(2.1), inch(0.25), '', 'top'],
+      ['TP:VIA:1', 'VIA:1', inch(1.25), inch(2.25), 'VCC', 'top'], ['TP:VIA:2', 'VIA:2', -inch(1.25), inch(2.25), 'VCC', 'bottom'],
     ]);
-    expect(board.nets.map(net => [net.name, net.pinIds.length])).toEqual([['VCC', 2], ['GND', 2]]);
+    expect(board.nets.map(net => [net.name, net.pinIds.length])).toEqual([['VCC', 4], ['GND', 2]]);
     expect(board.pins.every(pin => pin.radius === 0)).toBe(true);
     expect(board.warnings).toContainEqual({ key: 'parse.warning.missingBoardOutline' });
     expect(notes(board)).toEqual([
       '1 pin marked UNCONNECTED by the exporter is shown without a net.',
       '1 component without pins was omitted because the file gives no position for it.',
       UNITS_NOTE,
-      '2 N_VIA records are not shown: test vias carry no component or pin.',
     ]);
   });
 
@@ -68,7 +68,7 @@ describe('Samsung CAD (OpenBoardView CADFile layout)', () => {
     expect(must(text(SAMPLE.map(row => row + '   '), '\r\n\r\n'))).toEqual(reference);
     expect(must('﻿' + text(SAMPLE))).toEqual(reference);
     const latin1 = Uint8Array.from([...bytes(text(SAMPLE.slice(0, 13))), ...bytes('C_PIN  J-1-5   2.200   0.250  0  0  0  X  /N'), 0xb5, 0xa9, 10]);
-    expect(must(latin1).pins.at(-1)!.net).toBe('Nµ©');
+    expect(must(latin1).pins.find(pin => pin.number === '5')!.net).toBe('Nµ©');
   });
 
   it('only removes a LEADING slash from a net name (OpenBoardView drops the first character of any name containing one)', () => {
@@ -80,6 +80,8 @@ describe('Samsung CAD (OpenBoardView CADFile layout)', () => {
     const board = must(text(['###Panel Added', 'COMP A 1 0 0 0 0 1 0', 'COMP A-B 1 0 0 0 0 2 0', 'C_PIN A-B-7 1 1 0 0 0 X N1', 'C_PIN A-1 2 1 0 0 0 X N1', 'C_PIN A 3 1 0 0 0 X N2']));
     expect(board.components.map(c => [c.ref, c.pinIds.length])).toEqual([['A', 2], ['A-B', 1]]);
     expect(board.pins.map(pin => [pin.componentId === board.components[0].id ? 'A' : 'A-B', pin.number])).toEqual([['A', '1'], ['A', '2'], ['A-B', '7']]);
+    // the pin that named its number keeps it; the one that named only the component is numbered by position, which is a placeholder
+    expect(board.pins.map(pin => pin.numberGenerated)).toEqual([undefined, true, undefined]);
   });
 
   it('keeps repeated component names as separate components and binds later pins to the latest one, like the reference reader', () => {
@@ -130,7 +132,7 @@ describe('Samsung CAD (OpenBoardView CADFile layout)', () => {
   it('is routed by content: GenCAD .cad files stay GenCAD, a Samsung CAD file opens through the dispatcher whatever its extension', () => {
     const viaDispatcher = parseBoard({ name: 'MAIN.CAD', data: bytes(text(SAMPLE)) });
     expect(viaDispatcher.format).toBe('Samsung CAD');
-    expect(parseBoard({ name: 'weird.txt', data: bytes(text(SAMPLE)) }).components).toHaveLength(3);
+    expect(parseBoard({ name: 'weird.txt', data: bytes(text(SAMPLE)) }).components).toHaveLength(5);
     const gencad = '$HEADER\nGENCAD 1.4\nUNITS MM\n$ENDHEADER\n$BOARD\nRECTANGLE 0 0 10 10\n$ENDBOARD\n$PADS\nPAD P ROUND -1\nCIRCLE 0 0 0.2\n$ENDPADS\n$PADSTACKS\nPADSTACK PS 0\nPAD P TOP 0 0\n$ENDPADSTACKS\n$SHAPES\nSHAPE S\nPIN 1 PS 0 0 TOP 0 0\n$ENDSHAPES\n$COMPONENTS\nCOMPONENT R1\nPLACE 1 1\nLAYER TOP\nROTATION 0\nSHAPE S\n$ENDCOMPONENTS\n$SIGNALS\nSIGNAL N1\nNODE R1 1\n$ENDSIGNALS\n$TEXT\n###Panel Added\nC_PIN\n$ENDTEXT\n';
     expect(parseBoard({ name: 'board.cad', data: bytes(gencad) }).format).toBe('GENCAD 1.4');
   });
@@ -148,5 +150,38 @@ describe('Samsung CAD (OpenBoardView CADFile layout)', () => {
   it('bounds resources: components, pins', () => {
     const many = ['###Panel Added C_PIN', ...Array.from({ length: 250_001 }, (_, index) => `COMP R${index} 1 0 0 0 0 1 0`)].join('\n');
     expect(thrown(many)).toMatchObject({ code: 'LIMIT_EXCEEDED' });
+  });
+});
+
+describe('Samsung CAD test vias (original synthetic regressions)', () => {
+  const fixture = (rows: string[]) => text(['###Panel Added', 'COMP U1 PN 0 0 0 0 1 0', 'C_PIN U1-1 0.1 0.2 0 0 0 X N1', ...rows]);
+  it('binds vias to the preceding NET, keeps both sides and marks ordinal labels as generated', () => {
+    const board = must(fixture(['NET /N1', 'N_VIA 0.3 0.4 X 1 0', 'NET /N2', 'N_VIA 0.5 -0.6 X 2 0', 'NET UNCONNECTED12', 'N_VIA 0.7 0.8 X 1 0']));
+    expect(board.pins.slice(1).map(pin => [pin.x, pin.y, pin.net, pin.side, pin.numberGenerated])).toEqual([
+      [inch(0.3), inch(0.4), 'N1', 'top', true], [inch(0.5), inch(-0.6), 'N2', 'bottom', true], [inch(0.7), inch(0.8), '', 'top', true],
+    ]);
+    expect(board.components.slice(1).every(part => part.refGenerated)).toBe(true);
+    expect(notes(board)).toContain('1 pin marked UNCONNECTED by the exporter is shown without a net.');
+  });
+  it('keeps an unscoped via without inventing a net and discloses an unknown side', () => {
+    const board = must(fixture(['N_VIA 0.3 0.4 X 0 0']));
+    expect(board.pins.at(-1)).toMatchObject({ net: '', side: 'bottom' });
+    expect(notes(board)).toContain('1 test via has no preceding NET record and is shown without a net.');
+    expect(notes(board)).toContain('1 test via has a side code other than 1 or 2 and is placed on the bottom side, as OpenBoardView does.');
+  });
+  it('validates via coordinates and side with a line diagnostic, while ignoring keyword look-alikes', () => {
+    expect(thrown(fixture(['NET N1', 'N_VIA NaN 0.4 X 1 0'])).message).toMatch(/invalid test via X/);
+    expect(thrown(fixture(['NET N1', 'N_VIA 0.3 0.4 X bad 0'])).message).toMatch(/invalid test via side/);
+    expect(thrown(fixture(['NET N1', 'N_VIA 0.3 0.4'])).message).toMatch(/an N_VIA record needs/);
+    expect(must(fixture(['COMPONENT metadata', 'C_PIN_EXTRA metadata', 'N_VIA_EXTRA metadata'])).pins).toHaveLength(1);
+  });
+  it.each(['le', 'be'])('recognizes BOM-marked UTF-16%s for direct and dispatcher imports', endian => {
+    const source = fixture(['NET N1', 'N_VIA 0.3 0.4 X 1 0']);
+    const data = new Uint8Array(2 + source.length * 2); data.set(endian === 'le' ? [0xff, 0xfe] : [0xfe, 0xff]);
+    for (let index = 0; index < source.length; index++) data[2 + index * 2 + (endian === 'le' ? 0 : 1)] = source.charCodeAt(index);
+    expect(looksLikeSamsungCad(data)).toBe(true);
+    expect(must(data)).toEqual(must(source));
+    expect(parseBoard({ name: 'utf16.cad', data }).pins).toHaveLength(2);
+    expect(looksLikeSamsungCad(Uint8Array.from([0xff, 0xfe, 0x41]))).toBe(false);
   });
 });

@@ -15,7 +15,7 @@ function requireRc6Key(key: readonly number[]) {
   if (key.length !== 44 || !key.every(validKeyWord)) throw new BoardFormatError('The FZ/CAE key must contain 44 unsigned 32-bit words.', 'INVALID_KEY', 'FZ/CAE', 'fz');
 }
 
-/* Expected per-word parity of the vendor keys (FZFile::getKeyParity, CAEFile::getKeyParity); the keys themselves are not shipped. */
+/* Expected per-word parity of the vendor keys (FZFile::getKeyParity, CAEFile::getKeyParity). Published default format-key data lives in fz-default-keys.ts; session-key variants remain supported. */
 const FZ_KEY_PARITY = [0, 1, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1, 0, 1, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 1];
 const CAE_KEY_PARITY = [1, 0, 1, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 0, 1, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 1, 0, 1, 1, 1, 0, 0];
 /* Expected parity of the eight XZZ key bytes, index 0 = least significant byte (XZZPCBFile::getKeyParity). */

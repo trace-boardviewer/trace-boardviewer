@@ -1,0 +1,26 @@
+{
+  "help.title": "Kézre álló parancsok",
+  "help.open": "Fájl megnyitása",
+  "help.search": "Alkatrészkeresés",
+  "help.fit": "Teljes nyák",
+  "help.rotate": "Forgatás",
+  "help.measure": "Távolságmérés",
+  "help.labels": "Feliratok",
+  "help.note": "Megjegyzés",
+  "help.zoom": "Nagyítás / kicsinyítés",
+  "help.layout": "Műhely / Fókusz",
+  "help.escape": "Kiemelés / mérés bezárása",
+  "help.footer": "Egérgörgő: nagyítás a kurzornál. Húzás: panel mozgatása. Kattintás: alkatrész vagy pin kijelölése.",
+  "help.diagnosticReport": "Formátum-diagnosztikai jelentés…",
+  "help.diagnosticHint": "Egy meg nem nyíló fájlt ír le, a tartalma nélkül.",
+
+  "recents.title": "Legutóbbi panelek",
+  "recents.empty": "Még nincs megnyitott fájl.",
+  "recents.openOther": "Másik fájl megnyitása",
+
+  "info.title": "A panel adatai",
+  "info.format": "Formátum",
+  "info.size": "Panelméret",
+  "info.counts": "Alkatrészek / pinek / netek",
+  "info.footer": "A segédvonalak hálózati kapcsolatokat mutatnak. A fájlban szereplő rézvezetősávok geometriáját nem helyettesítik."
+}

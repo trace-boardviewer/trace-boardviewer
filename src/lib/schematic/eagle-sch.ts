@@ -8,6 +8,7 @@
  * board PAD name taken from the device `connects` (gate + pin -> pad), because cross-probing to the board needs it.
  */
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
+import { boundText } from '../bounded-text';
 import {
   SCHEMATIC_LIMITS, SchematicError,
   type SchBounds, type SchBus, type SchDeclaredNet, type SchDiagnostic, type SchField, type SchGraphic, type SchJunction, type SchLabel,
@@ -210,7 +211,7 @@ class Diagnostics {
   private dropped = 0;
   add(severity: SchSeverity, code: string, message: string, defId?: string): void {
     if (this.items.length >= MAX_DIAGNOSTICS) { this.dropped++; return; }
-    this.items.push({ severity, code, message, ...defId ? { defId, instancePath: defId } : {} });
+    this.items.push({ severity, code, message: boundText(message), ...defId ? { defId, instancePath: defId } : {} });
   }
   finish(): SchDiagnostic[] {
     if (this.dropped) this.items.push({ severity: 'info', code: 'DIAGNOSTICS_TRUNCATED', message: `${this.dropped} further diagnostics were omitted.` });
@@ -396,7 +397,11 @@ function build(fileName: string, root: Xml, schematic: Xml): Schematic {
     if (cached) return cached;
     const node = lib.symbols.get(name);
     if (!node) return null;
-    const symbol = readSymbol(node, `library ${lib.name} symbol ${name}`);
+    const read = readSymbol(node, `library ${lib.name} symbol ${name}`);
+    // Pin names are unique in a symbol (EAGLE writes a repeated visible name as NAME@2). A later pin of an earlier name would get the ids of that pin.
+    const seen = new Set<string>(), pins = read.pins.filter(pin => !seen.has(pin.name) && !!seen.add(pin.name));
+    if (pins.length < read.pins.length) diag.add('warning', 'PIN_DUPLICATE', `Symbol "${name.slice(0, 80)}" of library "${lib.name.slice(0, 80)}" has ${read.pins.length - pins.length} pin(s) whose name repeats an earlier pin; they are ignored.`);
+    const symbol = pins.length < read.pins.length ? { ...read, pins } : read;
     lib.parsed.set(name, symbol);
     return symbol;
   };
@@ -489,7 +494,9 @@ function build(fileName: string, root: Xml, schematic: Xml): Schematic {
         if (++pinTotal > limits.maxPinsTotal) throw fail(`EAGLE schematic exceeds the ${limits.maxPinsTotal} pin import limit.`, 'LIMIT_EXCEEDED');
         // Extra pads of one pin share its geometry: only the first is shown, so labels never overprint.
         const pin: SchPin = { id: `${id}#${pad}`, number: pad, name: libPin.name.replace(/@\d+$/, ''), at: { ...at }, body: { ...body }, type: libPin.type, hidden: i > 0, unit: gate?.unit ?? 1 };
-        pins.push(pin); byPin.set(libPin.name, [...byPin.get(libPin.name) ?? [], pin]);
+        pins.push(pin);
+        const sameName = byPin.get(libPin.name); // appended in place: a pin with many pads must not copy the list for every pad
+        if (sameName) sameName.push(pin); else byPin.set(libPin.name, [pin]);
         box.add(pin.at); box.add(pin.body);
       });
     }

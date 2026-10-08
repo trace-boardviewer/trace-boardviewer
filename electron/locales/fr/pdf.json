@@ -1,0 +1,19 @@
+{
+  "pdf.ocr.recognize": "Reconnaître le texte",
+  "pdf.ocr.recognizeTitle": "Lit le texte des pages sans couche de texte, sur cet ordinateur. Rien n’est envoyé.",
+  "pdf.ocr.stop": "Arrêter",
+  "pdf.ocr.pageOffer": "Cette page est une image sans couche de texte. Reconnaissez son texte pour y rechercher et relier les repères de la carte.",
+  "pdf.ocr.documentOffer": "Pas de couche de texte : ce PDF est numérisé ou matriciel. Reconnaissez son texte pour y rechercher et relier les repères de la carte.",
+  "pdf.ocr.starting": "Démarrage de la reconnaissance de texte…",
+  "pdf.ocr.running": "Reconnaissance du texte : page {page} ({done} sur {total})",
+  "pdf.ocr.summary": "Texte reconnu · pages : {pages} · mots : {words}",
+  "pdf.ocr.linkRule": "Les mots reconnus sont signalés. Seuls les noms exacts de la carte lus avec une confiance d’au moins {floor} % deviennent des liens.",
+  "pdf.ocr.cancelled": "Reconnaissance du texte arrêtée après {done} pages sur {total}. Les pages reconnues restent consultables par recherche.",
+  "pdf.ocr.timeouts": "Pages non reconnues dans le délai imparti : {pages}",
+  "pdf.ocr.failed": "La reconnaissance du texte a échoué : {message}",
+  "pdf.ocr.unavailable": "La reconnaissance du texte n’est pas disponible ici : {message}",
+  "pdf.ocr.badge": "Texte reconnu",
+  "pdf.ocr.badgeTitle": "Texte reconnu par OCR sur cet ordinateur, confiance moyenne {confidence} %",
+  "pdf.ocr.wordTitle": "Texte reconnu, confiance {confidence} %",
+  "pdf.ocr.linkLabel": "{name}, texte reconnu, confiance {confidence} %"
+}

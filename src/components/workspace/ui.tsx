@@ -2,9 +2,10 @@ import { Component, Cpu, Plug, X } from 'lucide-react';
 import { Profiler, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { DATA_LOCALE } from '../../lib/i18n';
 import type { MessageKey } from '../../lib/i18n';
+import { classifyComponent, KIND_LABEL } from '../../lib/part-kind';
+import type { PartKindSource } from '../../lib/part-kind';
 import type { PdfSession, PdfSessionSnapshot } from '../../lib/pdf/session-contract';
 import { createBackdropDismisser } from '../../lib/support-notice';
-import type { BoardComponent } from '../../lib/types';
 import './workspace.css';
 
 /** One shared collator: constructing a locale comparison per comparator call cost 34x in the old sort (P02). */
@@ -18,26 +19,17 @@ export function Probe({ id, children }: { id: string; children: ReactNode }) {
   return <Profiler id={id} onRender={countRender}>{children}</Profiler>;
 }
 
-export function kindKey(component: Pick<BoardComponent, 'ref'>): MessageKey {
-  const prefix = component.ref.match(/^[A-Za-z]+/)?.[0].toUpperCase() || '';
-  if (prefix.endsWith('U')) return 'kind.ic';
-  if (prefix.endsWith('C')) return 'kind.capacitor';
-  if (prefix.endsWith('R')) return 'kind.resistor';
-  if (prefix.endsWith('L')) return 'kind.inductor';
-  if (/[JP]$/.test(prefix)) return 'kind.connector';
-  if (prefix.endsWith('D')) return 'kind.diode';
-  if (prefix.endsWith('Q')) return 'kind.transistor';
-  if (/[XY]$/.test(prefix)) return 'kind.crystal';
-  if (prefix.endsWith('F')) return 'kind.fuse';
-  return 'kind.part';
+/** Catalog key of the kind of a part. The classification itself is shared with the board canvas (src/lib/part-kind.ts); `libId` is the schematic symbol's library id when the part has exactly one schematic counterpart. */
+export function kindKey(component: PartKindSource, libId?: string): MessageKey {
+  return KIND_LABEL[classifyComponent(component, libId).kind];
 }
 export const sideKey = (side: string): MessageKey => side === 'top' ? 'side.top' : side === 'bottom' ? 'side.bottom' : 'side.both';
 export const sideLabelKey = (side: string): MessageKey => side === 'top' ? 'side.topLabel' : side === 'bottom' ? 'side.bottomLabel' : 'side.bothLabel';
 export const sideBadgeKey = (side: string): MessageKey => side === 'top' ? 'side.badgeTop' : side === 'bottom' ? 'side.badgeBottom' : 'side.badgeBoth';
 
-export function PartIcon({ component, size = 17 }: { component: Pick<BoardComponent, 'ref'>; size?: number }) {
-  const type = kindKey(component);
-  return type === 'kind.ic' ? <Cpu size={size} /> : type === 'kind.connector' ? <Plug size={size} /> : <Component size={size} />;
+export function PartIcon({ component, libId, size = 17 }: { component: PartKindSource; libId?: string; size?: number }) {
+  const kind = classifyComponent(component, libId).kind;
+  return kind === 'ic' ? <Cpu size={size} /> : kind === 'connector' ? <Plug size={size} /> : <Component size={size} />;
 }
 
 export function Tool({ label, shortcut, active, disabled, testId, onClick, children, className = '' }: { label: string; shortcut?: string; active?: boolean; disabled?: boolean; testId?: string; onClick: () => void; children: ReactNode; className?: string }) {

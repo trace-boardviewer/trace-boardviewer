@@ -1,0 +1,135 @@
+[
+ {
+  "id": "81fda581",
+  "kind": "valid",
+  "name": "demo.sch",
+  "b64": "RUVTY2hlbWEgU2NoZW1hdGljIEZpbGUgVmVyc2lvbiA0CiREZXNjciBBNCAxMTY5MyA4MjY4CiRFbmREZXNjcgpUZXh0IExhYmVsIDEwMDAgMTAwMCAwIDUwIH4gMApDQUbJCiRFbmRTQ0hFTUFUQwo="
+ },
+ {
+  "id": "f69ca56f",
+  "kind": "valid",
+  "name": "demo.sch",
+  "text": "EESchema Schematic File Version 4\nEELAYER 30 0\nEELAYER END\n$Descr A4 11693 8268\nencoding utf-8\nSheet 1 1\nTitle \"Synthetic\"\nDate \"2024-01-02\"\nRev \"B\"\nComp \"Acme\"\nComment1 \"first\"\nComment2 \"\"\n$EndDescr\n\n$EndSCHEMATC\n"
+ },
+ {
+  "id": "200784eb",
+  "kind": "valid",
+  "name": "demo.sch",
+  "text": "EESchema Schematic File Version 3\nEELAYER 30 0\nEELAYER END\n$Descr A4 11693 8268\nencoding utf-8\nSheet 1 1\nTitle \"Synthetic\"\nDate \"2024-01-02\"\nRev \"B\"\nComp \"Acme\"\nComment1 \"first\"\nComment2 \"\"\n$EndDescr\nWire Wire Line\n\t1000 1000 2000 1000\nText Label 1500 1000 0 50 ~ 0\nN3\n$EndSCHEMATC\n"
+ },
+ {
+  "id": "92128f21",
+  "kind": "valid",
+  "name": "demo.sch",
+  "text": "EESchema Schematic File Version 4\nEELAYER 30 0\nEELAYER END\n$Descr A4 11693 8268\nencoding utf-8\nSheet 1 1\nTitle \"Synthetic\"\nDate \"2024-01-02\"\nRev \"B\"\nComp \"Acme\"\nComment1 \"first\"\nComment2 \"\"\n$EndDescr\nFrobnicate 1 2 3\n$Weird\ninner line\n$EndWeird\n$Bitmap\nPos 100 100\nScale 1,000000\nData\n89 50 4E 47\nEndData\n$EndBitmap\nEntry Wire Weird\n\t1 2 3 4\nWire Dashed Line\n\t1 2 3 4\nNoConn ~ 1000 1000\n$EndSCHEMATC\n"
+ },
+ {
+  "id": "45f32f95",
+  "kind": "valid",
+  "name": "demo.sch",
+  "text": "EESchema Schematic File Version 4\nEELAYER 30 0\nEELAYER END\n$Descr A4 11693 8268\nencoding utf-8\nSheet 1 1\nTitle \"Synthetic\"\nDate \"2024-01-02\"\nRev \"B\"\nComp \"Acme\"\nComment1 \"first\"\nComment2 \"\"\n$EndDescr\n$Comp\nL Device:R R1\nU 1 1 5F000001\nP 0 0\n\nF 0 \"R1\" H 100 -100 50  0000 L CNN\nF 1 \"Device:R\" H 100 100 50  0000 L CNN\nF 2 \"\" H 0 0 50  0001 C CNN\nF 3 \"~\" H 0 0 50  0001 C CNN\n\t1    0  0\n\t1    0    0    -1\n$EndComp\n$EndSCHEMATC\n"
+ },
+ {
+  "id": "f6ba042f",
+  "kind": "valid",
+  "name": "demo.sch",
+  "text": "EESchema Schematic File Version 4\nEELAYER 30 0\nEELAYER END\n$Descr A4 11693 8268\nencoding utf-8\nSheet 1 1\nTitle \"Synthetic\"\nDate \"2024-01-02\"\nRev \"B\"\nComp \"Acme\"\nComment1 \"first\"\nComment2 \"\"\n$EndDescr\nWire Wire Line\n\t1000 1000 2000 1000\nWire Wire Line\n\t2000 1000 2000 1500\nWire Bus Line\n\t3000 1000 3000 2000\nWire Notes Line\n\t4000 1000 4500 1000\nEntry Wire Line\n\t3000 1200 3100 1300\nEntry Bus Bus\n\t3000 1500 3100 1600\nConnection ~ 2000 1000\nConnection ~ 3000 1700\nNoConn ~ 2500 1500\n$EndSCHEMATC\n"
+ },
+ {
+  "id": "22989d40",
+  "kind": "valid",
+  "name": "demo.sch",
+  "text": "EESchema Schematic File Version 4\nEELAYER 30 0\nEELAYER END\n$Descr A4 11693 8268\nencoding utf-8\nSheet 1 1\nTitle \"Synthetic\"\nDate \"2024-01-02\"\nRev \"B\"\nComp \"Acme\"\nComment1 \"first\"\nComment2 \"\"\n$EndDescr\n$Comp\nL ODD O1\nU 1 1 5F000001\nP 0 0\n\nF 0 \"O1\" H 100 -100 50  0000 L CNN\nF 1 \"ODD\" H 100 100 50  0000 L CNN\nF 2 \"\" H 0 0 50  0001 C CNN\nF 3 \"~\" H 0 0 50  0001 C CNN\n\t1    0  0\n\t1    0    0    -1\n$EndComp\n$EndSCHEMATC\n",
+  "companions": {
+   "demo-cache.lib": {
+    "text": "EESchema-LIBRARY Version 2.3\n#encoding utf-8\nDEF ODD O 0 0 Y Y 1 F N\nDRAW\nZ 1 2 3\nX A 1 0 0 50 R 50 50 1 1 Q\nENDDRAW\nENDDEF\n#\n#End Library\n"
+   }
+  }
+ },
+ {
+  "id": "385969eb",
+  "kind": "valid",
+  "name": "demo.sch",
+  "text": "EESchema Schematic File Version 4\nEELAYER 30 0\nEELAYER END\n$Descr A4 11693 8268\nencoding utf-8\nSheet 1 1\nTitle \"Synthetic\"\nDate \"2024-01-02\"\nRev \"B\"\nComp \"Acme\"\nComment1 \"first\"\nComment2 \"\"\n$EndDescr\n$Comp\nL NAMELESS U1\nU 1 1 5F000001\nP 0 0\n\nF 0 \"U1\" H 100 -100 50  0000 L CNN\nF 1 \"NAMELESS\" H 100 100 50  0000 L CNN\nF 2 \"\" H 0 0 50  0001 C CNN\nF 3 \"~\" H 0 0 50  0001 C CNN\n\t1    0  0\n\t1    0    0    -1\n$EndComp\n$EndSCHEMATC\n",
+  "companions": {
+   "demo-cache.lib": {
+    "text": "EESchema-LIBRARY Version 2.3\n#encoding utf-8\nDEF NAMELESS U 0 0 Y Y 1 F N\nDRAW\nX ~ 1 0 0 0 R 50 50 1 1 W N\nENDDRAW\nENDDEF\n#\n#End Library\n"
+   }
+  }
+ },
+ {
+  "id": "3cb570e3",
+  "kind": "valid",
+  "name": "demo.sch",
+  "text": "EESchema Schematic File Version 4\nEELAYER 30 0\nEELAYER END\n$Descr A4 11693 8268\nencoding utf-8\nSheet 1 1\nTitle \"Synthetic\"\nDate \"2024-01-02\"\nRev \"B\"\nComp \"Acme\"\nComment1 \"first\"\nComment2 \"\"\n$EndDescr\n$Comp\nL Device:R R5\nU 1 1 5F000009\nP 0 0\nAR Path=\"/AAAA0001/DEADBEEF\" Ref=\"R99\" Part=\"1\"\nF 0 \"R5\" H 100 -100 50  0000 L CNN\nF 1 \"Device:R\" H 100 100 50  0000 L CNN\nF 2 \"\" H 0 0 50  0001 C CNN\nF 3 \"~\" H 0 0 50  0001 C CNN\n\t1    0  0\n\t1    0    0    -1\n$EndComp\n$EndSCHEMATC\n",
+  "companions": {
+   "demo-cache.lib": {
+    "text": "EESchema-LIBRARY Version 2.3\n#encoding utf-8\n#\n# Device_R\n#\nDEF Device_R R 0 0 N Y 1 F N\nF0 \"R\" 80 0 50 V V C CNN\nF1 \"Device_R\" 0 0 50 V V C CNN\nF2 \"\" -70 0 50 V V C CNN\nF3 \"~\" 0 0 50 H I C CNN\n$FPLIST\n R_*\n$ENDFPLIST\nDRAW\nS -40 -100 40 100 0 1 10 N\nX ~ 1 0 150 50 D 50 50 1 1 P\nX ~ 2 0 -150 50 U 50 50 1 1 P\nENDDRAW\nENDDEF\nDEF PROBE X 0 0 Y Y 1 F N\nF0 \"X\" 0 0 50 H V C CNN\nF1 \"PROBE\" 0 0 50 H V C CNN\nDRAW\nX P 1 100 50 40 R 50 50 1 1 I\nENDDRAW\nENDDEF\nDEF U_MULTI U 0 40 Y Y 2 L N\nF0 \"U\" 0 100 50 H V C CNN\nF1 \"U_MULTI\" 0 -100 50 H V C CNN\nDRAW\nS -200 -100 200 100 1 1 10 f\nS -100 -100 100 100 2 1 10 f\nX IN1 1 -300 50 100 R 50 50 1 1 I\nX OUT1 2 300 50 100 L 50 50 1 1 O\nX IN2 3 -200 0 100 R 50 50 2 1 I\nX ALT 5 -300 -50 100 R 50 50 1 2 B\nX VCC 14 0 200 100 D 50 50 0 0 W N\nX GND 7 0 -200 100 U 50 50 0 0 W N\nENDDRAW\nENDDEF\nDEF power_+5V #PWR 0 0 Y Y 1 F P\nF0 \"#PWR\" 0 -150 50 H I C CNN\nF1 \"+5V\" 0 140 50 H V C CNN\nDRAW\nP 2 0 1 0 0 0 0 100 N\nX +5V 1 0 0 0 U 50 50 1 1 W N\nENDDRAW\nENDDEF\nDEF NOFLAG #PWR 0 0 Y Y 1 F N\nF0 \"#PWR\" 0 -150 50 H I C CNN\nF1 \"NOFLAG\" 0 140 50 H V C CNN\nDRAW\nX GND 1 0 0 0 U 50 50 1 1 W N\nENDDRAW\nENDDEF\nDEF PWR_FLAG #FLG 0 0 N N 1 F N\nF0 \"#FLG\" 0 75 50 H I C CNN\nF1 \"PWR_FLAG\" 0 150 50 H V C CNN\nDRAW\nX pwr 1 0 0 0 R 50 50 1 1 w\nENDDRAW\nENDDEF\nDEF GFX G 0 0 N N 1 F N\nF0 \"G\" 0 0 50 H V C CNN\nF1 \"GFX\" 0 0 50 H V C CNN\nDRAW\nP 3 0 1 6 -100 -100 100 -100 100 100 F\nS 300 200 100 100 0 1 10 N\nC 0 0 50 0 1 0 f\nA 0 0 100 0 900 0 1 0 N 100 0 0 100\nT 0 -50 150 100 0 0 1 NAME Normal 0 L C\nT 1 50 150 100 0 0 1 VERT Italic 1 R C\nENDDRAW\nENDDEF\n#\n#End Library\n"
+   }
+  }
+ },
+ {
+  "id": "92643fac",
+  "kind": "valid",
+  "name": "demo.sch",
+  "text": "EESchema Schematic File Version 4\nEELAYER 30 0\nEELAYER END\n$Descr A4 11693 8268\nencoding utf-8\nSheet 1 1\nTitle \"Synthetic\"\nDate \"2024-01-02\"\nRev \"B\"\nComp \"Acme\"\nComment1 \"first\"\nComment2 \"\"\n$EndDescr\n$Comp\nL Device:R R1\nU 1 1 5F000001\nP 0 0\n\nF 0 \"R1\" H 100 -100 50  0000 L CNN\nF 1 \"Device:R\" H 100 100 50  0000 L CNN\nF 2 \"\" H 0 0 50  0001 C CNN\nF 3 \"~\" H 0 0 50  0001 C CNN\n\t1    0  0\n\t1    0    0    -1\n$EndComp\n$Comp\nL Device:R R2\nU 1 1 5F000001\nP 1000 0\n\nF 0 \"R2\" H 1100 -100 50  0000 L CNN\nF 1 \"Device:R\" H 1100 100 50  0000 L CNN\nF 2 \"\" H 1000 0 50  0001 C CNN\nF 3 \"~\" H 1000 0 50  0001 C CNN\n\t1    1000  0\n\t1    0    0    -1\n$EndComp\n$Comp\nL Device:R R3\nU 1 1\nP 2000 0\n\nF 0 \"R3\" H 2100 -100 50  0000 L CNN\nF 1 \"Device:R\" H 2100 100 50  0000 L CNN\nF 2 \"\" H 2000 0 50  0001 C CNN\nF 3 \"~\" H 2000 0 50  0001 C CNN\n\t1    2000  0\n\t1    0    0    -1\n$EndComp\n$Comp\nL Device:R R4\nU 1 1 sym0\nP 3000 0\n\nF 0 \"R4\" H 3100 -100 50  0000 L CNN\nF 1 \"Device:R\" H 3100 100 50  0000 L CNN\nF 2 \"\" H 3000 0 50  0001 C CNN\nF 3 \"~\" H 3000 0 50  0001 C CNN\n\t1    3000  0\n\t1    0    0    -1\n$EndComp\n$Comp\nL Device:R R5\nU 1 1 5F000005\nP 4000 0\n\nF 0 \"R5\" H 4100 -100 50  0000 L CNN\nF 1 \"Device:R\" H 4100 100 50  0000 L CNN\nF 2 \"\" H 4000 0 50  0001 C CNN\nF 3 \"~\" H 4000 0 50  0001 C CNN\n\t1    4000  0\n\t1    0    0    -1\n$EndComp\n$EndSCHEMATC\n",
+  "companions": {
+   "demo-cache.lib": {
+    "text": "EESchema-LIBRARY Version 2.3\n#encoding utf-8\n#\n# Device_R\n#\nDEF Device_R R 0 0 N Y 1 F N\nF0 \"R\" 80 0 50 V V C CNN\nF1 \"Device_R\" 0 0 50 V V C CNN\nF2 \"\" -70 0 50 V V C CNN\nF3 \"~\" 0 0 50 H I C CNN\n$FPLIST\n R_*\n$ENDFPLIST\nDRAW\nS -40 -100 40 100 0 1 10 N\nX ~ 1 0 150 50 D 50 50 1 1 P\nX ~ 2 0 -150 50 U 50 50 1 1 P\nENDDRAW\nENDDEF\nDEF PROBE X 0 0 Y Y 1 F N\nF0 \"X\" 0 0 50 H V C CNN\nF1 \"PROBE\" 0 0 50 H V C CNN\nDRAW\nX P 1 100 50 40 R 50 50 1 1 I\nENDDRAW\nENDDEF\nDEF U_MULTI U 0 40 Y Y 2 L N\nF0 \"U\" 0 100 50 H V C CNN\nF1 \"U_MULTI\" 0 -100 50 H V C CNN\nDRAW\nS -200 -100 200 100 1 1 10 f\nS -100 -100 100 100 2 1 10 f\nX IN1 1 -300 50 100 R 50 50 1 1 I\nX OUT1 2 300 50 100 L 50 50 1 1 O\nX IN2 3 -200 0 100 R 50 50 2 1 I\nX ALT 5 -300 -50 100 R 50 50 1 2 B\nX VCC 14 0 200 100 D 50 50 0 0 W N\nX GND 7 0 -200 100 U 50 50 0 0 W N\nENDDRAW\nENDDEF\nDEF power_+5V #PWR 0 0 Y Y 1 F P\nF0 \"#PWR\" 0 -150 50 H I C CNN\nF1 \"+5V\" 0 140 50 H V C CNN\nDRAW\nP 2 0 1 0 0 0 0 100 N\nX +5V 1 0 0 0 U 50 50 1 1 W N\nENDDRAW\nENDDEF\nDEF NOFLAG #PWR 0 0 Y Y 1 F N\nF0 \"#PWR\" 0 -150 50 H I C CNN\nF1 \"NOFLAG\" 0 140 50 H V C CNN\nDRAW\nX GND 1 0 0 0 U 50 50 1 1 W N\nENDDRAW\nENDDEF\nDEF PWR_FLAG #FLG 0 0 N N 1 F N\nF0 \"#FLG\" 0 75 50 H I C CNN\nF1 \"PWR_FLAG\" 0 150 50 H V C CNN\nDRAW\nX pwr 1 0 0 0 R 50 50 1 1 w\nENDDRAW\nENDDEF\nDEF GFX G 0 0 N N 1 F N\nF0 \"G\" 0 0 50 H V C CNN\nF1 \"GFX\" 0 0 50 H V C CNN\nDRAW\nP 3 0 1 6 -100 -100 100 -100 100 100 F\nS 300 200 100 100 0 1 10 N\nC 0 0 50 0 1 0 f\nA 0 0 100 0 900 0 1 0 N 100 0 0 100\nT 0 -50 150 100 0 0 1 NAME Normal 0 L C\nT 1 50 150 100 0 0 1 VERT Italic 1 R C\nENDDRAW\nENDDEF\n#\n#End Library\n"
+   }
+  }
+ },
+ {
+  "id": "1e85338b",
+  "kind": "valid",
+  "name": "demo.sch",
+  "text": "EESchema Schematic File Version 4\nEELAYER 30 0\nEELAYER END\n$Descr A4 11693 8268\nencoding utf-8\nSheet 1 1\nTitle \"Synthetic\"\nDate \"2024-01-02\"\nRev \"B\"\nComp \"Acme\"\nComment1 \"first\"\nComment2 \"\"\n$EndDescr\n$Comp\nL power:+5V #PWR01\nU 1 1 00000B01\nP 1000 1000\n\nF 0 \"#PWR01\" H 1100 900 50  0000 L CNN\nF 1 \"+5V\" H 1100 1100 50  0000 L CNN\nF 2 \"\" H 1000 1000 50  0001 C CNN\nF 3 \"~\" H 1000 1000 50  0001 C CNN\n\t1    1000  1000\n\t1    0    0    -1\n$EndComp\n$Comp\nL power:+5V #PWR02\nU 1 1 00000B02\nP 2000 1000\n\nF 0 \"#PWR02\" H 2100 900 50  0000 L CNN\nF 1 \"VCC_RENAMED\" H 2100 1100 50  0000 L CNN\nF 2 \"\" H 2000 1000 50  0001 C CNN\nF 3 \"~\" H 2000 1000 50  0001 C CNN\n\t1    2000  1000\n\t1    0    0    -1\n$EndComp\n$Comp\nL NOFLAG #PWR03\nU 1 1 00000B03\nP 3000 1000\n\nF 0 \"#PWR03\" H 3100 900 50  0000 L CNN\nF 1 \"GND\" H 3100 1100 50  0000 L CNN\nF 2 \"\" H 3000 1000 50  0001 C CNN\nF 3 \"~\" H 3000 1000 50  0001 C CNN\n\t1    3000  1000\n\t1    0    0    -1\n$EndComp\n$Comp\nL PWR_FLAG #FLG04\nU 1 1 00000B04\nP 4000 1000\n\nF 0 \"#FLG04\" H 4100 900 50  0000 L CNN\nF 1 \"PWR_FLAG\" H 4100 1100 50  0000 L CNN\nF 2 \"\" H 4000 1000 50  0001 C CNN\nF 3 \"~\" H 4000 1000 50  0001 C CNN\n\t1    4000  1000\n\t1    0    0    -1\n$EndComp\n$Comp\nL power:+5V #PWR05\nU 1 1 00000B05\nP 5000 1000\n\nF 0 \"#PWR05\" H 5100 900 50  0000 L CNN\nF 1 \"\" H 5100 1100 50  0000 L CNN\nF 2 \"\" H 5000 1000 50  0001 C CNN\nF 3 \"~\" H 5000 1000 50  0001 C CNN\n\t1    5000  1000\n\t1    0    0    -1\n$EndComp\n$EndSCHEMATC\n",
+  "companions": {
+   "demo-cache.lib": {
+    "text": "EESchema-LIBRARY Version 2.3\n#encoding utf-8\n#\n# Device_R\n#\nDEF Device_R R 0 0 N Y 1 F N\nF0 \"R\" 80 0 50 V V C CNN\nF1 \"Device_R\" 0 0 50 V V C CNN\nF2 \"\" -70 0 50 V V C CNN\nF3 \"~\" 0 0 50 H I C CNN\n$FPLIST\n R_*\n$ENDFPLIST\nDRAW\nS -40 -100 40 100 0 1 10 N\nX ~ 1 0 150 50 D 50 50 1 1 P\nX ~ 2 0 -150 50 U 50 50 1 1 P\nENDDRAW\nENDDEF\nDEF PROBE X 0 0 Y Y 1 F N\nF0 \"X\" 0 0 50 H V C CNN\nF1 \"PROBE\" 0 0 50 H V C CNN\nDRAW\nX P 1 100 50 40 R 50 50 1 1 I\nENDDRAW\nENDDEF\nDEF U_MULTI U 0 40 Y Y 2 L N\nF0 \"U\" 0 100 50 H V C CNN\nF1 \"U_MULTI\" 0 -100 50 H V C CNN\nDRAW\nS -200 -100 200 100 1 1 10 f\nS -100 -100 100 100 2 1 10 f\nX IN1 1 -300 50 100 R 50 50 1 1 I\nX OUT1 2 300 50 100 L 50 50 1 1 O\nX IN2 3 -200 0 100 R 50 50 2 1 I\nX ALT 5 -300 -50 100 R 50 50 1 2 B\nX VCC 14 0 200 100 D 50 50 0 0 W N\nX GND 7 0 -200 100 U 50 50 0 0 W N\nENDDRAW\nENDDEF\nDEF power_+5V #PWR 0 0 Y Y 1 F P\nF0 \"#PWR\" 0 -150 50 H I C CNN\nF1 \"+5V\" 0 140 50 H V C CNN\nDRAW\nP 2 0 1 0 0 0 0 100 N\nX +5V 1 0 0 0 U 50 50 1 1 W N\nENDDRAW\nENDDEF\nDEF NOFLAG #PWR 0 0 Y Y 1 F N\nF0 \"#PWR\" 0 -150 50 H I C CNN\nF1 \"NOFLAG\" 0 140 50 H V C CNN\nDRAW\nX GND 1 0 0 0 U 50 50 1 1 W N\nENDDRAW\nENDDEF\nDEF PWR_FLAG #FLG 0 0 N N 1 F N\nF0 \"#FLG\" 0 75 50 H I C CNN\nF1 \"PWR_FLAG\" 0 150 50 H V C CNN\nDRAW\nX pwr 1 0 0 0 R 50 50 1 1 w\nENDDRAW\nENDDEF\nDEF GFX G 0 0 N N 1 F N\nF0 \"G\" 0 0 50 H V C CNN\nF1 \"GFX\" 0 0 50 H V C CNN\nDRAW\nP 3 0 1 6 -100 -100 100 -100 100 100 F\nS 300 200 100 100 0 1 10 N\nC 0 0 50 0 1 0 f\nA 0 0 100 0 900 0 1 0 N 100 0 0 100\nT 0 -50 150 100 0 0 1 NAME Normal 0 L C\nT 1 50 150 100 0 0 1 VERT Italic 1 R C\nENDDRAW\nENDDEF\n#\n#End Library\n"
+   }
+  }
+ },
+ {
+  "id": "3e89e27d",
+  "kind": "error",
+  "name": "demo.sch",
+  "text": "EESchema Schematic File Version 4\n"
+ },
+ {
+  "id": "7f0cc0a3",
+  "kind": "error",
+  "name": "demo.sch",
+  "text": "EESchema Schematic File Version\n$EndSCHEMATC\n"
+ },
+ {
+  "id": "4d89bff5",
+  "kind": "error",
+  "name": "demo.sch",
+  "text": "EESchema Schematic File Version 4\nText Label 1000 2000 0 50 ~ 0"
+ },
+ {
+  "id": "34541e8b",
+  "kind": "error",
+  "name": "demo.sch",
+  "text": "EESchema Schematic File Version 4\n$Descr A4 11693 8268\nTitle \"x\"\n"
+ },
+ {
+  "id": "6b4b31dc",
+  "kind": "error",
+  "name": "demo.sch",
+  "text": "EESchema Schematic File Version 4\nEELAYER 30 0\nEELAYER END\n$Descr A4 11693 8268\nencoding utf-8\nSheet 1 1\nTitle \"Synthetic\"\nDate \"2024-01-02\"\nRev \"B\"\nComp \"Acme\"\nComment1 \"first\"\nComment2 \"\"\n$EndDescr\nNoConn ~ a b\n$EndSCHEMATC\n"
+ },
+ {
+  "id": "87ce6403",
+  "kind": "error",
+  "name": "demo.sch",
+  "text": "EESchema Schematic File Version 4\nEELAYER 30 0\nEELAYER END\n$Descr A4 11693 8268\nencoding utf-8\nSheet 1 1\nTitle \"Synthetic\"\nDate \"2024-01-02\"\nRev \"B\"\nComp \"Acme\"\nComment1 \"first\"\nComment2 \"\"\n$EndDescr\nWire Wire Line\n$EndSCHEMATC\n"
+ },
+ {
+  "id": "e44eff69",
+  "kind": "null",
+  "name": "x.sch",
+  "b64": "AAECAw=="
+ }
+]

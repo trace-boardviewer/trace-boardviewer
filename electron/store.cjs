@@ -257,6 +257,19 @@ function createJsonStore(options) {
     }
   }
 
+  // A write that replaces data of an older shape can keep the old file first: inside the same queue slot, `keep.when(current)` decides on the
+  // committed value and, when it holds and `keep.name` does not exist yet, the value is written there (atomically) before the target is replaced.
+  // A missing or damaged target has nothing to keep; an existing copy, even a damaged one, is never replaced; a copy that cannot be written rejects the
+  // whole write, so the old file stays exactly as it was.
+  async function keepCopy(filename, keep, limit) {
+    let current;
+    try { current = await readFile(filename, limit); } catch { return; }
+    if (current === MISSING || !keep.when(current)) return;
+    const copy = filenameOf(keep.name);
+    try { if ((await readFile(copy, limit)) !== MISSING) return; } catch { return; }
+    await atomicWrite(copy, serialize(current, limit, t));
+  }
+
   // Appends an operation to the FIFO queue. The queue tail never rejects, so one failed write
   // cannot block or fail the writes behind it; the failure reaches the operation's own caller.
   function enqueue(operation) {
@@ -285,12 +298,16 @@ function createJsonStore(options) {
       if (value !== MISSING) return value;
       return readOptions && Object.hasOwn(readOptions, 'missing') ? readOptions.missing : null;
     },
-    // Serializes and size-checks synchronously (before queuing), then writes atomically in order.
+    // Serializes and size-checks synchronously (before queuing), then writes atomically in order. `options.keepFirst` ({ name, when(current) }) keeps
+    // the old file under another name first, see keepCopy.
     write(name, value, writeOptions) {
-      let filename, body;
-      try { filename = filenameOf(name); body = serialize(value, limitOf(writeOptions), t); }
-      catch (error) { return Promise.reject(error); }
-      return enqueue(() => atomicWrite(filename, body));
+      let filename, body, limit;
+      const keep = writeOptions && writeOptions.keepFirst;
+      try {
+        filename = filenameOf(name); limit = limitOf(writeOptions); body = serialize(value, limit, t);
+        if (keep && (typeof keep.when !== 'function' || filenameOf(keep.name) === filename)) throw storeError('keepFirst needs a predicate and another name.', 'STORE_INVALID_OPTIONS'); // i18n: pending
+      } catch (error) { return Promise.reject(error); }
+      return enqueue(async () => { if (keep) await keepCopy(filename, keep, limit); await atomicWrite(filename, body); });
     },
     // Read-modify-write inside the queue: the updater receives the committed value (null when the
     // entry does not exist) after every earlier operation has settled, and its result is written.

@@ -5,6 +5,7 @@ import type { SearchRow } from '../../lib/crossprobe';
 import type { AppSettings, ViewCommand, ViewSide } from '../../lib/types';
 import BoardCanvas from '../BoardCanvas';
 import type { BoardCamera } from '../board-camera';
+import { indexOfState } from './model';
 import { FocusSearch } from './SearchPanel';
 import { LiveMeasurement, LiveRotation, LiveZoom } from './StatusBar';
 import { Tool } from './ui';
@@ -38,15 +39,16 @@ export function BoardPane(props: BoardPaneProps) {
   const { t, fmt, language } = useUi();
   const { state, statusStore } = api;
   const board = state.board!;
+  const index = indexOfState(state)!;
   const { selection } = state;
   return <main className="canvas-pane" aria-label={t('canvas.region')} data-testid="board-pane">
-    <BoardCanvas board={board} side={side} selectedComponentId={selection.componentId} selectedPinId={selection.pinId} selectedNet={netVisible ? selection.net : null} showLabels={settings.showLabels} showConnections={settings.showConnections}
+    <BoardCanvas board={board} index={index} side={side} selectedComponentId={selection.componentId} selectedPinId={selection.pinId} selectedNet={netVisible ? selection.net : null} showLabels={settings.showLabels} showConnections={settings.showConnections}
       measureMode={measure} viewCommand={viewCommand} initialCamera={initialCamera} onCameraRestore={onCameraRestore} onCameraChange={onCameraChange} theme={theme} motion={settings.motion} language={language} onSelectComponent={onSelectComponent} onSelectPin={onSelectPin} onStatusChange={statusStore.publish} />
     <div className="canvas-top"><div className="side-switch" aria-label={t('canvas.sideSwitch')}><button type="button" aria-pressed={side === 'top'} data-testid="side-top" onClick={() => onSide('top')}><Layers2 size={15} />{t('side.top')}</button><button type="button" aria-pressed={side === 'bottom'} data-testid="side-bottom" onClick={() => onSide('bottom')}>{t('side.bottom')}</button></div>
       <div className="canvas-meta"><span data-testid="side-label">{t(side === 'top' ? 'canvas.sideLabelTop' : 'canvas.sideLabelBottom')}</span><LiveRotation store={statusStore} /><span>2D</span></div></div>
     {focusLayout && <FocusSearch api={api} inputRef={searchRef} onActivated={onSearchActivated} />}
     {measure && <div className="mode-pill" data-testid="measure-pill"><Ruler size={14} /><LiveMeasurement store={statusStore} fmt={fmt} prompt={t('measure.prompt')} /><button type="button" aria-label={t('measure.finish')} onClick={() => onMeasure(false)}><X size={14} /></button></div>}
-    {focusLayout && recentSelections.length > 0 && <div className="quick-parts">{recentSelections.map(id => { const c = board.components.find(item => item.id === id); return c && <button type="button" key={id} className={'quick-part mono' + (id === selection.componentId ? ' selected' : '')} onClick={() => onLocate(id)}>{c.ref}</button>; })}</div>}
+    {focusLayout && recentSelections.length > 0 && <div className="quick-parts">{recentSelections.map(id => { const c = index.componentById.get(id); return c && <button type="button" key={id} className={'quick-part mono' + (id === selection.componentId ? ' selected' : '')} onClick={() => onLocate(id)}>{c.ref}</button>; })}</div>}
     <div className="canvas-bottom">
       <div className="tool-group"><Tool label={t('tool.zoomOut')} shortcut="−" onClick={() => command('zoom-out')}><Minus size={16} /></Tool><LiveZoom store={statusStore} /><Tool label={t('tool.zoomIn')} shortcut="+" onClick={() => command('zoom-in')}><Plus size={16} /></Tool><span className="tool-divider" /><Tool label={t('tool.fit')} shortcut="F" onClick={() => command('fit')}><Scan size={16} /></Tool><Tool label={t('tool.rotate')} shortcut="R" onClick={() => command('rotate')}><RotateCw size={16} /></Tool></div>
       <div className="tool-group canvas-secondary-tools"><Tool label={t('tool.netHighlight')} active={netVisible && !!selection.net} disabled={!selection.net} onClick={() => onNetVisible(!netVisible)}><Route size={16} /></Tool><Tool label={t('tool.measure')} shortcut="M" testId="measure-tool" active={measure} onClick={() => onMeasure(!measure)}><Ruler size={16} /></Tool><Tool label={t('tool.labels')} shortcut="L" active={settings.showLabels} onClick={() => onSettings({ showLabels: !settings.showLabels })}><Tags size={16} /></Tool><Tool label={t('common.note')} shortcut="N" testId="note-tool-canvas" disabled={!selection.componentId} active={hasNote} onClick={onEditNote}><StickyNote size={16} /></Tool></div>

@@ -1,6 +1,6 @@
 /**
  * Test support for schematic code: small builders for `Schematic` literals and original synthetic golden fixtures.
- * Pure data, no I/O; exported for the connectivity tests and for related tests (viewer, cross-probe).
+ * Pure data, no I/O; exported for the connectivity tests and for the other schematic tests (viewer, cross-probe).
  *
  * Conventions of the builders: millimetres, Y down; ids are explicit or generated per sheet; a pin id is
  * `${symbolId}#${number}` (+ `@${unit}` for a repeated number inside one symbol, like parsers produce).

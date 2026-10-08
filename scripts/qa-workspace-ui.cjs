@@ -327,7 +327,7 @@ const scenarios = {
     check('a failed save keeps the dialog open with the text', await page.inputValue('#note-draft') === 'Pin 1 reads 3.3 V' && /not saved/.test(await page.$eval('[data-testid=note-dialog] .data-warning', n => n.textContent)));
     await page.click('[data-testid=note-save]');
     await page.waitForSelector('[data-testid=note-dialog]', { state: 'detached' });
-    check('retrying saves exactly one note for that pin', (await page.evaluate(() => window.__mock.state().notes.filter(n => n.pinId === 'c:C1.1').length)) === 1);
+    check('retrying saves exactly one note for that pin', (await page.evaluate(() => window.__mock.state().notes.filter(n => n.target?.ref === 'C1' && n.target.pin === '1').length)) === 1);
     await page.close();
     const blocked = await openPage({ query: 'notesBlocked=1' });
     await pick(blocked, 'U1');

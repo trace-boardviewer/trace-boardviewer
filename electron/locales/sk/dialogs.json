@@ -1,0 +1,26 @@
+{
+  "help.title": "Skratky po ruke",
+  "help.open": "Otvoriť súbor",
+  "help.search": "Hľadať súčiastky",
+  "help.fit": "Celá doska",
+  "help.rotate": "Otočiť",
+  "help.measure": "Merať vzdialenosť",
+  "help.labels": "Popisky",
+  "help.note": "Poznámka",
+  "help.zoom": "Priblížiť / oddialiť",
+  "help.layout": "Dielňa / Zameranie",
+  "help.escape": "Zrušiť zvýraznenie / ukončiť meranie",
+  "help.footer": "Koliesko myši: priblíženie v mieste kurzora. Ťahanie: posun dosky. Kliknutie: výber súčiastky alebo pinu.",
+  "help.diagnosticReport": "Diagnostická správa o formáte…",
+  "help.diagnosticHint": "Opisuje súbor, ktorý sa neotvorí, bez jeho obsahu.",
+
+  "recents.title": "Nedávne dosky",
+  "recents.empty": "Zatiaľ nebol otvorený žiadny súbor.",
+  "recents.openOther": "Otvoriť iný súbor",
+
+  "info.title": "Informácie o doske",
+  "info.format": "Formát",
+  "info.size": "Rozmery dosky",
+  "info.counts": "Súčiastky / piny / siete",
+  "info.footer": "Pomocné čiary zobrazujú prepojenie sietí. Nenahrádzajú geometriu medených ciest v súbore."
+}

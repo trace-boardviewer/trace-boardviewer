@@ -1,0 +1,1 @@
+Open HyperLynx, Fabmaster, EasyEDA Standard and Pro PCB files, IPC-D-356 netlists, recognized CSV/TSV pin lists, IPC-2581 XML boards and Altium SchDoc schematics. Import notes and the support table state the verified writers and geometry limits. Altium PcbDoc is now labeled as validated with real files.

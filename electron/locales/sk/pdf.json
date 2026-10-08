@@ -1,0 +1,19 @@
+{
+  "pdf.ocr.recognize": "Rozpoznať text",
+  "pdf.ocr.recognizeTitle": "Prečíta text strán bez textovej vrstvy priamo v tomto počítači. Nič sa neodosiela.",
+  "pdf.ocr.stop": "Zastaviť",
+  "pdf.ocr.pageOffer": "Táto strana je obrázok bez textovej vrstvy. Rozpoznajte jej text, aby ste v nej mohli vyhľadávať a prepojiť označenia z dosky.",
+  "pdf.ocr.documentOffer": "Žiadna textová vrstva: toto je naskenovaný alebo rastrový PDF. Rozpoznajte jeho text, aby ste v ňom mohli vyhľadávať a prepojiť označenia z dosky.",
+  "pdf.ocr.starting": "Spúšťa sa rozpoznávanie textu…",
+  "pdf.ocr.running": "Rozpoznávanie textu: strana {page} ({done} z {total})",
+  "pdf.ocr.summary": "Rozpoznaný text · strany: {pages} · slová: {words}",
+  "pdf.ocr.linkRule": "Rozpoznané slová sú označené. Prepojeniami sa stanú iba presné názvy z dosky rozpoznané s istotou aspoň {floor} %.",
+  "pdf.ocr.cancelled": "Rozpoznávanie textu sa zastavilo po {done} z {total} strán. V rozpoznaných stranách sa dá ďalej vyhľadávať.",
+  "pdf.ocr.timeouts": "Strany nerozpoznané v časovom limite: {pages}",
+  "pdf.ocr.failed": "Rozpoznávanie textu zlyhalo: {message}",
+  "pdf.ocr.unavailable": "Rozpoznávanie textu tu nie je dostupné: {message}",
+  "pdf.ocr.badge": "Rozpoznaný text",
+  "pdf.ocr.badgeTitle": "Text rozpoznaný pomocou OCR v tomto počítači, priemerná istota {confidence} %",
+  "pdf.ocr.wordTitle": "Rozpoznaný text, istota {confidence} %",
+  "pdf.ocr.linkLabel": "{name}, rozpoznaný text, istota {confidence} %"
+}

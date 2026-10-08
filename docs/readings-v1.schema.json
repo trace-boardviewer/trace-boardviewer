@@ -1,0 +1,561 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TRACE readings pack v1",
+  "description": "Canonical exported form. Runtime validation additionally enforces unique IDs, sorted/distinct canonical pin sets, total pin pair count, timestamp validity and exact per-entry licence marking.",
+  "type": "object",
+  "properties": {
+    "format": {
+      "const": "trace-readings"
+    },
+    "version": {
+      "const": 1
+    },
+    "license": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^(?:LicenseRef-[A-Za-z0-9.-]{1,53}|[A-Za-z0-9][A-Za-z0-9.+-]{0,63})$"
+    },
+    "licenses": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64,
+        "pattern": "^(?:LicenseRef-[A-Za-z0-9.-]{1,53}|[A-Za-z0-9][A-Za-z0-9.+-]{0,63})$"
+      }
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "attribution": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    },
+    "createdAt": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,9})?)?(?:Z|[+-]\\d{2}:\\d{2})$"
+    },
+    "board": {
+      "$ref": "#/$defs/board"
+    },
+    "readings": {
+      "type": "array",
+      "maxItems": 100000,
+      "items": {
+        "$ref": "#/$defs/reading"
+      }
+    }
+  },
+  "required": [
+    "format",
+    "version",
+    "license",
+    "board",
+    "readings"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "point": {
+      "type": "object",
+      "properties": {
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "pin": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "net": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      },
+      "required": [],
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "ref"
+          ]
+        },
+        {
+          "required": [
+            "net"
+          ]
+        }
+      ],
+      "dependentRequired": {
+        "pin": [
+          "ref"
+        ]
+      }
+    },
+    "conditions": {
+      "type": "object",
+      "properties": {
+        "power": {
+          "enum": [
+            "unpowered",
+            "powered"
+          ]
+        },
+        "state": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "reference": {
+          "$ref": "#/$defs/point"
+        },
+        "polarity": {
+          "enum": [
+            "red-on-reference",
+            "black-on-reference"
+          ]
+        },
+        "meterMode": {
+          "enum": [
+            "dc",
+            "ac"
+          ]
+        },
+        "meter": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "power"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "reference"
+            ]
+          },
+          "then": {
+            "properties": {
+              "reference": {
+                "not": {
+                  "required": [
+                    "ref",
+                    "net"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "tolerance": {
+      "type": "object",
+      "properties": {
+        "abs": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1000000000000
+        },
+        "rel": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 10
+        }
+      },
+      "required": [],
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "abs"
+          ]
+        },
+        {
+          "required": [
+            "rel"
+          ]
+        }
+      ]
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "origin": {
+          "enum": [
+            "trace-pack",
+            "csv",
+            "openboarddata",
+            "note"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "attribution": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "sourceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "importedAt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,9})?)?(?:Z|[+-]\\d{2}:\\d{2})$"
+        }
+      },
+      "required": [
+        "origin"
+      ],
+      "additionalProperties": false
+    },
+    "reading": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]{0,63}$"
+        },
+        "kind": {
+          "enum": [
+            "diode",
+            "voltage",
+            "resistance",
+            "continuity"
+          ]
+        },
+        "target": {
+          "$ref": "#/$defs/point"
+        },
+        "value": {
+          "type": "number",
+          "minimum": -1000000000000,
+          "maximum": 1000000000000
+        },
+        "unit": {
+          "enum": [
+            "V",
+            "ohm"
+          ]
+        },
+        "ol": {
+          "const": true
+        },
+        "connected": {
+          "type": "boolean"
+        },
+        "raw": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "conditions": {
+          "$ref": "#/$defs/conditions"
+        },
+        "tolerance": {
+          "$ref": "#/$defs/tolerance"
+        },
+        "source": {
+          "enum": [
+            "measured",
+            "known-good",
+            "imported"
+          ]
+        },
+        "license": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^(?:LicenseRef-[A-Za-z0-9.-]{1,53}|[A-Za-z0-9][A-Za-z0-9.+-]{0,63})$"
+        },
+        "provenance": {
+          "$ref": "#/$defs/provenance"
+        },
+        "takenAt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,9})?)?(?:Z|[+-]\\d{2}:\\d{2})$"
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "target",
+        "conditions",
+        "source"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "source": {
+                "const": "imported"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "license",
+              "provenance"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "continuity"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "connected"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "value"
+                  ]
+                },
+                {
+                  "required": [
+                    "unit"
+                  ]
+                },
+                {
+                  "required": [
+                    "ol"
+                  ]
+                }
+              ]
+            }
+          },
+          "else": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "connected"
+                  ]
+                }
+              ]
+            },
+            "oneOf": [
+              {
+                "required": [
+                  "value",
+                  "unit"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "ol"
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "required": [
+                  "ol"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "value"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "unit"
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "diode",
+                  "resistance"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "minimum": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "resistance"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "unit": {
+                "const": "ohm"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "unit": {
+                "const": "V"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "not": {
+                  "const": "voltage"
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "conditions": {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "meterMode"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "pinSet": {
+      "type": "array",
+      "maxItems": 1000000,
+      "items": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 2,
+        "prefixItems": [
+          {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1000000,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "^(?!~)"
+            }
+          }
+        ],
+        "items": false
+      }
+    },
+    "board": {
+      "type": "object",
+      "properties": {
+        "fingerprint": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "fingerprintVersion": {
+          "const": 1
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "boardNumber": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "fileKeys": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "pinSet": {
+          "$ref": "#/$defs/pinSet"
+        }
+      },
+      "required": [],
+      "additionalProperties": false,
+      "dependentRequired": {
+        "fingerprint": [
+          "fingerprintVersion"
+        ],
+        "fingerprintVersion": [
+          "fingerprint"
+        ]
+      }
+    }
+  }
+}

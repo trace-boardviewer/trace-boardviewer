@@ -3,7 +3,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { WorkspaceApi } from '../../app/api';
 import type { PdfLinkHit, SchematicTarget } from '../../lib/crossprobe';
 import type { BoardPin } from '../../lib/types';
-import type { NoteTarget } from '../../lib/workspace';
+import { indexOfState } from './model';
+import type { NoteSubject } from '../../lib/note-keys';
 import { BookmarksSection, DocumentsSection, NotesSection, SchematicNetSection, SchematicSection } from './InspectorSections';
 import { naturalOrder, PartIcon, kindKey, sideKey, Tool, VirtualList } from './ui';
 import { useUi } from './ui-context';
@@ -19,7 +20,7 @@ export interface InspectorProps {
   /** The document the technician is looking at (Documents tab or split pane): its bookmarks are listed here. */
   activeDocumentId: string | null;
   onLocate(): void;
-  onEditNote(target: NoteTarget): void;
+  onEditNote(target: NoteSubject): void;
   onShowSchematic(target: SchematicTarget): void;
   /** Reveals the schematic document that holds the schematic net a board net resolved to. */
   onShowNet(documentId: string): void;
@@ -35,27 +36,26 @@ export function Inspector({ api, floating, activeDocumentId, onLocate, onEditNot
   const { state, actions } = api;
   const { board, selection } = state;
   const actionsRef = useRef(actions); actionsRef.current = actions;
-  const componentMap = useMemo(() => new Map(board?.components.map(c => [c.id, c])), [board]);
-  const pinMap = useMemo(() => new Map(board?.pins.map(p => [p.id, p])), [board]);
-  const netMap = useMemo(() => new Map(board?.nets.map(n => [n.name, n])), [board]);
-  const selected = selection.componentId ? componentMap.get(selection.componentId) ?? null : null;
-  const selectedPin = selection.pinId ? pinMap.get(selection.pinId) ?? null : null;
+  // Every lookup goes through the board's shared index (no maps of its own).
+  const index = indexOfState(state);
+  const selected = selection.componentId ? index?.componentById.get(selection.componentId) ?? null : null;
+  const selectedPin = selection.pinId ? index?.pinById.get(selection.pinId) ?? null : null;
   const selectedNet = selection.net;
-  const pins = useMemo(() => selected?.pinIds.map(id => pinMap.get(id)!).filter(Boolean) ?? [], [selected, pinMap]);
+  const pins = useMemo<readonly BoardPin[]>(() => (selected && index ? index.pinsOf(selected.id) : []), [selected, index]);
+  const netPins = useMemo<readonly BoardPin[]>(() => (selectedNet && index ? index.pinsOfNet(selectedNet) : []), [selectedNet, index]);
   const [expanded, setExpanded] = useState(false);
   useEffect(() => { setExpanded(false); }, [selection.componentId]);
   const connected = useMemo(() => {
-    if (!selectedNet) return [];
-    const net = netMap.get(selectedNet); if (!net) return [];
+    if (!index || !netPins.length) return [];
     const tally = new Map<string, number>();
-    net.pinIds.forEach(id => { const p = pinMap.get(id); if (p) tally.set(p.componentId, (tally.get(p.componentId) || 0) + 1); });
-    return [...tally].map(([id, count]) => ({ component: componentMap.get(id)!, pins: count })).filter(x => x.component).sort((a, b) => naturalOrder(a.component.ref, b.component.ref));
-  }, [selectedNet, netMap, pinMap, componentMap]);
-  const noteTarget: NoteTarget | null = selected ? { componentId: selected.id, ...(selectedPin ? { pinId: selectedPin.id } : {}) } : null;
-  const hasNote = selected ? !!noteOf(state.notes, selected.id, selectedPin?.id) : false;
+    for (const p of netPins) tally.set(p.componentId, (tally.get(p.componentId) || 0) + 1);
+    return [...tally].map(([id, count]) => ({ component: index.componentById.get(id)!, pins: count })).filter(x => x.component).sort((a, b) => naturalOrder(a.component.ref, b.component.ref));
+  }, [index, netPins]);
+  const noteTarget: NoteSubject | null = selected ? { componentId: selected.id, ...(selectedPin ? { pinId: selectedPin.id } : {}) } : null;
+  const hasNote = selected ? !!noteOf(board, state.notes, selected.id, selectedPin?.id) : false;
 
   // "{pins} · {components}" names the list as well as its toggle: with empty parameters the list was announced as " · ".
-  const connectionSummary = selectedNet ? t('inspector.connections', { pins: t('unit.pins', { count: netMap.get(selectedNet)?.pinIds.length || 0 }), components: t('unit.components', { count: connected.length }) }) : '';
+  const connectionSummary = selectedNet ? t('inspector.connections', { pins: t('unit.pins', { count: netPins.length }), components: t('unit.components', { count: connected.length }) }) : '';
   const netSection = selectedNet && <div className="net-section" data-testid="inspector-net">
     <div className="net-title"><span className="net-dot" /><strong className="mono" title={selectedNet}>{selectedNet}</strong><Tool label={t('inspector.copyNet')} onClick={() => copy(selectedNet)}><Copy size={13} /></Tool></div>
     <button type="button" className="connection-summary" aria-expanded={expanded || !selected} onClick={() => setExpanded(v => !v)}>{connectionSummary}<ChevronRight size={14} style={{ transform: expanded || !selected ? 'rotate(90deg)' : '' }} /></button>

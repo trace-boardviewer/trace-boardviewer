@@ -145,7 +145,7 @@ export function parseXzz(input: ParseInput): Board | null {
     const read = (offset: number) => local.getUint32(offset, true);
     const name = field(block.subarray(header.namePos, header.namePos + header.nameLength));
     const key = `part:${parts.length}`;
-    parts.push({ key, ref: name || key, side: 'top' });
+    parts.push({ key, ref: name || key, ...(name ? {} : { refGenerated: true }), side: 'top' });
     const { end } = header;
     for (let ptr = header.namePos + header.nameLength; ptr < end;) {
       const type = block[ptr++];
@@ -158,9 +158,9 @@ export function parseXzz(input: ParseInput): Board | null {
         if (size < 60) fail(`pin record is too short in component ${name}.`);
         const nameLength = read(ptr + 24);
         if (nameLength > size - 60) fail(`pin name exceeds its record in component ${name}.`);
-        const pinName = field(block.subarray(ptr + 28, ptr + 28 + nameLength)) || String(pins.length + 1);
+        const namedPin = field(block.subarray(ptr + 28, ptr + 28 + nameLength)), pinName = namedPin || String(pins.length + 1);
         if (pins.length >= MAX_PINS) fail(`more than ${MAX_PINS} pins.`, 'LIMIT_EXCEEDED');
-        pins.push({ part: key, number: pinName, name: pinName, net: netName(read(ptr + 60 + nameLength)), side: 'top', x: local.getInt32(ptr + 8, true), y: local.getInt32(ptr + 12, true) });
+        pins.push({ part: key, number: pinName, ...(namedPin ? {} : { numberGenerated: true }), name: pinName, net: netName(read(ptr + 60 + nameLength)), side: 'top', x: local.getInt32(ptr + 8, true), y: local.getInt32(ptr + 12, true) });
       } else if (type !== 0x01 && type !== 0x05 && type !== 0x06) {
         fail(`unsupported component sub-record type 0x${type.toString(16).padStart(2, '0')} in ${name}.`);
       }
@@ -173,10 +173,10 @@ export function parseXzz(input: ParseInput): Board | null {
     const local = new DataView(block.buffer, block.byteOffset, block.byteLength);
     const nameLength = local.getUint32(20, true);
     if (nameLength > block.length - 28) fail('test pad name exceeds its record.');
-    const name = field(block.subarray(24, 24 + nameLength)) || String(++testPads);
+    const given = field(block.subarray(24, 24 + nameLength)), name = given || String(++testPads);
     const key = `pad:${parts.length}`, x = local.getInt32(4, true), y = local.getInt32(8, true);
-    parts.push({ key, ref: name, package: 'TESTPAD', side: 'top', position: { x, y } });
-    pins.push({ part: key, number: name, name, net: netName(local.getUint32(block.length - 4, true)), side: 'top', x, y });
+    parts.push({ key, ref: name, ...(given ? {} : { refGenerated: true }), package: 'TESTPAD', side: 'top', position: { x, y } });
+    pins.push({ part: key, number: name, ...(given ? {} : { numberGenerated: true }), name, net: netName(local.getUint32(block.length - 4, true)), side: 'top', x, y });
   };
   const parseDrawing = (block: Uint8Array, arc: boolean) => {
     const needed = arc ? 28 : 24; // layer, then x,y,r,start,end,scale (arc) or x1,y1,x2,y2,scale (line) as 32-bit LE words

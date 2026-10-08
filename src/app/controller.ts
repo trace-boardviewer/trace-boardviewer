@@ -1,11 +1,15 @@
 import type { ViewerCamera, ViewerHighlight } from '../components/viewer-contracts';
 import { companionNames } from '../lib/formats';
+import { boardIndexOf } from '../lib/board-index';
 import {
-  boardNetsByName, buildBoardIndex, buildSchematicIndex, linkBoardSchematic, normalizeQuery, resolvePdfRefHits, searchAll, DEFAULT_SEARCH_LIMITS,
+  buildSchematicIndex, linkBoardSchematic, normalizeQuery, resolvePdfRefHits, searchAll, searchBoardGroups, DEFAULT_SEARCH_LIMITS,
 } from '../lib/crossprobe';
-import type { BoardIndex, DocumentSearchSource, SchematicIndex, SchematicSource, SearchRow } from '../lib/crossprobe';
+import type { BoardIndex, BoardSearchGroups, DocumentSearchSource, SchematicIndex, SchematicSource, SearchRow } from '../lib/crossprobe';
+import { MODEL_PROTOCOL } from '../lib/model-protocol';
 import type { DocumentAnnotation, DocumentBookmark, DocumentCalibration, DocumentKind, DocumentLocateResult, DocumentPayload, WorkspaceExportResult, WorkspaceManifest, WorkspaceTab } from '../lib/documents';
 import type { Message, MessageKey, MessageParam, ParseIssue } from '../lib/i18n';
+import { assertStorable, migrateNotes, noteKeyIndex, unresolvedNotes } from '../lib/note-keys';
+import type { NoteSubject } from '../lib/note-keys';
 import type { CreatePdfSessionOptions, PdfSession, PdfSessionSnapshot } from '../lib/pdf/session-contract';
 import { pinKey, symbolKey } from '../lib/schematic/model';
 import type { SchSheetInstance, SchematicDesign } from '../lib/schematic/model';
@@ -13,14 +17,16 @@ import type { SchematicWorkerResponse } from '../lib/schematic/schematic-worker'
 import type { Board, BoardNote, FilePayload, FormatFailure, ImportOptions, RecentFile, TraceDesktop } from '../lib/types';
 import {
   WorkspaceError, acceptChangedDocument, addDocument, applyLocateResults, boardIdentityKey, createManifest, createWorkspaceSaver,
-  noteFor, reconcileManifest, relinkDocument, removeAlias, removeAnnotation, removeBookmark, removeDocument, setActiveTab, setAlias, setCalibration, setCamera, setPageCount,
+  noteFor, reconcileManifest, relinkDocument, removeAlias, removeAnnotation, removeBookmark, removeDocument, removeNote as dropNote, setActiveTab, setAlias, setCalibration, setCamera, setPageCount,
   setSplit, touch, upsertAnnotation, upsertBookmark, upsertNote, validateNotes,
 } from '../lib/workspace';
 import type { DocumentChange, SaverState, WorkspaceSaver } from '../lib/workspace';
 import type {
-  BoardSelectionState, DocumentOverlay, DocumentRuntime, DocumentStatus, ImportState, Notice, NoticeKind, ProbeState, SaveState, SearchState, SelectionOrigin, WorkspaceActions,
+  BoardSelectionState, DocumentOverlay, DocumentRuntime, DocumentStatus, ImportProgress, ImportState, Notice, NoticeKind, ProbeState, SaveState, SearchState, SelectionOrigin, WorkspaceActions,
   WorkspaceApi, WorkspaceState,
 } from './api';
+import { createModelClient } from './model-client';
+import type { ModelClient } from './model-client';
 import { errorText, FormatFailureError, isAbortError, isClosingError, nativeCode, nativeFailure, UiError } from './errors';
 import { validateKeyText } from './keys';
 import type { KeyKind } from './keys';
@@ -57,6 +63,19 @@ export interface WorkerPort { post(message: unknown, transfer?: Transferable[]):
 /** Creates a worker whose replies and crashes are delivered to the callbacks (a real Worker, or a fake in tests). */
 export type WorkerFactory = (onMessage: (data: unknown) => void, onError: () => void) => WorkerPort;
 export interface KeyValueStorage { getItem(key: string): string | null; setItem(key: string, value: string): void }
+/** Timer functions of the import watchdog (tests pass fakes). */
+export interface ControllerTimers { setTimeout(run: () => void, ms: number): unknown; clearTimeout(handle: unknown): void }
+/**
+ * Import watchdog: a parse that reports no progress for `stallMs` turns the progress state to `stalled` (the UI says so and keeps
+ * Cancel available); one that reports none for `stopMs` is stopped (its worker is terminated) with a notice. Every progress report
+ * of the parser restarts both clocks.
+ */
+export interface ParseWatchdog { stallMs: number; stopMs: number }
+export const DEFAULT_PARSE_WATCHDOG: Readonly<ParseWatchdog> = Object.freeze({ stallMs: 30_000, stopMs: 120_000 });
+const DEFAULT_TIMERS: ControllerTimers = {
+  setTimeout: (run, ms) => { const handle = setTimeout(run, ms); (handle as { unref?: () => void }).unref?.(); return handle; },
+  clearTimeout: handle => clearTimeout(handle as ReturnType<typeof setTimeout>),
+};
 export interface ControllerDeps {
   /** Undefined in the browser fallback (no persistence, files come from `pickFiles`). */
   desktop?: TraceDesktop;
@@ -71,6 +90,9 @@ export interface ControllerDeps {
   pickFiles?(options: { multiple: boolean }): Promise<File[]>;
   /** Quiet period of the workspace saver (default 400 ms). */
   saveDelayMs?: number;
+  /** Import watchdog thresholds (default DEFAULT_PARSE_WATCHDOG). */
+  parseWatchdog?: Partial<ParseWatchdog>;
+  timers?: ControllerTimers;
 }
 export interface WorkspaceController {
   subscribe(listener: () => void): () => void;
@@ -88,7 +110,9 @@ export interface WorkspaceController {
 
 type ImportOutcome = 'loaded' | 'failed' | 'key-required';
 type AttachOutcome = 'added' | 'duplicate' | 'restored' | 'failed';
-type ParserReply = { board?: Board; issue?: ParseIssue; formatError?: FormatFailure; error?: string };
+type ParserReply = { board?: Board; model?: number; progress?: { fraction?: unknown }; issue?: ParseIssue; formatError?: FormatFailure; error?: string };
+/** A parsed board and, when the worker speaks the model protocol, the client of the worker that now serves this board. */
+interface Parsed { board: Board; model: ModelClient | null }
 
 interface Entry {
   version: number;
@@ -110,6 +134,8 @@ interface Entry {
   linkStarted?: boolean;
   linkAbort?: AbortController;
   readyNoticed?: boolean;
+  /** `snapshot.ocr.revision` the current cross-reference and search results were made with. */
+  ocrRevision?: number;
 }
 
 /**
@@ -166,12 +192,19 @@ class Controller {
   // --- import ---
   private sequence = 0;
   private parser: { cancel(): void } | null = null;
+  private readonly timers: ControllerTimers;
+  private readonly watchdog: ParseWatchdog;
   private sessionOptions: ImportOptions = {};
   private waitingKey: { payload: FilePayload; kind: KeyKind } | null = null;
 
   // --- board-scoped resources (everything below is dropped on a board switch) ---
   private generation = 0;
+  /** The shared index of the open board (boardIndexOf), also published as `state.boardIndex`. */
   private boardIndex: BoardIndex | null = null;
+  /** The model worker of the open board; null in the synchronous fallback (a worker that does not speak the model protocol, tests). */
+  private model: ModelClient | null = null;
+  private linkRun = 0;
+  private linkAbort: AbortController | null = null;
   private schIndex: SchematicIndex | null = null;
   private sources: SchematicSource[] = [];
   private linkKey: { board: BoardIndex | null; schematic: SchematicIndex | null; aliases: unknown } | null = null;
@@ -207,10 +240,12 @@ class Controller {
     this.desktop = deps.desktop;
     this.now = deps.now ?? Date.now;
     this.newId = deps.newId ?? (() => crypto.randomUUID());
+    this.timers = deps.timers ?? DEFAULT_TIMERS;
+    this.watchdog = { ...DEFAULT_PARSE_WATCHDOG, ...deps.parseWatchdog };
     this.state = {
-      board: null, boardKey: null, boardPath: '', manifest: null, activeTab: 'board', split: DEFAULT_SPLIT, documents: NO_DOCUMENTS, notes: NO_NOTES, notesBlocked: null,
+      board: null, boardIndex: null, boardKey: null, boardPath: '', manifest: null, activeTab: 'board', split: DEFAULT_SPLIT, documents: NO_DOCUMENTS, notes: NO_NOTES, notesBlocked: null,
       save: IDLE_SAVE, selection: EMPTY_SELECTION, probe: EMPTY_PROBE, search: EMPTY_SEARCH, link: null, pdfLinks: NO_LINKS, overlays: NO_OVERLAYS, notices: NO_NOTICES,
-      persistence: this.desktop ? 'native' : 'session-only', import: { phase: 'idle', keyRequest: null, recents: NO_RECENTS, file: null },
+      persistence: this.desktop ? 'native' : 'session-only', import: { phase: 'idle', keyRequest: null, recents: NO_RECENTS, file: null, progress: null },
     };
     this.actions = this.createActions();
   }
@@ -300,30 +335,79 @@ class Controller {
     this.parser?.cancel();
     this.parser = null;
     this.waitingKey = null;
-    this.patchImport({ phase: 'idle', keyRequest: null });
+    this.patchImport({ phase: 'idle', keyRequest: null, progress: null });
     return token;
   }
 
-  private parse(payload: FilePayload): Promise<Board> {
-    return new Promise<Board>((resolve, reject) => {
+  /** The model worker of the open board while it runs; null means: answer on this thread from the shared index. */
+  private get liveModel(): ModelClient | null { return this.model?.alive ? this.model : null; }
+
+  /**
+   * One worker per import. Its progress reports (`{ progress: { fraction } }`) update `import.progress` and restart the watchdog; a
+   * watchdog stop or a cancel terminates the worker. A worker that answers `{ board, model: MODEL_PROTOCOL }` is not terminated: it
+   * becomes the model worker of the board, and its later messages go to the model client returned with the board.
+   */
+  private parse(payload: FilePayload, token: number): Promise<Parsed> {
+    return new Promise<Parsed>((resolve, reject) => {
       let port: WorkerPort | null = null;
+      let handover: { receive(data: unknown): void; fail(): void } | null = null;
+      let stall: unknown = null, stop: unknown = null;
+      const disarm = () => {
+        if (stall !== null) this.timers.clearTimeout(stall);
+        if (stop !== null) this.timers.clearTimeout(stop);
+        stall = stop = null;
+      };
       const handle = { cancel: () => { release(); reject(new DOMException('Import cancelled.', 'AbortError')); } };
-      const release = () => { if (port) { port.terminate(); port = null; } if (this.parser === handle) this.parser = null; };
-      try {
-        port = this.deps.createBoardWorker(data => {
-          const reply = data as ParserReply;
+      const release = () => { disarm(); if (port) { port.terminate(); port = null; } if (this.parser === handle) this.parser = null; };
+      const arm = () => {
+        disarm();
+        stall = this.timers.setTimeout(() => {
+          stall = null;
+          const progress = this.state.import.progress;
+          if (token === this.sequence && this.parser === handle) this.patchImport({ progress: { fraction: progress?.fraction ?? null, stalled: true } });
+        }, this.watchdog.stallMs);
+        stop = this.timers.setTimeout(() => {
+          stop = null;
+          if (this.parser !== handle) return;
           release();
-          if (reply.board) resolve(reply.board);
-          else if (reply.issue) reject(new UiError({ issue: reply.issue }));
-          else if (reply.formatError) reject(new FormatFailureError(reply.formatError));
-          else { if (reply.error) console.error('TRACE: unexpected parser failure:', reply.error); reject(new UiError(say('toast.parseFailed'))); }
-        }, () => { release(); reject(new UiError(say('toast.workerCrashed'))); });
+          reject(new UiError(say('toast.importStopped', { seconds: Math.round(this.watchdog.stopMs / 1000) })));
+        }, this.watchdog.stopMs);
+      };
+      const onReply = (data: unknown) => {
+        const reply = data as ParserReply;
+        if (reply.progress) {
+          const fraction = typeof reply.progress.fraction === 'number' && Number.isFinite(reply.progress.fraction) ? Math.min(1, Math.max(0, reply.progress.fraction)) : null;
+          if (token === this.sequence && this.parser === handle) { this.patchImport({ progress: { fraction, stalled: false } satisfies ImportProgress }); arm(); }
+          return;
+        }
+        if (reply.board && reply.model === MODEL_PROTOCOL && port) {
+          // The worker keeps the board and answers model requests from now on: hand it over instead of terminating it.
+          const kept: WorkerPort = port;
+          port = null;
+          release();
+          const client = createModelClient(kept);
+          handover = client;
+          resolve({ board: reply.board, model: client });
+          return;
+        }
+        release();
+        if (reply.board) resolve({ board: reply.board, model: null });
+        else if (reply.issue) reject(new UiError({ issue: reply.issue }));
+        else if (reply.formatError) reject(new FormatFailureError(reply.formatError));
+        else { if (reply.error) console.error('TRACE: unexpected parser failure:', reply.error); reject(new UiError(say('toast.parseFailed'))); }
+      };
+      try {
+        port = this.deps.createBoardWorker(data => { if (handover) handover.receive(data); else onReply(data); }, () => {
+          if (handover) { handover.fail(); return; }
+          release(); reject(new UiError(say('toast.workerCrashed')));
+        });
         this.parser = handle;
         // Exactly sized copies are transferred (the payload keeps its bytes for a retry with a key).
         const data = new Uint8Array(payload.data);
         const companions = payload.companions && Object.fromEntries(Object.entries(payload.companions).map(([name, bytes]) => [name, new Uint8Array(bytes)]));
         const transfer = [bufferOf(data), ...Object.values(companions ?? {}).map(bytes => bufferOf(bytes))];
         port.post({ name: payload.name, data, companions, options: this.sessionOptions }, transfer);
+        if (port) arm(); // a worker that already answered (or failed) has released the import
       } catch (error) {
         release();
         reject(error instanceof UiError ? error : new UiError(say('toast.workerCrashed')));
@@ -340,9 +424,13 @@ class Controller {
 
   private async loadPayload(payload: FilePayload, token: number): Promise<ImportOutcome> {
     if (token !== this.sequence) return 'failed';
-    this.patchImport({ phase: 'processing' });
+    this.patchImport({ phase: 'processing', progress: { fraction: null, stalled: false } });
+    // The model worker of the parsed board until the board is committed (or dropped, when a newer request won meanwhile).
+    let model: ModelClient | null = null;
     try {
-      const parsed = await this.parse(payload);
+      const result = await this.parse(payload, token);
+      const parsed = result.board;
+      model = result.model;
       if (token !== this.sequence) return 'failed';
       // The previous board's workspace is written before its state is replaced (and before a re-open of the same board reads it).
       await this.flushActive();
@@ -350,12 +438,18 @@ class Controller {
       let saved: BoardNote[] = [];
       let notesError: Message | null = null;
       let quitting = false;
-      try { saved = await this.readNotes(payload.key); }
+      let notesUnsaved: unknown = null;
+      try { ({ notes: saved, unsaved: notesUnsaved } = await this.loadNotes(payload.key, parsed)); }
       catch (error) { notesError = nativeFailure(error, say('toast.notesReadFailed')); quitting = isClosingError(error); }
       if (token !== this.sequence) return 'failed';
-      this.commitBoard(payload, parsed, saved, notesError);
+      this.commitBoard(payload, parsed, saved, notesError, model);
+      model = null;
       if (notesError) { if (!quitting) this.notify(say('toast.loadedNotesLocked'), 'error'); }
-      else this.notify(say('toast.loaded', { components: say('unit.components', { count: parsed.components.length }), pins: say('unit.pins', { count: parsed.pins.length }) }), 'success');
+      else {
+        this.notify(say('toast.loaded', { components: say('unit.components', { count: parsed.components.length }), pins: say('unit.pins', { count: parsed.pins.length }) }), 'success');
+        if (notesUnsaved && !isClosingError(notesUnsaved)) this.notify(say('toast.notesUpdateFailed'), 'error');
+        if (unresolvedNotes(parsed, saved).length) this.notify(say('toast.notesUnresolved'), 'error');
+      }
       const desktop = this.desktop;
       if (desktop) {
         void this.track(desktop.acceptBoard(payload.path, payload.key).then(() => desktop.recentBoards()).then(recents => {
@@ -377,7 +471,8 @@ class Controller {
       this.notifyFailure(error, say('toast.openFailed'));
       return 'failed';
     } finally {
-      if (token === this.sequence) this.patchImport({ phase: 'idle' });
+      model?.dispose();
+      if (token === this.sequence) this.patchImport({ phase: 'idle', progress: null });
     }
   }
 
@@ -462,6 +557,11 @@ class Controller {
     }
     this.saveBlocked = false;
     this.saveFailureNotified = false;
+    this.model?.dispose();
+    this.model = null;
+    this.linkRun++;
+    this.linkAbort?.abort();
+    this.linkAbort = null;
     this.searchAbort?.abort();
     this.searchAbort = null;
     this.searchRun++;
@@ -479,21 +579,23 @@ class Controller {
     this.schematicDriven = false;
   }
 
-  private commitBoard(payload: FilePayload, board: Board, notes: BoardNote[], notesError: Message | null): void {
-    this.batch(() => this.commitBoardNow(payload, board, notes, notesError));
+  private commitBoard(payload: FilePayload, board: Board, notes: BoardNote[], notesError: Message | null, model: ModelClient | null): void {
+    this.batch(() => this.commitBoardNow(payload, board, notes, notesError, model));
   }
-  private commitBoardNow(payload: FilePayload, board: Board, notes: BoardNote[], notesError: Message | null): void {
+  private commitBoardNow(payload: FilePayload, board: Board, notes: BoardNote[], notesError: Message | null, model: ModelClient | null): void {
     this.retireBoard();
     this.generation++;
     this.noteChain = Promise.resolve();
-    this.boardIndex = buildBoardIndex(board);
+    // One shared index per board (core only here; its cross-probe layer is built when a schematic or PDF first needs it).
+    this.boardIndex = boardIndexOf(board);
+    this.model = model;
     this.schIndex = null;
     this.waitingKey = null;
     this.patch({
-      board, boardKey: payload.key, boardPath: payload.path, manifest: null, activeTab: 'board', split: DEFAULT_SPLIT, documents: NO_DOCUMENTS, notes: notes.length ? notes : NO_NOTES,
+      board, boardIndex: this.boardIndex, boardKey: payload.key, boardPath: payload.path, manifest: null, activeTab: 'board', split: DEFAULT_SPLIT, documents: NO_DOCUMENTS, notes: notes.length ? notes : NO_NOTES,
       notesBlocked: notesError, save: IDLE_SAVE, selection: EMPTY_SELECTION, probe: EMPTY_PROBE, search: EMPTY_SEARCH, link: null, pdfLinks: NO_LINKS, overlays: NO_OVERLAYS,
       persistence: this.desktop ? 'native' : 'session-only',
-      import: { ...this.state.import, phase: 'idle', keyRequest: null, file: { name: payload.name, path: payload.path, key: payload.key } },
+      import: { ...this.state.import, phase: 'idle', keyRequest: null, progress: null, file: { name: payload.name, path: payload.path, key: payload.key } },
     });
     this.searchText = '';
     this.statusStore.setSource(`${board.format} · ${board.units}`);
@@ -515,9 +617,9 @@ class Controller {
     this.schIndex = null;
     this.searchText = '';
     this.patch({
-      board: null, boardKey: null, boardPath: '', manifest: null, activeTab: 'board', split: DEFAULT_SPLIT, documents: NO_DOCUMENTS, notes: NO_NOTES, notesBlocked: null, save: IDLE_SAVE,
+      board: null, boardIndex: null, boardKey: null, boardPath: '', manifest: null, activeTab: 'board', split: DEFAULT_SPLIT, documents: NO_DOCUMENTS, notes: NO_NOTES, notesBlocked: null, save: IDLE_SAVE,
       selection: EMPTY_SELECTION, probe: EMPTY_PROBE, search: EMPTY_SEARCH, link: null, pdfLinks: NO_LINKS, overlays: NO_OVERLAYS,
-      import: { ...this.state.import, phase: 'idle', keyRequest: null, file: null },
+      import: { ...this.state.import, phase: 'idle', keyRequest: null, progress: null, file: null },
     });
     this.statusStore.setSource('');
   }
@@ -702,7 +804,7 @@ class Controller {
     let entry = this.entries.get(id);
     if (entry) this.disposeEntry(entry); else { entry = this.newEntry('loading'); this.entries.set(id, entry); }
     entry.loadToken++;
-    entry.change = undefined; entry.design = undefined; entry.designState = undefined; entry.designError = undefined; entry.bytes = undefined; entry.pageRecorded = false; entry.linkStarted = false; entry.readyNoticed = false;
+    entry.change = undefined; entry.design = undefined; entry.designState = undefined; entry.designError = undefined; entry.bytes = undefined; entry.pageRecorded = false; entry.linkStarted = false; entry.readyNoticed = false; entry.ocrRevision = 0;
     this.overlayStates.delete(id);
     this.docHighlights.delete(id);
     if (record.kind === 'pdf') {
@@ -844,13 +946,30 @@ class Controller {
     this.rerunSearch();
   }
 
-  /** Memoized on (board index, schematic index, aliases); only these inputs trigger the comparison, never the pointer. */
+  /**
+   * Memoized on (board index, schematic index, aliases); only these inputs trigger the comparison, never the pointer. With a model worker
+   * the report is computed there (the previous report stays until the new one arrives; only the newest request's answer is applied);
+   * without one, or when the worker cannot answer, it is computed here from the shared index.
+   */
   private refreshLink(): void {
     const aliases = this.ws?.aliases;
     const key = this.linkKey;
     if (key && key.board === this.boardIndex && key.schematic === this.schIndex && key.aliases === aliases) return;
     this.linkKey = { board: this.boardIndex, schematic: this.schIndex, aliases };
-    this.patch({ link: this.boardIndex && this.schIndex ? linkBoardSchematic(this.boardIndex, this.schIndex, aliases) : null });
+    const run = ++this.linkRun;
+    this.linkAbort?.abort();
+    this.linkAbort = null;
+    const board = this.boardIndex, schematic = this.schIndex;
+    if (!board || !schematic) { this.patch({ link: null }); return; }
+    const model = this.liveModel;
+    if (!model) { this.patch({ link: linkBoardSchematic(board, schematic, aliases) }); return; }
+    const abort = this.linkAbort = new AbortController();
+    void this.track(model.link(this.sources, aliases, { signal: abort.signal }).then(report => {
+      if (run === this.linkRun) this.patch({ link: report });
+    }, error => {
+      if (run !== this.linkRun || isAbortError(error)) return;
+      this.patch({ link: linkBoardSchematic(board, schematic, aliases) });
+    }));
   }
 
   private inputs(): ProbeInputs {
@@ -875,13 +994,23 @@ class Controller {
     this.setProbe({ schematic: sameView(current, next) ? current : next });
   }
 
-  /** Board → schematic for the current selection (skipped when the schematic drives the selection). */
+  /**
+   * The schematic counterpart of the selected board part, as the inspector reports it. It is a function of the board selection alone,
+   * so it is refreshed whoever made the selection: a part picked in the schematic (or chosen from several board parts) is still a
+   * board part with a counterpart. Unlike recomputeProbe this never moves the schematic pane.
+   */
+  private refreshCounterpart(): void {
+    this.setProbe({ schematicMapping: mapBoardToSchematic(this.inputs(), this.state.selection).mapping });
+  }
+
+  /** Board → schematic for the current selection (the pane itself is left alone when the schematic drives the selection). */
   private recomputeProbe(): void {
     const probe = this.state.probe;
     const sources = this.sources;
     if (this.schematicDriven) {
       const view = probe.schematic;
       if (view && !sources.some(source => source.documentId === view.documentId)) { this.schematicDriven = false; this.setProbe({ schematic: this.neutralView(), boardMapping: null, boardNetMapping: null }); }
+      this.refreshCounterpart();
       return;
     }
     if (!sources.length) { this.setProbe({ schematic: null, schematicMapping: null, schematicNetMapping: null }); return; }
@@ -901,7 +1030,7 @@ class Controller {
     this.schematicDriven = origin === 'schematic';
     this.patch({ selection: next });
     this.setProbe({ origin: empty ? null : origin, nonce: goTo ? probe.nonce + 1 : probe.nonce, documentRef: documentRefOf(this.boardIndex, next), boardMapping: origin === 'schematic' ? probe.boardMapping : null, boardNetMapping: origin === 'schematic' ? probe.boardNetMapping : null });
-    if (!this.schematicDriven) this.recomputeProbe();
+    if (this.schematicDriven) this.refreshCounterpart(); else this.recomputeProbe();
     this.refreshOverlays();
   }
 
@@ -917,7 +1046,7 @@ class Controller {
   private selectNet(name: string | null, origin: SelectionOrigin = 'board'): void {
     const current = this.state.selection;
     if (name === null) { this.applyBoardSelection({ ...current, net: null }, origin ?? 'board', false); return; }
-    if (!this.boardIndex || boardNetsByName(this.boardIndex, name).length === 0) return;
+    if (!this.boardIndex?.hasNet(name)) return;
     const pin = current.pinId ? this.boardIndex.pinById.get(current.pinId) : undefined;
     // The pad (and its part) stay selected only while the net is the pad's own; any other net is selected on its own.
     const keep = pin !== undefined && pin.net === name;
@@ -945,8 +1074,9 @@ class Controller {
     const board = sameSelection(current, unique) ? current : unique;
     this.boardChoiceOrigin = 'schematic';
     this.patch({ selection: board });
-    this.setProbe({ origin, nonce: this.state.probe.nonce + 1, documentRef: documentRefOf(this.boardIndex, board), schematicMapping: null, schematicNetMapping: null, boardMapping: mapping, boardNetMapping: null });
+    this.setProbe({ origin, nonce: this.state.probe.nonce + 1, documentRef: documentRefOf(this.boardIndex, board), schematicNetMapping: null, boardMapping: mapping, boardNetMapping: null });
     this.setSchematicView({ documentId: target.documentId, instancePath: target.instancePath, selection });
+    this.refreshCounterpart();
     this.refreshOverlays();
   }
   private selectSchematicNet(documentId: string, netId: string | null, preferred?: string): void {
@@ -1023,7 +1153,14 @@ class Controller {
       this.mutate(manifest => setPageCount(manifest, id, snapshot.pageCount));
     }
     if (snapshot.status === 'ready' && !entry.readyNoticed) { entry.readyNoticed = true; this.rerunSearch(); }
-    if (snapshot.status === 'ready' && snapshot.searchable !== false && !entry.linkStarted && (snapshot.searchable === true || snapshot.index.state === 'done' || snapshot.index.state === 'truncated')) this.startPdfLinks(generation, id);
+    // Recognized text changed (a page was recognized, or recognized pages came back from the cache): match and search again.
+    if (snapshot.ocr.revision !== (entry.ocrRevision ?? 0)) {
+      entry.ocrRevision = snapshot.ocr.revision;
+      if (entry.linkStarted) { entry.linkAbort?.abort(); entry.linkStarted = false; }
+      this.rerunSearch();
+    }
+    const hasText = snapshot.searchable === true || snapshot.ocr.words > 0 || (snapshot.searchable !== false && (snapshot.index.state === 'done' || snapshot.index.state === 'truncated'));
+    if (snapshot.status === 'ready' && hasText && !entry.linkStarted) this.startPdfLinks(generation, id);
   }
 
   /** One scan at a time: every scan builds (or waits for) a full text index, so several large PDFs must not index at once. */
@@ -1104,6 +1241,11 @@ class Controller {
     if (normalizeQuery(this.searchText)) this.runSearch();
   }
 
+  /**
+   * Board groups come from the model worker when there is one (else from the shared index, synchronously), schematic groups from the
+   * schematic index on this thread, document hits from the PDF sessions. The result is published whenever a part arrives; `pending`
+   * stays true until all have. Only the newest query's parts are applied (`searchRun`), and a newer query cancels the older requests.
+   */
   private runSearch(): void {
     const query = this.searchText;
     this.searchAbort?.abort();
@@ -1116,22 +1258,39 @@ class Controller {
       const entry = this.entries.get(record.id);
       if (record.kind === 'pdf' && entry?.pdf && entry.status === 'ready') {
         const snapshot = entry.pdf.getSnapshot();
-        if (snapshot.status === 'ready' && snapshot.searchable !== false) sessions.push({ id: record.id, name: record.name, session: entry.pdf });
+        if (snapshot.status === 'ready' && (snapshot.searchable !== false || snapshot.ocr.words > 0)) sessions.push({ id: record.id, name: record.name, session: entry.pdf });
       }
     }
-    const base = searchAll({ query, board, schematic });
-    if (!sessions.length) { this.patch({ search: { query, result: base, pending: false } }); return; }
-    this.patch({ search: { query, result: base, pending: true } });
-    const abort = this.searchAbort = new AbortController();
-    const limit = DEFAULT_SEARCH_LIMITS.documentsPerDocument + 1;
-    void this.track(Promise.allSettled(sessions.map(async ({ id, name, session }): Promise<DocumentSearchSource> => {
-      const hits = await session.find(query, { signal: abort.signal, maxHits: limit });
-      return { documentId: id, name, hits, total: hits.length, truncated: hits.length >= limit };
-    })).then(settled => {
+    const model = board ? this.liveModel : null;
+    let boardGroups: BoardSearchGroups | null = model ? null : searchBoardGroups(query, board);
+    let documents: DocumentSearchSource[] | null = sessions.length ? null : [];
+    const publish = () => {
       if (run !== this.searchRun) return;
-      const documents = settled.flatMap(item => (item.status === 'fulfilled' ? [item.value] : []));
-      this.patch({ search: { query, result: searchAll({ query, board, schematic, documents }), pending: false } });
-    }));
+      const pending = boardGroups === null || documents === null;
+      // Until the board part arrives the previous result stays on screen (a list that empties on every keystroke would flicker).
+      if (boardGroups === null) { this.patch({ search: { query, result: this.state.search.result, pending } }); return; }
+      this.patch({ search: { query, result: searchAll({ query, boardGroups, schematic, documents: documents ?? [] }), pending } });
+    };
+    publish();
+    if (!model && !sessions.length) return;
+    const abort = this.searchAbort = new AbortController();
+    if (model) {
+      void this.track(model.search(query, { signal: abort.signal }).then(groups => { boardGroups = groups; publish(); }, error => {
+        if (run !== this.searchRun || isAbortError(error)) return;
+        boardGroups = searchBoardGroups(query, board); // the worker could not answer: search the shared index here
+        publish();
+      }));
+    }
+    if (sessions.length) {
+      const limit = DEFAULT_SEARCH_LIMITS.documentsPerDocument + 1;
+      void this.track(Promise.allSettled(sessions.map(async ({ id, name, session }): Promise<DocumentSearchSource> => {
+        const hits = await session.find(query, { signal: abort.signal, maxHits: limit });
+        return { documentId: id, name, hits, total: hits.length, truncated: hits.length >= limit };
+      })).then(settled => {
+        documents = settled.flatMap(item => (item.status === 'fulfilled' ? [item.value] : []));
+        publish();
+      }));
+    }
   }
 
   private activateSearchRow(row: SearchRow): void {
@@ -1400,9 +1559,24 @@ class Controller {
     catch { throw new UiError(say('toast.notesUnreadable')); }
   }
   private async writeNotes(key: string, notes: BoardNote[]): Promise<void> {
+    // Conformance: this application never stores a positional note that has not been through the conversion (a converted one is keyed, a
+    // failed one carries `unresolved`). A path that skipped it would otherwise write the parser's positional ids back to disk.
+    try { assertStorable(notes); } catch { throw new UiError(say('toast.noteSaveFailed')); }
     if (this.desktop) { await this.desktop.saveNotes(key, notes); return; }
     if (!this.deps.storage) throw new UiError(say('toast.noteSaveFailed'));
     this.deps.storage.setItem(NOTES_PREFIX + key, JSON.stringify(notes));
+  }
+  /**
+   * Reads the stored notes of a board and converts the positional ones once (note-keys.ts): every positional id is looked up in `board` as
+   * the current importer parsed it, the result is written back, and what could not be placed stays stored as unresolved. A failed
+   * write-back is returned in `unsaved` (the converted notes are still shown, and the next save writes them); a failed READ throws.
+   */
+  private async loadNotes(key: string, board: Board): Promise<{ notes: BoardNote[]; unsaved: unknown }> {
+    const stored = await this.readNotes(key);
+    const converted = migrateNotes(board, stored, this.iso());
+    if (!converted.changed) return { notes: stored, unsaved: null };
+    try { await this.writeNotes(key, converted.notes); return { notes: converted.notes, unsaved: null }; }
+    catch (error) { return { notes: converted.notes, unsaved: error }; }
   }
 
   private noteOperation(run: (identity: { key: string; generation: number }, isCurrent: () => boolean) => Promise<void>): Promise<void> {
@@ -1415,16 +1589,24 @@ class Controller {
     return this.track(chained);
   }
 
-  private upsertNote(target: Parameters<WorkspaceActions['upsertNote']>[0], patch: Parameters<WorkspaceActions['upsertNote']>[1]): Promise<void> {
+  /** The caller names a part or pad by the board's session handles; the note is stored under its key (reference and pin number, or the explicit position fallback). */
+  private upsertNote(subject: NoteSubject, patch: Parameters<WorkspaceActions['upsertNote']>[1]): Promise<void> {
     return this.noteOperation(async (identity, isCurrent) => {
       const blocked = this.state.notesBlocked;
       if (blocked) { this.notify(blocked, 'error'); return; }
+      const board = this.state.board;
+      const target = board ? noteKeyIndex(board).target(subject?.componentId, subject?.pinId) : null;
+      if (!target) return;
+      if (!target.ok) {
+        this.notify(say(target.reason === 'part-indistinguishable' ? 'notes.refusePart' : target.reason === 'pin-indistinguishable' ? 'notes.refusePin' : 'toast.noteSaveFailed'), 'error');
+        return;
+      }
       const notes = this.state.notes;
       let next: BoardNote[];
-      try { next = upsertNote(notes, target, patch, this.iso(), this.newId); }
+      try { next = upsertNote(notes, target.key, patch, this.iso(), this.newId); }
       catch (error) { this.notify(workspaceMessage(error), 'error'); return; }
       if (next === notes) return;
-      const removed = noteFor(next, target) === undefined;
+      const removed = noteFor(next, target.key) === undefined;
       try { await this.writeNotes(identity.key, next); }
       catch (error) { if (isCurrent() && !(this.desktop && isClosingError(error))) this.notify(this.desktop ? nativeFailure(error, say('toast.noteSaveFailed')) : say('toast.noteSaveFailed'), 'error'); return; }
       if (!isCurrent()) return;
@@ -1432,13 +1614,32 @@ class Controller {
       this.notify(say(removed ? 'toast.noteDeleted' : 'toast.noteSaved'), 'success');
     });
   }
+  /** Deletes one stored note by id (an unresolved note has no part to select, so it cannot be reached through `upsertNote`). */
+  private removeNote(id: string): Promise<void> {
+    return this.noteOperation(async (identity, isCurrent) => {
+      const blocked = this.state.notesBlocked;
+      if (blocked) { this.notify(blocked, 'error'); return; }
+      const notes = this.state.notes;
+      const next = dropNote(notes, id);
+      if (next === notes) return;
+      try { await this.writeNotes(identity.key, next); }
+      catch (error) { if (isCurrent() && !(this.desktop && isClosingError(error))) this.notify(this.desktop ? nativeFailure(error, say('toast.noteSaveFailed')) : say('toast.noteSaveFailed'), 'error'); return; }
+      if (!isCurrent()) return;
+      this.patch({ notes: next.length ? next : NO_NOTES });
+      this.notify(say('toast.noteDeleted'), 'success');
+    });
+  }
   private retryNotes(): Promise<void> {
     return this.noteOperation(async (identity, isCurrent) => {
       try {
-        const saved = await this.readNotes(identity.key);
+        const board = this.state.board;
+        if (!board) return;
+        const { notes: saved, unsaved } = await this.loadNotes(identity.key, board);
         if (!isCurrent()) return;
         this.patch({ notes: saved.length ? saved : NO_NOTES, notesBlocked: null });
         this.notify(say('toast.notesReloaded'), 'success');
+        if (unsaved && !isClosingError(unsaved)) this.notify(say('toast.notesUpdateFailed'), 'error');
+        if (unresolvedNotes(board, saved).length) this.notify(say('toast.notesUnresolved'), 'error');
       } catch (error) {
         if (!isCurrent() || isClosingError(error)) return;
         const message = nativeFailure(error, say('toast.notesStillUnreadable'));
@@ -1505,6 +1706,12 @@ class Controller {
         const { payload } = waiting;
         void this.track(this.loadPayload(payload, this.beginImport()));
       },
+      cancelImport: () => {
+        if (this.state.import.phase === 'idle') return;
+        // The worker is terminated and whatever the read or the parse still returns is dropped (a new import token).
+        this.beginImport();
+        this.notify(say('toast.importCancelled'));
+      },
       cancelKeyRequest: () => {
         if (!this.state.import.keyRequest) return;
         this.waitingKey = null; this.patchImport({ keyRequest: null });
@@ -1557,6 +1764,7 @@ class Controller {
       activateSearchRow: row => this.batch(() => this.activateSearchRow(row)),
 
       upsertNote: (target, patch) => this.upsertNote(target, patch),
+      removeNote: id => this.removeNote(id),
       retryNotes: () => this.retryNotes(),
 
       dismissNotice: id => {

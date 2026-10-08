@@ -22,6 +22,7 @@ const { localAbsolutePath, readBounded, renameWithRetry } = require('./store.cjs
 const ids = require('./identity.cjs');
 const formats = require('./formats.cjs');
 const { xmlRoot } = require('./xml-prolog.mjs');
+const { isSchDoc } = require('./altium-sniff.mjs');
 
 const DEFAULT_MAX_BYTES = 64 * 1024 * 1024;
 const DEFAULT_MAX_FILES = 200;
@@ -42,18 +43,19 @@ const identity = (key) => key;
 const KINDS = Object.freeze({
   pdf: Object.freeze({ label: 'PDF documents', extensions: Object.freeze(['.pdf']) }), // i18n: pending
   image: Object.freeze({ label: 'Images', extensions: Object.freeze(['.png', '.jpg', '.jpeg', '.webp', '.svg']) }), // i18n: pending
-  schematic: Object.freeze({ label: 'Schematics', extensions: Object.freeze(['.kicad_sch', '.sch', '.lib']) }), // i18n: pending
+  schematic: Object.freeze({ label: 'Schematics', extensions: Object.freeze(['.kicad_sch', '.sch', '.lib', '.schdoc']) }), // i18n: pending
 });
 const KIND_NAMES = Object.freeze(Object.keys(KINDS));
 // Content formats each extension may carry; the first entry's kind is the extension's kind.
 const EXTENSION_CONTENT = Object.freeze({
   '.pdf': ['pdf'], '.png': ['png'], '.jpg': ['jpeg'], '.jpeg': ['jpeg'], '.webp': ['webp'], '.svg': ['svg'],
-  '.kicad_sch': ['kicad_sch'], '.sch': ['eeschema', 'eagle', 'kicad_sch'], '.lib': ['eeschema-lib'],
+  '.kicad_sch': ['kicad_sch'], '.sch': ['eeschema', 'eagle', 'kicad_sch'], '.lib': ['eeschema-lib'], '.schdoc': ['altium-sch'],
 });
 const CONTENT = Object.freeze({
   pdf: { kind: 'pdf', label: 'PDF' }, png: { kind: 'image', label: 'PNG image' }, jpeg: { kind: 'image', label: 'JPEG image' },
   webp: { kind: 'image', label: 'WebP image' }, svg: { kind: 'image', label: 'SVG image' },
   kicad_sch: { kind: 'schematic', label: 'KiCad schematic' }, eeschema: { kind: 'schematic', label: 'KiCad legacy schematic' },
+  'altium-sch': { kind: 'schematic', label: 'Altium schematic' },
   eagle: { kind: 'schematic', label: 'EAGLE XML' }, 'eeschema-lib': { kind: 'schematic', label: 'KiCad legacy symbol library' },
 }); // i18n: pending (labels appear in mismatch diagnostics only)
 
@@ -121,6 +123,7 @@ function inspectContent(data) {
   if (head.byteLength >= 12 && head.toString('latin1', 0, 4) === 'RIFF' && head.toString('latin1', 8, 12) === 'WEBP') return found('webp');
   const pdfAt = head.indexOf('%PDF-', 0, 'latin1');
   if (pdfAt >= 0 && pdfAt < PDF_HEADER_WINDOW) return found('pdf');
+  if (isSchDoc(data)) return found('altium-sch');
   if (head.includes(0)) return found(null);
   const text = head.toString('utf8').replace(/^\uFEFF/, '').trimStart();
   if (text.startsWith('(kicad_sch')) return found('kicad_sch');
@@ -264,7 +267,7 @@ async function readSelection(filenames, options = {}) {
     if (payload.kind === 'schematic') {
       if (remaining > 0) {
         const gathered = await gatherCompanions(payload.path, {
-          ...options, extensions: KINDS.schematic.extensions, maxFiles: COMPANION_FILES, maxBytes: undefined,
+          ...options, extensions: [...KINDS.schematic.extensions, '.prjpcb'], maxFiles: COMPANION_FILES, maxBytes: undefined,
           maxTotalBytes: Math.min(perFile, remaining),
         });
         const names = Object.keys(gathered.files);

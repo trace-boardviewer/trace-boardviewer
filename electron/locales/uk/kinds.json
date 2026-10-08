@@ -1,0 +1,19 @@
+{
+  "kind.ic": "Мікросхема",
+  "kind.capacitor": "Конденсатор",
+  "kind.resistor": "Резистор",
+  "kind.inductor": "Котушка",
+  "kind.connector": "Роз'єм",
+  "kind.diode": "Діод",
+  "kind.transistor": "Транзистор",
+  "kind.crystal": "Кварц",
+  "kind.fuse": "Запобіжник",
+  "kind.resistorArray": "Резисторна збірка",
+  "kind.ferrite": "Феритова намистина",
+  "kind.led": "Світлодіод",
+  "kind.testpoint": "Контрольна точка",
+  "kind.switch": "Перемикач",
+  "kind.jumper": "Перемичка",
+  "kind.mechanical": "Механічний елемент",
+  "kind.part": "Компонент"
+}

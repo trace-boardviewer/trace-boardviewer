@@ -1,0 +1,24 @@
+{
+  "common.close": "Zavrieť",
+  "common.done": "Hotovo",
+  "common.save": "Uložiť",
+  "common.delete": "Odstrániť",
+  "common.note": "Poznámka",
+  "common.skip": "Preskočiť",
+
+  "unit.components": { "one": "{count} súčiastka", "few": "{count} súčiastky", "other": "{count} súčiastok" },
+  "unit.pins": { "one": "{count} pin", "few": "{count} piny", "other": "{count} pinov" },
+  "unit.nets": { "one": "{count} sieť", "few": "{count} siete", "other": "{count} sietí" },
+  "unit.results": { "one": "{count} výsledok", "few": "{count} výsledky", "other": "{count} výsledkov" },
+  "unit.total": "{count} spolu",
+
+  "side.top": "Horná",
+  "side.bottom": "Dolná",
+  "side.both": "Obe",
+  "side.topLabel": "Horná strana",
+  "side.bottomLabel": "Dolná strana",
+  "side.bothLabel": "Obe strany",
+  "side.badgeTop": "H",
+  "side.badgeBottom": "D",
+  "side.badgeBoth": "H/D"
+}

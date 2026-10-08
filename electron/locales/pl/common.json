@@ -1,0 +1,44 @@
+{
+  "common.close": "Zamknij",
+  "common.done": "Gotowe",
+  "common.save": "Zapisz",
+  "common.delete": "Usuń",
+  "common.note": "Notatka",
+  "common.skip": "Pomiń",
+
+  "unit.components": {
+    "one": "{count} element",
+    "few": "{count} elementy",
+    "many": "{count} elementów",
+    "other": "{count} elementów"
+  },
+  "unit.pins": {
+    "one": "{count} pin",
+    "few": "{count} piny",
+    "many": "{count} pinów",
+    "other": "{count} pinów"
+  },
+  "unit.nets": {
+    "one": "{count} sieć",
+    "few": "{count} sieci",
+    "many": "{count} sieci",
+    "other": "{count} sieci"
+  },
+  "unit.results": {
+    "one": "{count} wynik",
+    "few": "{count} wyniki",
+    "many": "{count} wyników",
+    "other": "{count} wyników"
+  },
+  "unit.total": "Razem: {count}",
+
+  "side.top": "Góra",
+  "side.bottom": "Dół",
+  "side.both": "Obie",
+  "side.topLabel": "Strona górna",
+  "side.bottomLabel": "Strona dolna",
+  "side.bothLabel": "Obie strony",
+  "side.badgeTop": "G",
+  "side.badgeBottom": "D",
+  "side.badgeBoth": "G/D"
+}

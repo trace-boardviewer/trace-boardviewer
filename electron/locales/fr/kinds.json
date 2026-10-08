@@ -1,0 +1,19 @@
+{
+  "kind.ic": "Circuit intégré",
+  "kind.capacitor": "Condensateur",
+  "kind.resistor": "Résistance",
+  "kind.inductor": "Inductance",
+  "kind.connector": "Connecteur",
+  "kind.diode": "Diode",
+  "kind.transistor": "Transistor",
+  "kind.crystal": "Quartz",
+  "kind.fuse": "Fusible",
+  "kind.resistorArray": "Réseau de résistances",
+  "kind.ferrite": "Perle de ferrite",
+  "kind.led": "Diode LED",
+  "kind.testpoint": "Point de test",
+  "kind.switch": "Interrupteur",
+  "kind.jumper": "Cavalier",
+  "kind.mechanical": "Pièce mécanique",
+  "kind.part": "Composant"
+}

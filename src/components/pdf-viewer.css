@@ -6,6 +6,8 @@
   /* fills are paler than the rings so the black page text stays legible under them in both themes */
   --pdfv-hit-fill: color-mix(in srgb, var(--accent) 55%, #ffe9a8);
   --pdfv-net-fill: color-mix(in srgb, var(--net) 60%, #c9fffb);
+  /* Recognized text (OCR) is violet in both themes: distinct from search (amber) and board links (teal), readable on white paper. */
+  --pdfv-ocr: #6a3fd1;
   --pdfv-desk: color-mix(in srgb, var(--bg) 84%, var(--subtle));
   --pdfv-ctl: 28px;
   container-type: inline-size;
@@ -82,6 +84,10 @@
 .pdfv-notice.is-warn svg { color: var(--accent); }
 .pdfv-progress { margin-left: auto; flex: 0 0 90px; height: 4px; border-radius: 3px; background: var(--line); overflow: hidden; }
 .pdfv-progress > span { display: block; height: 100%; background: var(--accent); }
+.pdfv-notice > span:not(.pdfv-progress):not(.pdfv-notice-actions) { min-width: 0; }
+.pdfv-notice-actions { margin-left: auto; display: inline-flex; gap: 6px; flex-shrink: 0; }
+.pdfv-progress + .pdfv-notice-actions { margin-left: 4px; }
+.pdfv-notice-actions .pdfv-chip { min-height: 24px; padding: 0 8px; font-size: 11.5px; }
 
 /* ---------- body / sidebar */
 .pdfv-body { position: relative; flex: 1; min-height: 0; display: flex; }
@@ -155,6 +161,14 @@
 .pdfv-text > span { position: absolute; white-space: pre; transform-origin: 0 0; line-height: 1; color: transparent; font-family: Arial, Helvetica, 'Liberation Sans', sans-serif; cursor: text; }
 .pdfv-text ::selection { background: color-mix(in srgb, var(--pdfv-net) 38%, transparent); color: transparent; }
 .pdfv-scroller[data-note-mode='true'] .pdfv-text, .pdfv-scroller[data-note-mode='true'] .pdfv-probe { pointer-events: none; }
+/* recognized words: visibly framed (fainter below the link confidence); the page badge says the page shows recognized text */
+.pdfv-text-ocr > span.pdfv-ocr-word { outline: 1px dotted color-mix(in srgb, var(--pdfv-ocr) 60%, transparent); outline-offset: 0.5px; border-radius: 1px; }
+.pdfv-text-ocr > span.pdfv-ocr-word.is-low { outline-color: color-mix(in srgb, var(--pdfv-ocr) 28%, transparent); }
+.pdfv-ocr-badge {
+  position: absolute; top: 6px; left: 6px; z-index: 4; padding: 2px 8px; border-radius: 999px; background: var(--pdfv-ocr); color: #fff;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.01em; box-shadow: 0 1px 3px #0005; cursor: help; user-select: none;
+}
+.pdfv-scroller[data-note-mode='true'] .pdfv-text-ocr { pointer-events: none; }
 
 .pdfv-hl { position: absolute; inset: 0; z-index: 1; pointer-events: none; mix-blend-mode: multiply; } /* multiply keeps the page's black text black under a fill */
 .pdfv-hit { position: absolute; border-radius: 2px; background: color-mix(in srgb, var(--pdfv-hit-fill) 42%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--pdfv-hit) 45%, transparent); }
@@ -175,6 +189,9 @@
 }
 .pdfv-probe:hover { border-style: solid; box-shadow: 0 0 0 1px var(--pdfv-net); }
 .pdfv-probe:focus-visible { outline: 2px solid var(--net); outline-offset: 2px; }
+.pdfv-probe.is-ocr { border-style: dotted; border-color: var(--pdfv-ocr); }
+.pdfv-probe.is-ocr:hover { border-style: solid; box-shadow: 0 0 0 1px var(--pdfv-ocr); }
+.pdfv-hit.is-ocr, .pdfv-xhl.is-ocr { outline: 1.5px dotted var(--pdfv-ocr); outline-offset: 1px; }
 .pdfv-note {
   position: absolute; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; transform: translate(-50%, -50%); pointer-events: auto; cursor: pointer;
   background: var(--accent); color: var(--bg); border: 2px solid #fff; border-radius: 50%; box-shadow: 0 1px 4px #0007;

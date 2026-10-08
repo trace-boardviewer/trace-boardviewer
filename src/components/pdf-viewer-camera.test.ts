@@ -15,7 +15,10 @@ import { DocumentViewer } from './workspace/DocumentViewer';
  * the "mount / remount" state of the PDF viewer, i.e. what a stored camera restores before any measurement. Without a measured viewport a
  * fitted zoom is the fallback 1 while a manual zoom is the stored number, which is how the two modes tell apart in the markup.
  */
-const READY: PdfSessionSnapshot = { status: 'ready', error: null, pageCount: 3, searchable: true, index: { state: 'idle', indexedPages: 0, pageCount: 3, items: 0 }, outline: [] };
+const READY: PdfSessionSnapshot = {
+  status: 'ready', error: null, pageCount: 3, searchable: true, index: { state: 'idle', indexedPages: 0, pageCount: 3, items: 0 }, outline: [],
+  ocr: { state: 'unavailable', totalPages: 0, processedPages: 0, currentPage: 0, recognizedPages: 0, words: 0, failedPages: 0, revision: 0, error: null },
+};
 function fakeSession(snapshot: PdfSessionSnapshot = READY): PdfSession {
   const handle = {
     pageCount: snapshot.pageCount, getPageSize: async () => ({ width: 612, height: 792, rotation: 0 }), renderPage: async () => {}, getTextItems: async () => [], getOutline: async () => [], destroy: async () => {},
@@ -23,6 +26,7 @@ function fakeSession(snapshot: PdfSessionSnapshot = READY): PdfSession {
   return {
     id: 'doc-pdf', getSnapshot: () => snapshot, subscribe: () => () => {}, submitPassword: async () => {}, getHandle: () => (snapshot.status === 'ready' ? handle : null),
     ensureIndex: async () => { throw new Error('not used'); }, find: async () => [], refCandidates: async () => ({ candidates: [], truncated: false, totalHits: 0 }), dispose: async () => {},
+    inspectPage: async () => 'text', getRecognizedText: () => null, recognizeText: async () => {}, cancelRecognition: () => {},
   } as PdfSession;
 }
 function viewerMarkup(camera: ViewerCamera, snapshot?: PdfSessionSnapshot): string {

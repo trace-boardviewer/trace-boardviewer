@@ -91,8 +91,11 @@ function parseLandrex(input: ParseInput, text: string): Board {
   const header = sections.get('var_data');
   if (header?.length !== 1) fail('missing or invalid record counts.');
   const counts = tokens(header![0]);
-  if (counts.length !== 4) fail('record counts need four fields.');
-  const [outlineCount, partCount, pinCount, nailCount] = counts.map((value, index) => integer(value, 'record count', index === 1 ? 250_000 : 1_000_000));
+  // Real Landrex exports may append two signed header values after the four counts. BRDFile.cpp reads only
+  // the counts and does not transform coordinates with those fields; accept them without guessing an offset.
+  if (counts.length !== 4 && counts.length !== 6) fail('record counts need four fields, optionally followed by two numeric header values.');
+  if (counts.length === 6) { number(counts[4], 'extra header value'); number(counts[5], 'extra header value'); }
+  const [outlineCount, partCount, pinCount, nailCount] = counts.slice(0, 4).map((value, index) => integer(value, 'record count', index === 1 ? 250_000 : 1_000_000));
   const outline = (sections.get('Format') ?? []).map(line => {
     const fields = tokens(line);
     if (fields.length !== 2) fail('outline point needs two coordinates.');
@@ -113,7 +116,8 @@ function parseLandrex(input: ParseInput, text: string): Board {
   const filter = netFilter();
   const nails: Nail[] = (sections.get('Nails') ?? []).map(line => {
     const fields = tokens(line);
-    if (fields.length !== 5) fail('test point needs five fields.');
+    // BRDFile.cpp READ_STR yields an empty string when the last (net) field is absent, just as it does for Lenovo pins.
+    if (fields.length < 4 || fields.length > 5) fail('test point needs probe, coordinates, side and an optional net.');
     return { probe: String(integer(fields[0], 'probe')), x: number(fields[1]), y: number(fields[2]), side: nailSide(fields[3]), net: filter.net(fields[4]) };
   });
   const nailNets = new Map(nails.map(nail => [nail.probe, nail.net]));

@@ -1,0 +1,1 @@
+- Recognize GROUND, numbered grounds such as GND1, analogue and digital supply returns (VSSA, VSSD, AVSS, DVSS), CGND and CHASSIS_GND as ground nets, including lowercase names and schematic hierarchy paths.

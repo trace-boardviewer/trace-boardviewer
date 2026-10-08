@@ -1,0 +1,18 @@
+{
+  "support.title": "TRACE è gratuito e lo resterà",
+  "support.body": "Se TRACE ti fa risparmiare tempo al banco di lavoro, sostieni il suo sviluppo con €5. Il tuo supporto finanzia gli strumenti e i servizi dietro lo sviluppo di TRACE, il certificato di firma del codice per Windows, l’Apple Developer Program necessario per firmare la versione macOS, il sito web e nuovi progetti — il prossimo arriva presto e in seguito sarà integrato in TRACE.",
+  "support.thanks": "Grazie a tutti coloro che già sostengono TRACE ❤",
+  "support.testing": "Grazie mille per aver provato TRACE e per aver condiviso la tua opinione, un ringraziamento speciale per questo! Se trovi un bug, segnalalo senza esitare.",
+  "support.stripe": "Sostieni con €5",
+  "support.kofi": "Offri un caffè su Ko-fi",
+  "support.bug": "Segnala un bug",
+  "support.notNow": "Non ora",
+  "support.bugFailed": "Impossibile aprire la pagina per segnalare un bug.",
+  "support.button": "Sostieni TRACE",
+  "support.buttonFailed": "Impossibile aprire la pagina per sostenere TRACE.",
+  "support.reference": "Codice di sostegno",
+  "support.referenceHint": "Su Ko-fi, copia questo codice nel messaggio del pagamento. Stripe lo riceve automaticamente. Dopo il pagamento, torna qui per verificare e nascondere i promemoria per un anno.",
+  "support.verify": "Verifica pagamento",
+  "support.pending": "La conferma del pagamento non è ancora arrivata. Puoi saltare questo passaggio e riprovare più tardi.",
+  "support.unavailable": "La verifica del pagamento non è disponibile. Puoi saltare questo passaggio e riprovare più tardi."
+}

@@ -1,0 +1,26 @@
+{
+  "help.title": "Tastenkürzel griffbereit",
+  "help.open": "Datei öffnen",
+  "help.search": "Bauteile suchen",
+  "help.fit": "Ganze Platine",
+  "help.rotate": "Drehen",
+  "help.measure": "Abstand messen",
+  "help.labels": "Beschriftungen",
+  "help.note": "Notiz",
+  "help.zoom": "Vergrößern / Verkleinern",
+  "help.layout": "Werkstatt / Fokus",
+  "help.escape": "Hervorhebung aufheben / Messung beenden",
+  "help.footer": "Mausrad: am Cursor zoomen. Ziehen: Platine verschieben. Klicken: Bauteil oder Pin auswählen.",
+  "help.diagnosticReport": "Formatdiagnose-Bericht …",
+  "help.diagnosticHint": "Beschreibt eine Datei, die sich nicht öffnen lässt, ohne ihren Inhalt.",
+
+  "recents.title": "Zuletzt geöffnet",
+  "recents.empty": "Es wurde noch keine Datei geöffnet.",
+  "recents.openOther": "Andere Datei öffnen",
+
+  "info.title": "Platineninformationen",
+  "info.format": "Format",
+  "info.size": "Platinengröße",
+  "info.counts": "Bauteile / Pins / Netze",
+  "info.footer": "Hilfslinien zeigen die Netzverbindungen an. Sie ersetzen nicht die Geometrie der Leiterbahnen in der Datei."
+}

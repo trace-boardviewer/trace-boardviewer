@@ -1,18 +1,16 @@
 'use strict';
 
-// Native twin of src/lib/i18n.ts: same catalogs (electron/locales/*.json), same lookup, plural,
-// interpolation and language-migration rules. tests verify that both produce identical text.
+// Native twin of src/lib/i18n.ts: same catalogs (electron/locales/<language>/<namespace>.json, merged by
+// electron/locale-catalogs.cjs), same lookup, plural, interpolation and language-migration rules. tests verify that both
+// produce identical text.
+const { loadCatalog } = require('./locale-catalogs.cjs');
 const LANGUAGES = Object.freeze(['hu', 'en', 'de', 'fr', 'it', 'sk', 'pl', 'uk']);
 const LEGACY_LANGUAGE = 'hu';
 const DETECTION_FALLBACK = 'en';
 const LOCALE_TAGS = Object.freeze({
   hu: 'hu-HU', en: 'en-GB', de: 'de-DE', fr: 'fr-FR', it: 'it-IT', sk: 'sk-SK', pl: 'pl-PL', uk: 'uk-UA',
 });
-const catalogs = Object.freeze({
-  hu: require('./locales/hu.json'), en: require('./locales/en.json'), de: require('./locales/de.json'),
-  fr: require('./locales/fr.json'), it: require('./locales/it.json'), sk: require('./locales/sk.json'),
-  pl: require('./locales/pl.json'), uk: require('./locales/uk.json'),
-});
+const catalogs = Object.freeze(Object.fromEntries(LANGUAGES.map((language) => [language, loadCatalog(language)])));
 const FALLBACK_CHAIN = ['en', 'hu'];
 const pluralRules = new Map();
 const numberFormats = new Map();

@@ -87,7 +87,7 @@ const MARKER = /^<<[^<>]{1,64}>>$/;
  * fixed header lines. Like the reference reader the skip counts physical lines, so a marker inside a header is a
  * truncated section and is rejected rather than swallowed.
  */
-export function scanSections(lines: string[], source: Source, headers: ReadonlyMap<string, number>, tally: Tally, expectedPreamble?: RegExp): Map<string, Row[]> {
+export function scanSections(lines: string[], source: Source, headers: ReadonlyMap<string, number>, tally: Tally, expectedPreamble?: RegExp, firstRecords?: ReadonlyMap<string, (row: string) => boolean>): Map<string, Row[]> {
   const sections = new Map<string, Row[]>();
   let current: Row[] | null | undefined;
   for (let index = 0; index < lines.length; index++) {
@@ -101,6 +101,12 @@ export function scanSections(lines: string[], source: Source, headers: ReadonlyM
       if (sections.has(text)) reject(source, index + 1, `duplicate ${text} section.`);
       current = []; sections.set(text, current);
       for (let skipped = 0; skipped < header && index + 1 < lines.length; skipped++) {
+        // Some Honhan exports omit their banner or shorten it. Stop only at a complete record of the current section:
+        // this cannot swallow a marker, and preserves the fixed-header behavior for ASC/BVR callers.
+        if (firstRecords?.get(text)?.(lines[index + 1].trim())) {
+          tally.extra.push(`${text}: read a shortened section header (${skipped} of the usual ${header} lines).`);
+          break;
+        }
         index++;
         if (MARKER.test(lines[index].trim())) reject(source, index + 1, `${text} has fewer than its ${header} header lines.`);
       }
@@ -114,24 +120,35 @@ export function scanSections(lines: string[], source: Source, headers: ReadonlyM
 }
 
 /** The outline is one polygon: the points of format.asc in file order. */
-export function readFormat(rows: Row[], source: Source): Point[] {
+export function readFormat(rows: Row[], source: Source, radiusTally?: Tally): Point[] {
   if (rows.length > MAX_OUTLINE_POINTS) reject(source, undefined, 'outline point count exceeds the import limit.', 'LIMIT_EXCEEDED');
-  return rows.map(({ no, text }) => {
+  let curved = 0;
+  const points = rows.map(({ no, text }) => {
     const fields = text.split(/\s+/);
-    if (fields.length !== 2) reject(source, no, 'an outline point needs two coordinates.');
+    if (fields.length !== 2 && !(radiusTally && fields.length === 3)) reject(source, no, 'an outline point needs two coordinates and optionally a radius.');
+    // Real exports of this format add a Radius column; the reference reader consumes X/Y and leaves it unread.
+    if (fields.length === 3 && decimal(source, no, fields[2], 'outline radius') !== 0) curved++;
     return { x: decimal(source, no, fields[0], 'outline X'), y: decimal(source, no, fields[1], 'outline Y') };
   });
+  if (curved) radiusTally?.extra.push(`${curved} outline ${curved === 1 ? 'point carries' : 'points carry'} a non-zero radius; the outline is shown with straight segments, as OpenBoardView does.`);
+  return points;
 }
 
 export interface PendingPin { number: string; name: string; net: string; side: BoardSide; x: number; y: number }
 export interface PendingPart { ref: string; side: BoardSide; pins: PendingPin[] }
 const FIELD = /\S+/g;
+const PROBES = /^\d+(?:,\d+)*$/;
+const MAX_PIN_ROW = 16_384;
+function probeList(source: Source, no: number, token: string): void {
+  for (const value of token.split(',')) integer(source, no, value, 'probe');
+}
 /**
  * "Part <ref> <side>" lines open a component; every following line is one of its pins:
- * `id name X Y layer net probe`. The name is the free-text middle (pin names such as "A 1" contain blanks), so the fixed
- * fields are taken from the end. Pins take the side of their component; the layer column is validated but not used.
+ * `id name X Y layer net [probe-list]`. Real exports list several comma-separated nails per pin and wraps long lists onto
+ * following lines. The name is the free-text middle (such as "A 1"), so the fixed fields are taken from the end.
+ * Pins take the side of their component; the layer and probe columns are validated but not used for geometry.
  */
-export function readPins(rows: Row[], source: Source, tally: Tally): PendingPart[] {
+export function readPins(rows: Row[], source: Source, tally: Tally, variantProbeLists = false): PendingPart[] {
   const parts: PendingPart[] = [];
   let pinCount = 0;
   for (const { no, text } of rows) {
@@ -144,21 +161,44 @@ export function readPins(rows: Row[], source: Source, tally: Tally): PendingPart
     }
     const part = parts.at(-1);
     if (!part) reject(source, no, 'a pin record appears before the first Part line.');
+    if (variantProbeLists && text.includes(',') && PROBES.test(text.replace(/^,/, ''))) {
+      if (!part.pins.length) reject(source, no, 'a probe-list continuation appears before the first pin.');
+      probeList(source, no, text.replace(/^,/, '')); continue;
+    }
     if (pinCount++ >= MAX_PINS) reject(source, no, 'pin count exceeds the import limit.', 'LIMIT_EXCEEDED');
-    const found = [...text.matchAll(FIELD)], last = found.length;
-    if (last < 7) reject(source, no, 'a pin needs id, name, X, Y, layer, net and probe.');
+    // A pin row holds a handful of fields; bounding its length bounds the token list built below.
+    if (variantProbeLists && text.length > MAX_PIN_ROW) reject(source, no, `a pin record is longer than ${MAX_PIN_ROW} characters.`, 'LIMIT_EXCEEDED');
+    const found = [...text.matchAll(FIELD)]; let last = found.length;
+    if (last < (variantProbeLists ? 6 : 7)) reject(source, no, `a pin needs id, name, X, Y, layer, net and ${variantProbeLists ? 'an optional probe' : 'probe'}.`);
     integer(source, no, found[0][0], 'pin id');
-    const nameEnd = found[last - 6];
+    if (!variantProbeLists || last >= 7 && (PROBES.test(found[last - 1][0]) || /^-\d/.test(found[last - 1][0]) || found[last - 1][0].includes(','))) {
+      if (variantProbeLists) probeList(source, no, found[last - 1][0]);
+      else integer(source, no, found[last - 1][0], 'probe');
+      last--;
+    }
+    let coordinate = last - 4;
+    // Some net names in real exports contain blanks too. When the right-aligned layout does not contain a valid layer,
+    // locate the X/Y/layer tuple instead and retain the entire net column; do not split it into invented nets.
+    if (variantProbeLists && !/^[+-]?\d{1,15}$/.test(found[coordinate + 2][0])) {
+      for (let candidate = 2; candidate < last - 3; candidate++) {
+        if (DECIMAL.test(found[candidate][0]) && DECIMAL.test(found[candidate + 1][0]) && /^[+-]?\d{1,15}$/.test(found[candidate + 2][0])) {
+          coordinate = candidate; break;
+        }
+      }
+    }
+    const nameEnd = found[coordinate - 1];
     const name = text.slice(found[1].index, nameEnd.index + nameEnd[0].length);
-    const x = decimal(source, no, found[last - 5][0], 'pin X'), y = decimal(source, no, found[last - 4][0], 'pin Y');
-    integer(source, no, found[last - 3][0], 'pin layer', true);
-    integer(source, no, found[last - 1][0], 'probe');
-    part.pins.push({ number: name, name, net: tally.net(found[last - 2][0]), side: part.side, x, y });
+    const x = decimal(source, no, found[coordinate][0], 'pin X'), y = decimal(source, no, found[coordinate + 1][0], 'pin Y');
+    integer(source, no, found[coordinate + 2][0], 'pin layer', true);
+    const netEnd = found[last - 1];
+    const net = text.slice(found[coordinate + 3].index, netEnd.index + netEnd[0].length);
+    part.pins.push({ number: name, name, net: tally.net(net), side: part.side, x, y });
   }
   return parts;
 }
 
-export interface Nail { probe: string; x: number; y: number; side: BoardSide; net: string }
+/** `tail` holds the fields from the net column on (BDV only): a net name may contain blanks and be followed by annotations. */
+export interface Nail { probe: string; x: number; y: number; side: BoardSide; net: string; generated?: boolean; tail?: string[] }
 /**
  * `<marker><probe> X Y type grid side netId net`. The reference reader skips exactly one marker character before the
  * probe number; a digit there would silently lose a digit of the probe, so it is rejected.
@@ -168,13 +208,34 @@ export function readNails(rows: Row[], source: Source, tally: Tally): Nail[] {
   return rows.map(({ no, text }) => {
     if (/^\d/.test(text)) reject(source, no, 'a test point starts with a marker character before its probe number.');
     const fields = text.slice(1).trim().split(/\s+/);
-    if (fields.length !== 8) reject(source, no, 'a test point needs probe, X, Y, type, grid, side, net id and net.');
+    if (fields.length < 8) reject(source, no, 'a test point needs probe, X, Y, type, grid, side, net id and net.');
+    // Real exports may append virtual PIN / VIA / TEST descriptions after the net name. They do not change the nail.
     integer(source, no, fields[3], 'test point type', true);
     return {
       probe: String(integer(source, no, fields[0], 'probe')), x: decimal(source, no, fields[1], 'test point X'), y: decimal(source, no, fields[2], 'test point Y'),
-      side: tally.side(fields[5]), net: tally.net(fields[7]),
+      side: tally.side(fields[5]), net: tally.net(fields[7]), ...(fields.length > 8 ? { tail: fields.slice(7, 7 + MAX_NET_WORDS) } : {}),
     };
   });
+}
+
+const MAX_NET_WORDS = 8;
+/**
+ * A test point row names its net with one word and may carry annotations after it, while a pin's net can contain blanks.
+ * When the first words of the tail spell a net name that a pin already has, the nail takes that whole name; otherwise it
+ * keeps its first word. A net is never invented from the annotations.
+ */
+function nameNailNets(model: Model, tally: Tally): void {
+  const known = new Map<string, string>();
+  for (const part of model.parts) for (const pin of part.pins) if (pin.net && /\s/.test(pin.net)) known.set(pin.net.split(/\s+/).join(' '), pin.net);
+  if (!known.size) return;
+  for (const nail of model.nails) {
+    const tail = nail.tail;
+    if (!tail) continue;
+    for (let words = tail.length; words >= 2; words--) {
+      const match = known.get(tail.slice(0, words).join(' '));
+      if (match !== undefined) { nail.net = tally.net(match); break; }
+    }
+  }
 }
 
 export interface Model { outline: Point[]; parts: PendingPart[]; nails: Nail[] }
@@ -191,8 +252,8 @@ export function assemble(input: ParseInput, source: Source, model: Model, tally:
   if (parts.length + model.nails.length > MAX_PARTS || pins.length + model.nails.length > MAX_PINS) reject(source, undefined, 'board record count exceeds the import limit.', 'LIMIT_EXCEEDED');
   model.nails.forEach((nail, index) => {
     const key = `nail:${index}`;
-    parts.push({ key, ref: `TP:${nail.probe}`, side: nail.side, position: { x: nail.x, y: nail.y } });
-    pins.push({ part: key, number: nail.probe, name: nail.probe, net: nail.net, side: nail.side, x: nail.x, y: nail.y });
+    parts.push({ key, ref: `TP:${nail.probe}`, ...(nail.generated ? { refGenerated: true } : {}), side: nail.side, position: { x: nail.x, y: nail.y } });
+    pins.push({ part: key, number: nail.probe, ...(nail.generated ? { numberGenerated: true } : {}), name: nail.probe, net: nail.net, side: nail.side, x: nail.x, y: nail.y });
   });
   const refs = new Set<string>();
   for (const part of parts) { if (refs.has(part.ref!)) tally.repeatedRefs++; else refs.add(part.ref!); }
@@ -214,12 +275,18 @@ const ENCODED_MARKER = 'dd:1.3?,r?-=bb';
 const FORMAT_MARKER = '<<format.asc>>', PINS_MARKER = '<<pins.asc>>', NAILS_MARKER = '<<nails.asc>>';
 /** Lines of fixed header after each marker (ASCFile.cpp: the first line plus 7 for format and pins, plus 6 for nails; BDVFile.cpp skips 8/8/7 after the marker). */
 const HEADERS: ReadonlyMap<string, number> = new Map([[FORMAT_MARKER, 8], [PINS_MARKER, 8], [NAILS_MARKER, 7]]);
+/** Full, unambiguous record starts; arbitrary numbers or prose in a banner remain header lines. */
+const FIRST_RECORDS: ReadonlyMap<string, (row: string) => boolean> = new Map([
+  [FORMAT_MARKER, row => { const f = row.split(/\s+/); return (f.length === 2 || f.length === 3) && f.every(field => DECIMAL.test(field)); }],
+  [PINS_MARKER, row => /^Part\s+\S+\s+\([TB]\)$/.test(row)],
+  [NAILS_MARKER, row => { const f = row.split(/\s+/); return f.length >= 8 && /^[^\d\s]\d+$/.test(f[0]) && DECIMAL.test(f[1]) && DECIMAL.test(f[2]) && /^\([TB]\)$/.test(f[5]); }],
+]);
 /**
  * BDVFile.cpp decode_bdv: every byte except CR, LF and NUL becomes (key - byte) mod 256. The key starts at 0xA0, grows by
  * one for each CR LF pair and wraps to 159 once it exceeds 285. The first line "<<format.asc>>" therefore reads
  * "dd:1.3?,r?-=bb" while encoded, which is the signature the reference reader looks for.
  */
-function decodeBdv(data: Uint8Array): Uint8Array {
+export function decodeBdv(data: Uint8Array): Uint8Array {
   const out = new Uint8Array(data.length);
   let key = 0xa0;
   for (let index = 0; index < data.length; index++) {
@@ -236,14 +303,21 @@ function decodeBdv(data: Uint8Array): Uint8Array {
  * Recognition (by bytes): the encoded first-line signature, or both the format and pins markers.
  */
 export function parseBdv(input: ParseInput): Board | null {
-  const encoded = indexOfAscii(input.data, ENCODED_MARKER) >= 0;
-  if (!encoded && !(indexOfAscii(input.data, FORMAT_MARKER) >= 0 && indexOfAscii(input.data, PINS_MARKER) >= 0)) return null;
+  let plain: string | undefined;
+  if (input.data[0] === 0xff && input.data[1] === 0xfe || input.data[0] === 0xfe && input.data[1] === 0xff) {
+    try { plain = decodeText(input.data); }
+    catch (error) { if (error instanceof BoardFormatError) throw error; return null; }
+  }
+  const encoded = plain === undefined && indexOfAscii(input.data, ENCODED_MARKER) >= 0;
+  const marked = plain === undefined ? indexOfAscii(input.data, FORMAT_MARKER) >= 0 && indexOfAscii(input.data, PINS_MARKER) >= 0 : plain.includes(FORMAT_MARKER) && plain.includes(PINS_MARKER);
+  if (!encoded && !marked) return null;
   const source: Source = { label: 'BDV', format: BDV_FORMAT };
   const tally = new Tally();
-  const sections = scanSections(splitLines(decodeText(encoded ? decodeBdv(input.data) : input.data), source), source, HEADERS, tally);
+  const sections = scanSections(splitLines(plain ?? decodeText(encoded ? decodeBdv(input.data) : input.data), source), source, HEADERS, tally, undefined, FIRST_RECORDS);
   const formatRows = sections.get(FORMAT_MARKER), pinRows = sections.get(PINS_MARKER);
   if (!formatRows) reject(source, undefined, `missing ${FORMAT_MARKER} section.`);
   if (!pinRows) reject(source, undefined, `missing ${PINS_MARKER} section.`);
-  const model: Model = { outline: readFormat(formatRows, source), parts: readPins(pinRows, source, tally), nails: readNails(sections.get(NAILS_MARKER) ?? [], source, tally) };
+  const model: Model = { outline: readFormat(formatRows, source, tally), parts: readPins(pinRows, source, tally, true), nails: readNails(sections.get(NAILS_MARKER) ?? [], source, tally) };
+  nameNailNets(model, tally);
   return assemble(input, source, model, tally);
 }

@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { BoardFormatError } from './common';
 import { fzKeyParityValid, rc6Feedback } from './crypto';
 import { parseFz, parseFzContent } from './fz';
+import { CAE_DEFAULT_KEY, FZ_DEFAULT_KEY } from './fz-default-keys';
+import fzAdapter from './adapters/fz';
+import { catching, expectBoundedWork } from '../../test-support/timing';
 
 const encode = (text: string) => new TextEncoder().encode(text);
 const u32 = (value: number) => [value & 255, value >>> 8 & 255, value >>> 16 & 255, value >>> 24 & 255];
@@ -45,6 +48,11 @@ function container(content = CONTENT, description = DESCRIPTION, { prefixed = tr
 }
 const KEY = parityKey(11), OTHER_KEY = parityKey(12), CAE_KEY = parityKey(13, 'cae');
 const encrypted = (data = container(), key = KEY) => rc6Feedback(data, key, true);
+/** Observed real-file framing, reproduced with original synthetic board text and no vendor file contents. */
+function sizedContainer(content = CONTENT, description = DESCRIPTION): Uint8Array {
+  const c = zlibSync(encode(content)), d = zlibSync(encode(description));
+  return Uint8Array.from([...u32(encode(content).length), ...c, ...u32(c.length + 8), ...u32(encode(description).length), ...d, ...u32(d.length + 8)]);
+}
 const parse = (data: Uint8Array, name = 'board.fz', options?: { fzKey?: number[] }) => parseFz({ name, data, ...(options ? { options } : {}) });
 function error(run: () => unknown): BoardFormatError {
   try { run(); } catch (caught) { if (caught instanceof BoardFormatError) return caught; throw caught; }
@@ -109,8 +117,82 @@ describe('parseFz', () => {
     expect(text.components).toHaveLength(4); expect(text.components[0].value).toBe('');
     const cae = parse(encrypted(container(), CAE_KEY), 'asrock.cae', { fzKey: CAE_KEY })!;
     expect(cae.format).toBe('CAE'); expect(cae.pins).toHaveLength(6);
-    const wrongTable = error(() => parse(encrypted(container(), KEY), 'asrock.cae', { fzKey: KEY }));
-    expect(wrongTable.code).toBe('INVALID_KEY'); expect(wrongTable.message).toMatch(/CAE key parity/);
+    // CAE variants need not match the historical parity table: verified plaintext and checksums are authoritative.
+    expect(parse(encrypted(container(), KEY), 'asrock.cae', { fzKey: KEY })!.pins).toHaveLength(6);
+    expect(error(() => parse(encrypted(container(), CAE_KEY), 'asrock.cae', { fzKey: KEY })).code).toBe('INVALID_KEY');
+  });
+
+  it.each([
+    ['board.fz', FZ_DEFAULT_KEY], ['board.cae', CAE_DEFAULT_KEY],
+  ])('opens %s automatically using the published default, while preserving the explicit user key override', (name, defaultKey) => {
+    const data = rc6Feedback(sizedContainer(), defaultKey, true);
+    const board = parse(data, name)!;
+    expect(board.components[0].value).toBe('IC SOIC8 THING');
+    expect(board.pins).toHaveLength(6);
+    expect(board.pins[0]).toMatchObject({ x: 25.4, y: 50.8, net: 'GND' });
+    expect(fzAdapter.sniff({ head: data.subarray(0, 32), size: data.length, name })).toMatchObject({ confidence: 70, meta: { encrypted: true, automaticKey: true } });
+    expect(fzAdapter.sniff({ head: data.subarray(0, 32), size: data.length, name }).needsKey).toBeUndefined();
+    // An explicit wrong key must not be ignored in favor of the embedded default.
+    expect(error(() => parse(data, name, { fzKey: OTHER_KEY })).code).toBe('INVALID_KEY');
+    expect(parse(encrypted(sizedContainer(), OTHER_KEY), name, { fzKey: OTHER_KEY })!.pins).toHaveLength(6);
+  });
+
+  it('does not apply ASUS parity restrictions to the published CAE key or to valid explicit CAE variant keys', () => {
+    expect(fzKeyParityValid(FZ_DEFAULT_KEY, 'fz')).toBe(true);
+    expect(fzKeyParityValid(CAE_DEFAULT_KEY, 'fz')).toBe(false);
+    expect(fzKeyParityValid(KEY, 'cae')).toBe(false);
+    expect(parse(rc6Feedback(sizedContainer(), CAE_DEFAULT_KEY, true), 'b.cae')!.nets).toHaveLength(3);
+    expect(parse(encrypted(sizedContainer(), KEY), 'b.cae', { fzKey: KEY })!.nets).toHaveLength(3);
+  });
+
+  it('checks the two intermediate metadata words, declared inflated sizes and exact zlib checksums in real-file framing', () => {
+    const plain = sizedContainer(), d = zlibSync(encode(DESCRIPTION)), start = plain.length - d.length - 4;
+    expect(parse(plain)!.pins).toHaveLength(6);
+    const wrongContentSize = plain.slice(); new DataView(wrongContentSize.buffer).setUint32(0, encode(CONTENT).length + 1, true);
+    const wrongCompressedSize = plain.slice(); new DataView(wrongCompressedSize.buffer).setUint32(start - 8, start - 3, true);
+    const wrongDescriptionSize = plain.slice(); new DataView(wrongDescriptionSize.buffer).setUint32(start - 4, encode(DESCRIPTION).length + 1, true);
+    const wrongChecksum = plain.slice(); wrongChecksum[start - 9] ^= 1;
+    for (const data of [wrongContentSize, wrongCompressedSize, wrongDescriptionSize, wrongChecksum]) {
+      expect(error(() => parse(data)).code).toBe('INVALID_FORMAT');
+      expect(error(() => parse(rc6Feedback(data, FZ_DEFAULT_KEY, true))).code).toBe('INVALID_FORMAT');
+      expect(error(() => parse(rc6Feedback(data, FZ_DEFAULT_KEY, true), 'b.fz', { fzKey: [...FZ_DEFAULT_KEY] })).code).toBe('INVALID_KEY');
+    }
+  });
+
+  it('accepts the upstream footer-framed layout when the leading word is not a compressed-content length', () => {
+    const c = zlibSync(encode(CONTENT)), d = zlibSync(encode(DESCRIPTION));
+    for (const header of [0, encode(CONTENT).length, 0xdeadbeef]) {
+      const plain = Uint8Array.from([...u32(header), ...c, ...d, ...u32(d.length + 8)]);
+      for (const [name, key] of [['b.fz', KEY], ['b.cae', CAE_KEY]] as const) {
+        expect(parse(plain, name)!.pins).toHaveLength(6);
+        const board = parse(encrypted(plain, key), name, { fzKey: key })!;
+        expect(board.components[0].value).toBe('IC SOIC8 THING');
+        expect(board.pins[0]).toMatchObject({ x: 25.4, y: 50.8, net: 'GND' });
+      }
+    }
+  });
+
+  it('does not label plaintext containers as encrypted or key-required when cataloging them', () => {
+    const plain = container();
+    for (const name of ['board.fz', 'board.cae']) {
+      // Library/archive sniffing may receive only the head, without access to the footer.
+      const verdict = fzAdapter.sniff({ head: plain.subarray(0, 32), size: plain.length, name });
+      expect(verdict).toMatchObject({ confidence: 70, meta: { encrypted: false } });
+      expect(verdict.needsKey).toBeUndefined();
+      expect(parse(plain, name)!.pins).toHaveLength(6);
+    }
+    expect(fzAdapter.sniff({ head: encrypted(), size: plain.length, name: 'board.fz' })).toMatchObject({ needsKey: 'fz', meta: { encrypted: true } });
+  });
+
+  it('rejects footer-framed data with invalid boundaries, checksums or bytes outside the compressed streams', () => {
+    const c = zlibSync(encode(CONTENT)), d = zlibSync(encode(DESCRIPTION));
+    const framed = (content: Uint8Array, description: Uint8Array, footer = description.length + 8) => Uint8Array.from([...u32(0), ...content, ...description, ...u32(footer)]);
+    const badChecksum = d.slice(); badChecksum[badChecksum.length - 1] ^= 1;
+    for (const data of [framed(c, d, 7), framed(c, d, 0xffffffff), framed(c, d, d.length + 9), framed(c, badChecksum), framed(Uint8Array.from([...c, 0]), d)]) {
+      expect(error(() => parse(data)).code).toBe('INVALID_FORMAT');
+      expect(error(() => parse(data)).keyKind).toBeUndefined();
+      expect(error(() => parse(encrypted(data), 'b.fz', { fzKey: KEY })).code).toBe('INVALID_KEY');
+    }
   });
 
   it('returns null for other extensions and for text that is not FZ content', () => {
@@ -119,10 +201,10 @@ describe('parseFz', () => {
     expect(parse(encode('(kicad_pcb (version 3))'), 'renamed.cae')).toBeNull();
   });
 
-  it('demands the key only for encrypted data and reports mistyped keys before decrypting', () => {
+  it('offers a session-key retry only when the default cannot open encrypted data, and rejects mistyped explicit keys', () => {
     const missing = error(() => parse(encrypted()));
     expect(missing).toMatchObject({ code: 'KEY_REQUIRED', format: 'FZ/CAE', keyKind: 'fz' });
-    expect(missing.message).toMatch(/44 32-bit words/);
+    expect(missing.message).toMatch(/built-in key does not open it/);
     expect(error(() => parse(encrypted(), 'b.fz', { fzKey: KEY.slice(0, 43) })).code).toBe('INVALID_KEY');
     expect(error(() => parse(encrypted(), 'b.fz', { fzKey: [...KEY.slice(0, 43), -5] })).code).toBe('INVALID_KEY');
     const parity = error(() => parse(encrypted(), 'b.fz', { fzKey: KEY.map((word, index) => index === 3 ? (word ^ 0x10) >>> 0 : word) }));
@@ -153,8 +235,8 @@ describe('parseFz', () => {
     const descriptionTooLong = Uint8Array.from([...u32(c.length), ...c, ...u32(0xffff), ...d, ...u32(0xffff)]);
     expect(error(() => parse(descriptionTooLong)).message).toMatch(/inconsistent/);
     const contentTooLong = Uint8Array.from([...u32(0xfffffff0), ...c, ...u32(d.length), ...d, ...u32(d.length)]);
-    expect(error(() => parse(contentTooLong, 'b.fz', { fzKey: KEY })).code).toBe('INVALID_KEY');
-    expect(error(() => parse(contentTooLong)).code).toBe('KEY_REQUIRED'); // an implausible prefix cannot be told from ciphertext
+    expect(error(() => parse(contentTooLong, 'b.fz', { fzKey: KEY })).code).toBe('INVALID_FORMAT');
+    expect(error(() => parse(contentTooLong)).code).toBe('INVALID_FORMAT'); // visible zlib header: bad plaintext framing, not a missing key
     const noDescription = Uint8Array.from([...u32(c.length), ...c, ...u32(0)]);
     expect(error(() => parse(noDescription)).message).toMatch(/inconsistent/);
   });
@@ -209,7 +291,7 @@ describe('parseFz', () => {
     expect(() => parse(encode(board('1').replace('!!!\n', '!!1e30!\n')), 'x.fz')).toThrow(/exceeds the supported range/); // pin radius
   });
 
-  it('bounds record counts while reading (LIMIT_EXCEEDED, not an unbounded allocation)', { timeout: 120_000 }, () => {
+  it('bounds record counts while reading (LIMIT_EXCEEDED, not an unbounded allocation)', { timeout: 300_000 }, () => {
     let rows = 'A!REFDES!\n';
     for (let index = 0; index <= 250_000; index++) rows += `S!R${index}!!!NO!0!\n`;
     expect(error(() => parse(encode(rows), 'x.fz')).code).toBe('LIMIT_EXCEEDED');
@@ -223,7 +305,7 @@ describe('parseFz', () => {
     expect(structural).toMatchObject({ code: 'INVALID_FORMAT', format: 'FZ/CAE' }); expect(structural.keyKind).toBeUndefined();
     const corrupt = zlibSync(encode(CONTENT)); corrupt[10] ^= 0xff;
     expect(error(() => parse(container(CONTENT, DESCRIPTION, {}, { content: corrupt }))).keyKind).toBeUndefined();
-    for (const failure of [error(() => parse(encrypted())), error(() => parse(encrypted(), 'b.fz', { fzKey: OTHER_KEY })), error(() => parse(encrypted(), 'b.fz', { fzKey: KEY.slice(1) })), error(() => parse(encrypted(), 'a.cae', { fzKey: KEY }))]) {
+    for (const failure of [error(() => parse(encrypted())), error(() => parse(encrypted(), 'b.fz', { fzKey: OTHER_KEY })), error(() => parse(encrypted(), 'b.fz', { fzKey: KEY.slice(1) })), error(() => parse(encrypted(), 'a.cae', { fzKey: OTHER_KEY }))]) {
       expect(['KEY_REQUIRED', 'INVALID_KEY']).toContain(failure.code);
       expect(failure).toMatchObject({ format: 'FZ/CAE', keyKind: 'fz', name: 'BoardFormatError' });
     }
@@ -251,14 +333,12 @@ describe('parseFz', () => {
     expect(error(() => parse(encrypted(plain), 'b.fz', { fzKey: KEY })).code).toBe('INVALID_KEY');
   });
 
-  it('rejects a wrong key from the first block header, before decrypting the rest of a large file', { timeout: 60_000 }, () => {
-    // 16 MiB of ciphertext-like bytes: a full decrypt costs several seconds, the header check microseconds.
-    const big = new Uint8Array(16 * 1024 * 1024).map((_, index) => index * 31 + 5 & 255);
-    const started = performance.now();
-    const failure = error(() => parse(big, 'big.fz', { fzKey: KEY }));
-    expect(failure.code).toBe('INVALID_KEY');
-    expect(performance.now() - started).toBeLessThan(1500);
-  });
+  it('rejects a wrong key from the first block header, before decrypting the rest of a large file', () => {
+    // Ciphertext-like bytes: a full decrypt of 16 MiB costs several seconds, the header check microseconds, whatever the size of the file.
+    const ciphertext = (mebibytes: number) => new Uint8Array(mebibytes * 1024 * 1024).map((_, index) => index * 31 + 5 & 255);
+    expectBoundedWork('wrong key on a large file', [1, 4, 16], mebibytes => { const data = ciphertext(mebibytes); return catching(() => parse(data, 'big.fz', { fzKey: KEY })); });
+    expect(error(() => parse(ciphertext(16), 'big.fz', { fzKey: KEY })).code).toBe('INVALID_KEY');
+  }, 300_000);
 
   it('treats short random ciphertext as encrypted rather than text, for every key', () => {
     for (let seed = 1; seed <= 200; seed++) {
@@ -268,7 +348,7 @@ describe('parseFz', () => {
     }
   });
 
-  it('CAE: the same encrypt-then-parse workflow with its own parity table and keyKind', () => {
+  it('CAE: explicit key variants preserve the encrypt-then-parse workflow and keyKind fallback', () => {
     const data = encrypted(container(), CAE_KEY);
     expect(error(() => parse(data, 'x.cae'))).toMatchObject({ code: 'KEY_REQUIRED', format: 'FZ/CAE', keyKind: 'fz' });
     expect(error(() => parse(data, 'x.cae', { fzKey: parityKey(14, 'cae') }))).toMatchObject({ code: 'INVALID_KEY', keyKind: 'fz' });
@@ -311,7 +391,6 @@ describe('parseFz malformed input', () => {
     }
   });
 });
-
 
 describe('FZ/CAE: components without pins (OpenBoardView lists them; this format gives a REFDES neither a position nor a body)', () => {
   const notes = (board: { warnings: Array<{ key: string; params?: Record<string, unknown> }> }) => board.warnings.filter(w => w.key === 'parse.warning.formatNote').map(w => String(w.params?.message));

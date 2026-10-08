@@ -6,6 +6,7 @@ import {
   MAX_CANDIDATE_WORK, MAX_HIT_TOKEN_LENGTH, MAX_TOTAL_CANDIDATE_HITS, normalizeToken,
 } from './search';
 import type { TextIndex } from './search';
+import { expectCostAtMost, expectScaling } from '../../test-support/timing';
 
 const item = (str: string, page = 1): TextItem => ({ str, x: 10, y: 20, width: Math.max(1, str.length) * 6, height: 10, page });
 const indexOf = (items: TextItem[], truncated = false): TextIndex => ({ pageCount: 1, items, pageStarts: [0, items.length], indexedPages: 1, truncated });
@@ -35,29 +36,25 @@ describe('normalizeToken fast path', () => {
   });
 
   it('strips edge punctuation in linear time: a long run of punctuation or spaces inside a text, in a token or in a reference name', () => {
-    const timed = <T>(work: () => T): { value: T; ms: number } => { const started = performance.now(); const value = work(); return { value, ms: performance.now() - started }; };
-    // Ascending sizes: an end-anchored `[...]+$` pattern retries every position of the run and needs about 2 s for 40,000 characters, so a regression fails at the second size.
-    for (const count of [1000, 40_000, 200_000]) {
-      const dots = '.'.repeat(count), spaces = ' '.repeat(count), pairs = '. '.repeat(count / 2), brackets = '('.repeat(count);
-      const cases: Array<[string, string, string]> = [
-        ['dots inside', `x${dots}y`, `X${dots}Y`],
-        ['spaces inside', `x${spaces}y`, 'X Y'],
-        ['punctuation and spaces alternating inside', `x${pairs}y`, `X${pairs}Y`],
-        ['brackets inside, one pair around', `(x${brackets}y)`, `X${brackets}Y`],
-        ['runs on both edges', `${dots}x${dots}`, 'X'],
-        ['punctuation and spaces only', `${dots}${spaces}`, ''],
-        ['spaces on the left, punctuation inside', `${spaces}x${dots}y`, `X${dots}Y`],
-      ];
-      for (const [label, value, expected] of cases) {
-        const result = timed(() => normalizeToken(value));
-        expect(result.value, `${count}: ${label}`).toBe(expected);
-        expect(result.ms, `${count}: ${label}`).toBeLessThan(250);
-      }
-      // The same text as a token of a text item and as a reference name goes through the cross-reference scan.
-      const token = `x${dots}y`;
-      const scan = timed(() => extractRefCandidatesBounded(indexOf([item(`R1 ${token}`)]), new Set(['R1', token]), new Set()));
-      expect(scan.value.candidates.map(candidate => [candidate.name === token ? 'long' : candidate.name, candidate.hits.length]), `${count}: scan`).toEqual([['R1', 1], ['long', 1]]);
-      expect(scan.ms, `${count}: scan`).toBeLessThan(250);
+    const cases: Array<[string, (count: number) => string, (count: number) => string]> = [
+      ['dots inside', count => `x${'.'.repeat(count)}y`, count => `X${'.'.repeat(count)}Y`],
+      ['spaces inside', count => `x${' '.repeat(count)}y`, () => 'X Y'],
+      ['punctuation and spaces alternating inside', count => `x${'. '.repeat(count / 2)}y`, count => `X${'. '.repeat(count / 2)}Y`],
+      ['brackets inside, one pair around', count => `(x${'('.repeat(count)}y)`, count => `X${'('.repeat(count)}Y`],
+      ['runs on both edges', count => `${'.'.repeat(count)}x${'.'.repeat(count)}`, () => 'X'],
+      ['punctuation and spaces only', count => `${'.'.repeat(count)}${' '.repeat(count)}`, () => ''],
+      ['spaces on the left, punctuation inside', count => `${' '.repeat(count)}x${'.'.repeat(count)}y`, count => `X${'.'.repeat(count)}Y`],
+    ];
+    // Ascending sizes: an end-anchored `[...]+$` pattern retries every position of the run and needs about 2 s for 40,000 characters, so a regression fails at the first pair.
+    const sizes = [1000, 40_000, 200_000];
+    for (const [label, value] of cases) expectScaling(label, sizes, count => { const text = value(count); return () => normalizeToken(text); });
+    // The same text as a token of a text item and as a reference name goes through the cross-reference scan.
+    expectScaling('cross-reference scan', sizes, count => { const token = `x${'.'.repeat(count)}y`, index = indexOf([item(`R1 ${token}`)]), names = new Set(['R1', token]); return () => extractRefCandidatesBounded(index, names, new Set()); });
+    for (const count of sizes) {
+      for (const [label, value, expected] of cases) expect(normalizeToken(value(count)), `${count}: ${label}`).toBe(expected(count));
+      const token = `x${'.'.repeat(count)}y`;
+      const scan = extractRefCandidatesBounded(indexOf([item(`R1 ${token}`)]), new Set(['R1', token]), new Set());
+      expect(scan.candidates.map(candidate => [candidate.name === token ? 'long' : candidate.name, candidate.hits.length]), `${count}: scan`).toEqual([['R1', 1], ['long', 1]]);
     }
     // Only the two edges are stripped, whatever the characters are.
     expect(normalizeToken('  ("(a.b)")  ')).toBe('A.B');
@@ -90,9 +87,7 @@ describe('bounded cross-reference scan (B35)', () => {
     const shared = [...refs].join(' '); // 57.8 M logical characters across 2001 items, one backing string
     const index = indexOf(Array.from({ length: 2001 }, () => item(shared)));
     const heapBefore = process.memoryUsage().heapUsed;
-    const started = performance.now();
     const result = extractRefCandidatesBounded(index, refs, new Set());
-    const elapsed = performance.now() - started;
     const heapGrowth = process.memoryUsage().heapUsed - heapBefore;
     expect(result.truncated).toBe(true);
     expect(result.limit).toBe('total-hits');
@@ -102,7 +97,8 @@ describe('bounded cross-reference scan (B35)', () => {
     // Exact within the budget: 10 full items (5000 hits each) were recorded, in item order, and nothing of item 10.
     expect(result.scannedItems).toBe(MAX_TOTAL_CANDIDATE_HITS / 5000);
     expect(result.candidates.every(candidate => candidate.hits.length === 10 && candidate.hits.every((hit, i) => hit.itemIndex === i))).toBe(true);
-    expect(elapsed).toBeLessThan(2000); // unbudgeted this plans 10 million hits
+    // Unbudgeted this plans 10 million hits: the scan that stops at the budget costs the same as the scan of only the 10 items that fit it (the first 10 of 2001), not 200 times as much.
+    expectCostAtMost('the aggregate budget', () => extractRefCandidatesBounded(index, refs, new Set()), () => extractRefCandidatesBounded(indexOf(index.items.slice(0, 10)), refs, new Set()), 4);
     expect(heapGrowth).toBeLessThan(150 * 1024 * 1024); // 10 million hits would be gigabytes
   });
 
@@ -207,10 +203,8 @@ describe('bounded cross-reference scan (B35)', () => {
     const watched: TextIndex = { ...indexOf(big), items: new Proxy(big, { get(target, key, receiver) { if (typeof key === 'string' && /^\d+$/.test(key)) touched++; return Reflect.get(target, key, receiver); } }) };
     const controller = new AbortController();
     setTimeout(() => controller.abort(), 0);
-    const started = performance.now();
     expect((await failure(extractRefCandidatesAsync(watched, new Set(['PU301']), new Set(), { signal: controller.signal }))).code).toBe('ABORTED');
-    expect(touched).toBeLessThan(big.length); // it stopped early instead of finishing the corpus
-    expect(performance.now() - started).toBeLessThan(5000);
+    expect(touched).toBeLessThan(big.length); // it stopped early instead of finishing the corpus: the count of items read says it, no clock is needed
   });
 
   describe('100k punctuation-only items: no token ever matches, so only the work counter and the checkpoints bound the scan', () => {

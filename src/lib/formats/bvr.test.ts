@@ -150,14 +150,16 @@ describe('BVRAW_FORMAT_3', () => {
   it('uses the reference defaults for absent sides (both) and a missing radius stays unknown', () => {
     const board = must(text(['BVRAW_FORMAT_3', 'PART_NAME U1', 'PART_ORIGIN 100 100', 'PIN_ORIGIN 5 5', 'PIN_END', 'PART_END']));
     expect(board.components[0].side).toBe('both');
-    expect(board.pins[0]).toMatchObject({ number: '1', name: '1', side: 'both', net: '', radius: 0 });
+    expect(board.pins[0]).toMatchObject({ number: '~1', name: '~1', numberGenerated: true, side: 'both', net: '', radius: 0 });
     expect(notes(board)).toEqual(['2 records have no side field and are shown on both sides, as OpenBoardView does.']);
     expect(keys(board)).toContain('parse.warning.fallbackPads');
     expect(keys(board)).toContain('parse.warning.missingBoardOutline');
   });
-  it('numbers by PIN_NUMBER, then PIN_NAME, then position in the part', () => {
+  it('numbers by PIN_NUMBER, then PIN_NAME, then "~" and the position in the part', () => {
     const board = must(text(['BVRAW_FORMAT_3', 'PART_NAME U1', 'PART_SIDE T', 'PART_ORIGIN 0 0', 'PIN_NAME X', 'PIN_ORIGIN 1 1', 'PIN_END', 'PIN_ORIGIN 2 2', 'PIN_END', 'PIN_NUMBER 7', 'PIN_NAME Y', 'PIN_ORIGIN 3 3', 'PIN_END', 'PART_END']));
-    expect(board.pins.map(pin => [pin.number, pin.name])).toEqual([['X', 'X'], ['2', '2'], ['7', 'Y']]);
+    expect(board.pins.map(pin => [pin.number, pin.name])).toEqual([['X', 'X'], ['~2', '~2'], ['7', 'Y']]);
+    // a number taken from the file (PIN_NUMBER or PIN_NAME) is real; "~" and the position in the part is a placeholder that no real number of the part can be
+    expect(board.pins.map(pin => pin.numberGenerated)).toEqual([undefined, true, undefined]);
   });
   it('reads OUTLINE_SEGMENTED in any order and direction, and discloses open chains', () => {
     const base = ['BVRAW_FORMAT_3', 'PART_NAME U1', 'PART_SIDE T', 'PART_ORIGIN 10 10', 'PART_END'];
@@ -303,12 +305,13 @@ describe('BVRAW_FORMAT_3 as written by kicad-boardview (real-file shape, Raspber
       }
     }
   });
-  it('numbers a pin without PIN_NUMBER and PIN_NAME by its position in the part and gives it no net', () => {
+  it('numbers a pin without PIN_NUMBER and PIN_NAME "~" and its position in the part, marks it as generated and gives it no net', () => {
     const board = must(KICAD_EXPORT.join('\r\n'));
     const fiducial = board.pins.find(p => p.componentId === board.components.find(c => c.ref === 'FID2')!.id)!;
-    expect(fiducial).toMatchObject({ number: '1', name: '1', net: '', side: 'top' });
+    expect(fiducial).toMatchObject({ number: '~1', name: '~1', numberGenerated: true, net: '', side: 'top' });
     const hole = board.components.find(c => c.ref === 'H1')!;
-    expect(board.pins.filter(p => p.componentId === hole.id).map(p => [p.number, p.name, p.net])).toEqual([['1', '1', ''], ['1', '1', 'GND']]);
+    // the unnumbered pad no longer shares the number of the real pad 1 of the same part
+    expect(board.pins.filter(p => p.componentId === hole.id).map(p => [p.number, p.name, p.net, p.numberGenerated])).toEqual([['~1', '~1', '', true], ['1', '1', 'GND', undefined]]);
     expect(board.nets.map(n => n.name).sort()).toEqual(['+3V3', 'GND', 'Net-(U9 PAD A1)', 'QSPI_SS']);
   });
   it('keeps a net name that contains blanks whole (the exporter writes the raw KiCad name)', () => {

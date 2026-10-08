@@ -455,6 +455,92 @@ test('electron/store.cjs: queued atomic JSON store with a shutdown gate', async 
     // Without a translator the catalog key itself is the message, so a missing injection is visible.
     assert.throws(() => createJsonStore({ directory: 'relative' }), { message: 'native.error.invalidPath' });
   });
+
+  await t0.test('keepFirst: a write that replaces old-shaped data keeps the old file once, in its own queue slot, and never replaces an existing copy', async () => {
+    const directory = await profile();
+    const store = createJsonStore({ directory, t });
+    const name = 'notes/n.json', copy = 'notes/n.json.old';
+    const file = (entry) => path.join(directory, ...entry.split('/'));
+    const keep = { name: copy, when: (current) => Array.isArray(current) && current.some((item) => item && item.old === true) };
+    // A missing target has nothing to keep.
+    await store.write(name, [{ old: true, id: 1 }], { keepFirst: keep });
+    await assert.rejects(fs.access(file(copy)), { code: 'ENOENT' });
+    // The target now holds old-shaped data: the next write keeps it first (the copy is exactly what was there) and then replaces it.
+    await store.write(name, [{ id: 2 }], { keepFirst: keep });
+    assert.deepEqual(await readJson(file(copy)), [{ old: true, id: 1 }]);
+    assert.deepEqual(await readJson(file(name)), [{ id: 2 }]);
+    // Once the data is new-shaped there is nothing to keep, and an existing copy is never replaced, even by a later old-shaped file.
+    await store.write(name, [{ id: 3 }], { keepFirst: keep });
+    await store.write(name, [{ old: true, id: 4 }]);
+    await store.write(name, [{ id: 5 }], { keepFirst: keep });
+    assert.deepEqual(await readJson(file(copy)), [{ old: true, id: 1 }]);
+    assert.deepEqual(await readJson(file(name)), [{ id: 5 }]);
+    assert.deepEqual(await tmpFiles(directory), []);
+    // A damaged copy is not replaced either, and a damaged target keeps nothing: the write itself still goes through.
+    const other = 'notes/m.json';
+    await store.write(other, [{ old: true }]);
+    await fs.writeFile(file(`${other}.old`), '{not json');
+    await store.write(other, [{ id: 1 }], { keepFirst: { name: `${other}.old`, when: keep.when } });
+    assert.equal(await fs.readFile(file(`${other}.old`), 'utf8'), '{not json');
+    assert.deepEqual(await readJson(file(other)), [{ id: 1 }]);
+    await fs.writeFile(file(other), '{not json');
+    await store.write(other, [{ id: 2 }], { keepFirst: { name: `${other}.second`, when: () => true } });
+    await assert.rejects(fs.access(file(`${other}.second`)), { code: 'ENOENT' });
+    assert.deepEqual(await readJson(file(other)), [{ id: 2 }]);
+  });
+
+  await t0.test('keepFirst: the copy and the write are one accepted operation (B01): after the quit intent both are refused, before it both complete', async () => {
+    const directory = await profile();
+    const name = 'notes/q.json', copy = 'notes/q.json.old';
+    const target = path.join(directory, 'notes', 'q.json');
+    const { mockFs, pending, releases, releaseAll } = blockableFs((to) => to === target);
+    try {
+      const store = createJsonStore({ directory, t, fs: mockFs });
+      // The first write is plain; the second keeps the first before it replaces it, and is accepted before the quit intent.
+      const keep = { name: copy, when: (current) => Array.isArray(current) && current.length === 1 };
+      const first = store.write(name, [{ old: true }]);
+      await wait(() => pending.length === 1);
+      const second = store.write(name, [{ new: true }], { keepFirst: keep });
+      const shutdown = store.beginShutdown();
+      await assert.rejects(store.write(name, [{ late: true }], { keepFirst: keep }), { code: 'STORE_CLOSING' });
+      releases[0]();
+      await first;
+      await wait(() => pending.length === 2);
+      releases[1]();
+      await second;
+      await shutdown;
+      assert.deepEqual(await readJson(path.join(directory, 'notes', 'q.json.old')), [{ old: true }]);
+      assert.deepEqual(await readJson(target), [{ new: true }]);
+    } finally { releaseAll(); }
+  });
+
+  await t0.test('keepFirst: a copy that cannot be written rejects the whole write and the old file stays exactly as it was', async () => {
+    const directory = await profile();
+    const name = 'notes/f.json', copy = 'notes/f.json.old';
+    const target = path.join(directory, 'notes', 'f.json');
+    const failing = Object.create(fs);
+    failing.rename = async (from, to) => { if (to.endsWith('f.json.old')) throw Object.assign(new Error('ENOSPC: simulated'), { code: 'ENOSPC' }); return fs.rename(from, to); };
+    const store = createJsonStore({ directory, t, fs: failing });
+    const plain = createJsonStore({ directory, t });
+    await plain.write(name, [{ old: true }]);
+    await assert.rejects(store.write(name, [{ new: true }], { keepFirst: { name: copy, when: () => true } }), { code: 'STORE_WRITE_FAILED' });
+    assert.deepEqual(await readJson(target), [{ old: true }]);
+    await assert.rejects(fs.access(path.join(directory, 'notes', 'f.json.old')), { code: 'ENOENT' });
+    assert.deepEqual(await tmpFiles(directory), []);
+    // the queue goes on after the failure
+    await plain.write(name, [{ again: true }]);
+    assert.deepEqual(await readJson(target), [{ again: true }]);
+  });
+
+  await t0.test('keepFirst: the options are validated before anything is queued', async () => {
+    const directory = await profile();
+    const store = createJsonStore({ directory, t });
+    await assert.rejects(store.write('a.json', [], { keepFirst: { name: 'a.json.old' } }), { code: 'STORE_INVALID_OPTIONS' });
+    await assert.rejects(store.write('a.json', [], { keepFirst: { name: 'a.json', when: () => true } }), { code: 'STORE_INVALID_OPTIONS' });
+    await assert.rejects(store.write('a.json', [], { keepFirst: { name: '../escape.json', when: () => true } }), { code: 'STORE_INVALID_NAME' });
+    await assert.rejects(store.write('a.json', [], { keepFirst: { name: 'a/../../b.json', when: () => true } }), { code: 'STORE_INVALID_NAME' });
+    await assert.rejects(fs.access(path.join(directory, 'a.json')), { code: 'ENOENT' });
+  });
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -593,11 +679,17 @@ test('electron/store.cjs: bounded rename retry and reads inside the write queue 
 
   await t0.test('renameWithRetry: waits between attempts, throws the last error unchanged, passes other errors through at once', async () => {
     const calls = [];
-    const failing = { rename: async (from, to) => { calls.push(Date.now()); throw Object.assign(new Error('busy'), { code: 'EBUSY' }); } };
-    const started = Date.now();
+    const failing = { rename: async (from, to) => { calls.push([from, to]); throw Object.assign(new Error('busy'), { code: 'EBUSY' }); } };
+    const delays = [];
+    const nativeTimeout = globalThis.setTimeout;
+    t0.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
+      delays.push(delay);
+      return nativeTimeout(callback, 0, ...args);
+    });
     await assert.rejects(renameWithRetry(failing, 'a', 'b', [15, 15]), { code: 'EBUSY', message: 'busy' });
     assert.equal(calls.length, 3);
-    assert.ok(Date.now() - started >= 25, 'it really paused between the attempts');
+    assert.deepEqual(delays, [15, 15], 'one scheduled pause between each pair of attempts');
+    globalThis.setTimeout.mock.restore();
     const odd = { rename: async () => { throw 'not an error object'; } };
     await assert.rejects(renameWithRetry(odd, 'a', 'b', [1, 1]), (error) => error === 'not an error object');
     assert.equal(await renameWithRetry({ rename: async () => 'done' }, 'a', 'b'), 'done');
@@ -774,3 +866,6 @@ test('W-fin-lifecycle-01: a Windows path that names an NTFS alternate data strea
     assert.doesNotThrow(() => localAbsolutePath('C:\\Users\\x\\AppData\\profile', t, true), 'the trusted profile directory is not subject to the stream rule');
   }
 });
+
+// The repair store (electron/repair-store.cjs) builds on this store's helpers; its checks run with this suite.
+require('./readings-store-checks.cjs');

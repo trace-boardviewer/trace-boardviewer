@@ -7,7 +7,7 @@
 
 const LIMITS = Object.freeze({
   documents: 200, bookmarks: 2000, annotations: 2000, cameras: 256, notes: 500, aliases: 1000, alias: 256,
-  text: 8000, path: 32767, id: 128, componentId: 256, measurement: 64, timestamp: 40, page: 1000000,
+  text: 8000, path: 32767, id: 128, componentId: 256, measurement: 64, timestamp: 40, page: 1000000, anchor: 1e9,
   ratioMin: 0.2, ratioMax: 0.8,
 });
 const DOCUMENT_KINDS = Object.freeze(['pdf', 'image', 'schematic']);
@@ -189,8 +189,58 @@ function validateManifest(raw, expectedBoardKey) {
   };
 }
 
-// Notes: same limits as the notesValue of main.cjs plus the pin-note fields. One note per
-// component (or per component+pin) is an invariant (B15): duplicates are malformed input.
+// Note keys (twin of src/lib/note-keys.ts; the grammar and the rules are documented there). Only the pieces a validator needs.
+const normalizeName = (value) => value.normalize('NFKC').trim();
+const ESCAPED = /[%/@\u0000-\u001f\u007f\ud800-\udfff]/g;
+const escapeKeyName = (name) => name.replace(ESCAPED, (unit) => `%${unit.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')}`);
+const SIDE_LETTER = Object.freeze({ top: 't', bottom: 'b', both: 'a' });
+const micrometres = (mm) => Math.round(mm * 1000);
+const anchorText = (anchor) => `${SIDE_LETTER[anchor.side]}${micrometres(anchor.x)},${micrometres(anchor.y)}`;
+function noteKeyText(key) {
+  let text = key.ref === undefined ? '' : escapeKeyName(key.ref);
+  if (key.at) text += `@${anchorText(key.at)}`;
+  if (key.pin !== undefined) text += `/${escapeKeyName(key.pin)}`;
+  else if (key.pinAt) text += `/@${anchorText(key.pinAt)}`;
+  return text;
+}
+// Same list as NOTE_PROBLEMS in src/lib/workspace.ts (and the NoteProblem union in src/lib/types.ts).
+const NOTE_PROBLEMS = Object.freeze([
+  'component-missing', 'component-ambiguous', 'pin-missing', 'pin-ambiguous', 'legacy-id-missing', 'legacy-indistinguishable', 'duplicate-target',
+]);
+
+// A reference or pin number as a key holds it: NFKC and trim, 1 to 256 characters (null when it is none).
+function validateNoteName(value) {
+  if (!isText(value, LIMITS.componentId, 1)) return null;
+  const name = normalizeName(value);
+  return name.length >= 1 && name.length <= LIMITS.componentId ? name : null;
+}
+function validateNoteAnchor(raw, bad, field) {
+  if (!isObject(raw)) throw bad(field);
+  if (raw.side !== 'top' && raw.side !== 'bottom' && raw.side !== 'both') throw bad(`${field}.side`);
+  if (!isFinite(raw.x) || Math.abs(raw.x) > LIMITS.anchor) throw bad(`${field}.x`);
+  if (!isFinite(raw.y) || Math.abs(raw.y) > LIMITS.anchor) throw bad(`${field}.y`);
+  // `+ 0` turns a rounded -0 into 0, so a stored position never prints as "-0".
+  return { side: raw.side, x: Math.round(raw.x * 1000) / 1000 + 0, y: Math.round(raw.y * 1000) / 1000 + 0 };
+}
+// Strict, canonical form of a stored key: names normalized, anchors rounded to 1 um, unknown fields dropped, a reference or an anchor required.
+function validateNoteKey(raw, bad) {
+  if (!isObject(raw)) throw bad('target');
+  const key = {};
+  if (raw.ref !== undefined) { const ref = validateNoteName(raw.ref); if (ref === null) throw bad('target.ref'); key.ref = ref; }
+  if (raw.at !== undefined) key.at = validateNoteAnchor(raw.at, bad, 'target.at');
+  if (key.ref === undefined && key.at === undefined) throw bad('target');
+  if (raw.pin !== undefined) { const pin = validateNoteName(raw.pin); if (pin === null) throw bad('target.pin'); key.pin = pin; }
+  if (raw.pinAt !== undefined) {
+    if (key.pin !== undefined) throw bad('target.pinAt');
+    key.pinAt = validateNoteAnchor(raw.pinAt, bad, 'target.pinAt');
+  }
+  return key;
+}
+
+// Notes: same limits as the notesValue of main.cjs plus the pin-note fields. A note names its target either by a key (`target`,
+// see src/lib/note-keys.ts) or, when it was written before keys existed, by the importer's positional ids (`componentId` and `pinId`,
+// with an `unresolved` record once a migration could not place it); both kinds may share one list. One note per target is an
+// invariant (B15): duplicates are malformed input.
 function validateNotes(raw) {
   if (!Array.isArray(raw)) throw new WorkspaceError('NOTES_INVALID', 'Invalid notes: not a list.');
   if (raw.length > LIMITS.notes) throw new WorkspaceError('TOO_MANY_NOTES', `Invalid notes: at most ${LIMITS.notes} notes can be saved for one board.`);
@@ -201,16 +251,32 @@ function validateNotes(raw) {
     if (!isObject(note)) throw new WorkspaceError('NOTES_INVALID', `Invalid notes: notes[${index}].`);
     if (!isId(note.id)) throw bad('id');
     if (ids.has(note.id)) throw bad('id (duplicate)');
-    if (!isText(note.componentId, LIMITS.componentId, 1)) throw bad('componentId');
-    if (note.pinId !== undefined && !isText(note.pinId, LIMITS.componentId, 1)) throw bad('pinId');
+    let key;
+    if (note.target !== undefined) {
+      if (note.componentId !== undefined || note.pinId !== undefined || note.unresolved !== undefined) throw bad('target (a note has a target or a componentId, not both)');
+      key = validateNoteKey(note.target, bad);
+    } else {
+      if (!isText(note.componentId, LIMITS.componentId, 1)) throw bad('componentId');
+      if (note.pinId !== undefined && !isText(note.pinId, LIMITS.componentId, 1)) throw bad('pinId');
+    }
     if (!isText(note.text, LIMITS.text)) throw bad('text');
     if (!isTimestamp(note.updatedAt)) throw bad('updatedAt');
-    const target = `${note.componentId}\0${note.pinId === undefined ? '' : note.pinId}`;
-    if (targets.has(target)) throw bad(note.pinId === undefined ? 'componentId (duplicate note for this component)' : 'pinId (duplicate note for this pin)');
+    let unresolved;
+    if (!key && note.unresolved !== undefined) {
+      if (!isObject(note.unresolved) || !NOTE_PROBLEMS.includes(note.unresolved.reason) || !isTimestamp(note.unresolved.at)) throw bad('unresolved');
+      unresolved = { reason: note.unresolved.reason, at: note.unresolved.at };
+    }
+    const target = key ? `K\0${noteKeyText(key)}` : `L\0${note.componentId}\0${note.pinId === undefined ? '' : note.pinId}`;
+    if (targets.has(target)) throw bad(key ? 'target (duplicate note for this target)' : note.pinId === undefined ? 'componentId (duplicate note for this component)' : 'pinId (duplicate note for this pin)');
     ids.add(note.id);
     targets.add(target);
-    const result = { id: note.id, componentId: note.componentId, text: note.text, updatedAt: note.updatedAt };
-    if (note.pinId !== undefined) result.pinId = note.pinId;
+    let result;
+    if (key) result = { id: note.id, target: key, text: note.text, updatedAt: note.updatedAt };
+    else {
+      result = { id: note.id, componentId: note.componentId, text: note.text, updatedAt: note.updatedAt };
+      if (note.pinId !== undefined) result.pinId = note.pinId;
+      if (unresolved) result.unresolved = unresolved;
+    }
     if (note.measurements !== undefined) {
       if (!isObject(note.measurements)) throw bad('measurements');
       const measurements = {};
@@ -227,5 +293,6 @@ function validateNotes(raw) {
 }
 
 module.exports = Object.freeze({
-  LIMITS, DOCUMENT_KINDS, WorkspaceError, validateKey, manifestName, validateManifest, validateNotes, validateDocumentFields, validateAliases,
+  LIMITS, DOCUMENT_KINDS, NOTE_PROBLEMS, WorkspaceError, validateKey, manifestName, validateManifest, validateNotes, validateDocumentFields, validateAliases,
+  normalizeName, escapeKeyName, noteKeyText,
 });

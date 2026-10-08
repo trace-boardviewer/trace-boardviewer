@@ -1,0 +1,110 @@
+[
+ {
+  "id": "4e0c495a",
+  "kind": "valid",
+  "name": "synthetic.brd",
+  "text": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<!DOCTYPE eagle SYSTEM \"eagle.dtd\">\n<eagle version=\"9.6.2\"><drawing><settings><setting alwaysvectorfont=\"no\"/></settings><layers><layer number=\"1\" name=\"Top\" color=\"4\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"16\" name=\"Bottom\" color=\"1\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"20\" name=\"Dimension\" color=\"15\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"21\" name=\"tPlace\" color=\"7\" fill=\"1\" visible=\"yes\" active=\"yes\"/></layers><board><plain></plain><libraries><library name=\"lib\"><packages><package name=\"R0603\"><smd name=\"1\" x=\"-1\" y=\"0\" dx=\"1\" dy=\"1\" layer=\"1\"/><smd name=\"2\" x=\"1\" y=\"0\" dx=\"1\" dy=\"1\" layer=\"1\"/></package></packages></library></libraries><elements><element name=\"R1\" library=\"lib\" package=\"R0603\" value=\"10k\" x=\"10\" y=\"20\"/></elements><signals></signals></board></drawing></eagle>"
+ },
+ {
+  "id": "c3f28c3c",
+  "kind": "valid",
+  "name": "synthetic.brd",
+  "text": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<!DOCTYPE eagle SYSTEM \"eagle.dtd\">\n<eagle version=\"9.6.2\"><drawing><settings><setting alwaysvectorfont=\"no\"/></settings><layers><layer number=\"1\" name=\"Top\" color=\"4\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"16\" name=\"Bottom\" color=\"1\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"20\" name=\"Dimension\" color=\"15\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"21\" name=\"tPlace\" color=\"7\" fill=\"1\" visible=\"yes\" active=\"yes\"/></layers><board><plain><circle x=\"10\" y=\"10\" radius=\"5\" width=\"0\" layer=\"20\"/></plain><libraries><library name=\"lib\"><packages><package name=\"R0603\"><smd name=\"1\" x=\"-1\" y=\"0\" dx=\"1\" dy=\"1\" layer=\"1\"/><smd name=\"2\" x=\"1\" y=\"0\" dx=\"1\" dy=\"1\" layer=\"1\"/></package></packages></library></libraries><elements><element name=\"R1\" library=\"lib\" package=\"R0603\" value=\"10k\" x=\"10\" y=\"20\"/></elements><signals></signals></board></drawing></eagle>"
+ },
+ {
+  "id": "42e9aa48",
+  "kind": "valid",
+  "name": "synthetic.brd",
+  "text": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<!DOCTYPE eagle SYSTEM \"eagle.dtd\">\n<eagle version=\"9.6.2\"><drawing><settings><setting alwaysvectorfont=\"no\"/></settings><layers><layer number=\"1\" name=\"Top\" color=\"4\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"16\" name=\"Bottom\" color=\"1\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"20\" name=\"Dimension\" color=\"15\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"21\" name=\"tPlace\" color=\"7\" fill=\"1\" visible=\"yes\" active=\"yes\"/></layers><board><plain><wire x1=\"0\" y1=\"0\" x2=\"40\" y2=\"0\" width=\"0\" layer=\"20\"/><wire x1=\"40\" y1=\"0\" x2=\"40\" y2=\"30\" width=\"0\" layer=\"20\"/></plain><libraries><library name=\"lib\"><packages><package name=\"R0603\"><smd name=\"1\" x=\"-1\" y=\"0\" dx=\"1\" dy=\"1\" layer=\"1\"/><smd name=\"2\" x=\"1\" y=\"0\" dx=\"1\" dy=\"1\" layer=\"1\"/></package></packages></library></libraries><elements><element name=\"R1\" library=\"lib\" package=\"R0603\" value=\"10k\" x=\"10\" y=\"20\"/></elements><signals></signals></board></drawing></eagle>"
+ },
+ {
+  "id": "b50682ef",
+  "kind": "valid",
+  "name": "synthetic.brd",
+  "text": "<eagle version=\"9.6.2\"><drawing><settings><setting alwaysvectorfont=\"no\"/></settings><layers><layer number=\"1\" name=\"Top\" color=\"4\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"16\" name=\"Bottom\" color=\"1\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"20\" name=\"Dimension\" color=\"15\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"21\" name=\"tPlace\" color=\"7\" fill=\"1\" visible=\"yes\" active=\"yes\"/></layers><board><plain><wire x1=\"0\" y1=\"0\" x2=\"40\" y2=\"0\" width=\"0\" layer=\"20\"/><wire x1=\"40\" y1=\"0\" x2=\"40\" y2=\"30\" width=\"0\" layer=\"20\"/><wire x1=\"40\" y1=\"30\" x2=\"0\" y2=\"30\" width=\"0\" layer=\"20\"/><wire x1=\"0\" y1=\"30\" x2=\"0\" y2=\"0\" width=\"0\" layer=\"20\"/></plain><libraries><library name=\"lib\"><packages><package name=\"R0603\"><smd name=\"1\" x=\"-1\" y=\"0\" dx=\"1\" dy=\"1\" layer=\"1\"/><smd name=\"2\" x=\"1\" y=\"0\" dx=\"1\" dy=\"1\" layer=\"1\"/></package></packages></library></libraries><elements><element name=\"R1\" library=\"lib\" package=\"R0603\" value=\"10k\" x=\"10\" y=\"20\"/></elements><signals></signals></board></drawing></eagle>"
+ },
+ {
+  "id": "3ffbd7ac",
+  "kind": "valid",
+  "name": "synthetic.brd",
+  "text": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<!DOCTYPE eagle SYSTEM \"eagle.dtd\">\n<eagle version=\"9.6.2\"><drawing><settings><setting alwaysvectorfont=\"no\"/></settings><layers><layer number=\"1\" name=\"Top\" color=\"4\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"16\" name=\"Bottom\" color=\"1\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"20\" name=\"Dimension\" color=\"15\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"21\" name=\"tPlace\" color=\"7\" fill=\"1\" visible=\"yes\" active=\"yes\"/></layers><board><plain><wire x1=\"0\" y1=\"0\" x2=\"40\" y2=\"0\" width=\"0\" layer=\"20\"/><wire x1=\"40\" y1=\"0\" x2=\"40\" y2=\"30\" width=\"0\" layer=\"20\"/><wire x1=\"40\" y1=\"30\" x2=\"0\" y2=\"30\" width=\"0\" layer=\"20\"/><wire x1=\"0\" y1=\"30\" x2=\"0\" y2=\"0\" width=\"0\" layer=\"20\"/></plain><libraries><library name=\"lib\"><packages><package name=\"P\"><smd name=\"1\" x=\"0\" y=\"0\" dx=\"4\" dy=\"2\" layer=\"1\"/></package></packages></library></libraries><elements><element name=\"U1\" library=\"lib\" package=\"P\" value=\"10k\" x=\"0\" y=\"0\"/></elements><signals></signals></board></drawing></eagle>"
+ },
+ {
+  "id": "63cc6dce",
+  "kind": "valid",
+  "name": "synthetic.brd",
+  "text": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<!DOCTYPE eagle SYSTEM \"eagle.dtd\">\n<eagle version=\"9.6.2\"><drawing><settings><setting alwaysvectorfont=\"no\"/></settings><layers><layer number=\"1\" name=\"Top\" color=\"4\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"16\" name=\"Bottom\" color=\"1\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"20\" name=\"Dimension\" color=\"15\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"21\" name=\"tPlace\" color=\"7\" fill=\"1\" visible=\"yes\" active=\"yes\"/></layers><board><plain><wire x1=\"0\" y1=\"0\" x2=\"40\" y2=\"0\" width=\"0\" layer=\"20\"/><wire x1=\"40\" y1=\"0\" x2=\"40\" y2=\"30\" width=\"0\" layer=\"20\"/><wire x1=\"40\" y1=\"30\" x2=\"0\" y2=\"30\" width=\"0\" layer=\"20\"/><wire x1=\"0\" y1=\"30\" x2=\"0\" y2=\"0\" width=\"0\" layer=\"20\"/></plain><libraries><library name=\"lib\"><packages><package name=\"P\"><smd name=\"1\" x=\"0\" y=\"0\" dx=\"1\" dy=\"1\" layer=\"1\"/></package></packages></library></libraries><elements><element name=\"U1\" library=\"lib\" package=\"P\" value=\"10k\" x=\"0\" y=\"0\" rot=\"MR0\"/></elements><signals></signals></board></drawing></eagle>"
+ },
+ {
+  "id": "0e6ffa84",
+  "kind": "valid",
+  "name": "synthetic.brd",
+  "text": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<!DOCTYPE eagle SYSTEM \"eagle.dtd\">\n<eagle version=\"9.6.2\"><drawing><settings><setting alwaysvectorfont=\"no\"/></settings><layers><layer number=\"1\" name=\"Top\" color=\"4\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"16\" name=\"Bottom\" color=\"1\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"20\" name=\"Dimension\" color=\"15\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"21\" name=\"tPlace\" color=\"7\" fill=\"1\" visible=\"yes\" active=\"yes\"/></layers><board><plain><wire x1=\"0\" y1=\"0\" x2=\"40\" y2=\"0\" width=\"0\" layer=\"20\"/><wire x1=\"40\" y1=\"0\" x2=\"40\" y2=\"30\" width=\"0\" layer=\"20\"/><wire x1=\"40\" y1=\"30\" x2=\"0\" y2=\"30\" width=\"0\" layer=\"20\"/><wire x1=\"0\" y1=\"30\" x2=\"0\" y2=\"0\" width=\"0\" layer=\"20\"/></plain><libraries><library name=\"lib\"><packages><package name=\"P\"><smd name=\"1\" x=\"0\" y=\"0\" dx=\"4\" dy=\"2\" layer=\"1\" roundness=\"50\"/></package></packages></library></libraries><elements><element name=\"U1\" library=\"lib\" package=\"P\" value=\"10k\" x=\"0\" y=\"0\"/></elements><signals></signals></board></drawing></eagle>"
+ },
+ {
+  "id": "bf4f9d13",
+  "kind": "valid",
+  "name": "synthetic.brd",
+  "text": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<!DOCTYPE eagle SYSTEM \"eagle.dtd\">\n<eagle version=\"9.6.2\"><drawing><settings><setting alwaysvectorfont=\"no\"/></settings><layers><layer number=\"1\" name=\"Top\" color=\"4\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"16\" name=\"Bottom\" color=\"1\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"20\" name=\"Dimension\" color=\"15\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"21\" name=\"tPlace\" color=\"7\" fill=\"1\" visible=\"yes\" active=\"yes\"/></layers><board><plain><wire x1=\"0\" y1=\"0\" x2=\"40\" y2=\"0\" width=\"0\" layer=\"20\"/><wire x1=\"40\" y1=\"0\" x2=\"40\" y2=\"30\" width=\"0\" layer=\"20\"/><wire x1=\"40\" y1=\"30\" x2=\"0\" y2=\"30\" width=\"0\" layer=\"20\"/><wire x1=\"0\" y1=\"30\" x2=\"0\" y2=\"0\" width=\"0\" layer=\"20\"/></plain><libraries><library name=\"lib\"><packages><package name=\"P\"><smd name=\"1\" x=\"0\" y=\"0\" dx=\"2\" dy=\"2\" layer=\"1\" roundness=\"50\"/></package></packages></library></libraries><elements><element name=\"U1\" library=\"lib\" package=\"P\" value=\"10k\" x=\"0\" y=\"0\"/></elements><signals></signals></board></drawing></eagle>"
+ },
+ {
+  "id": "b7f9601c",
+  "kind": "valid",
+  "name": "synthetic.brd",
+  "text": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<!DOCTYPE eagle SYSTEM \"eagle.dtd\">\n<eagle version=\"9.6.2\"><drawing><settings><setting alwaysvectorfont=\"no\"/></settings><layers><layer number=\"1\" name=\"Top\" color=\"4\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"16\" name=\"Bottom\" color=\"1\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"20\" name=\"Dimension\" color=\"15\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"21\" name=\"tPlace\" color=\"7\" fill=\"1\" visible=\"yes\" active=\"yes\"/></layers><board><plain><wire x1=\"0\" y1=\"0\" x2=\"40\" y2=\"0\" width=\"0\" layer=\"20\"/><wire x1=\"40\" y1=\"0\" x2=\"40\" y2=\"30\" width=\"0\" layer=\"20\"/><wire x1=\"40\" y1=\"30\" x2=\"0\" y2=\"30\" width=\"0\" layer=\"20\"/><wire x1=\"0\" y1=\"30\" x2=\"0\" y2=\"0\" width=\"0\" layer=\"20\"/></plain><libraries><library name=\"lib\"><packages><package name=\"P\"><pad name=\"1\" x=\"0\" y=\"0\" drill=\"0.8\" diameter=\"1.6\"/><pad name=\"2\" x=\"2\" y=\"0\" drill=\"0.8\" diameter=\"1.6\" shape=\"square\"/><pad name=\"3\" x=\"4\" y=\"0\" drill=\"0.8\" diameter=\"1.6\" shape=\"octagon\"/><pad name=\"4\" x=\"6\" y=\"0\" drill=\"0.8\" diameter=\"1.6\" shape=\"long\"/><pad name=\"5\" x=\"8\" y=\"0\" drill=\"0.8\" diameter=\"1.6\" shape=\"offset\"/><pad name=\"6\" x=\"10\" y=\"0\" drill=\"0.8\" /><smd name=\"7\" x=\"12\" y=\"0\" dx=\"2\" dy=\"1\" layer=\"1\"/></package></packages></library></libraries><elements><element name=\"U1\" library=\"lib\" package=\"P\" value=\"10k\" x=\"0\" y=\"0\"/></elements><signals></signals></board></drawing></eagle>"
+ },
+ {
+  "id": "d6859043",
+  "kind": "valid",
+  "name": "synthetic.brd",
+  "text": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<!DOCTYPE eagle SYSTEM \"eagle.dtd\">\n<eagle version=\"9.6.2\"><drawing><settings><setting alwaysvectorfont=\"no\"/></settings><layers><layer number=\"1\" name=\"Top\" color=\"4\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"16\" name=\"Bottom\" color=\"1\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"20\" name=\"Dimension\" color=\"15\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"21\" name=\"tPlace\" color=\"7\" fill=\"1\" visible=\"yes\" active=\"yes\"/></layers><board><plain><wire x1=\"0\" y1=\"0\" x2=\"40\" y2=\"0\" width=\"0\" layer=\"20\"/><wire x1=\"40\" y1=\"0\" x2=\"40\" y2=\"30\" width=\"0\" layer=\"20\"/><wire x1=\"40\" y1=\"30\" x2=\"0\" y2=\"30\" width=\"0\" layer=\"20\"/><wire x1=\"0\" y1=\"30\" x2=\"0\" y2=\"0\" width=\"0\" layer=\"20\"/></plain><libraries><library name=\"lib\"><packages><package name=\"R0603\"><smd name=\"1\" x=\"-1\" y=\"0\" dx=\"1\" dy=\"1\" layer=\"1\"/><smd name=\"2\" x=\"1\" y=\"0\" dx=\"1\" dy=\"1\" layer=\"1\"/></package></packages></library></libraries><elements><element name=\"R1\" library=\"lib\" package=\"R0603\" value=\"10k\" x=\"10\" y=\"20\"/><element name=\"R2\" library=\"lib\" package=\"R0603\" value=\"10k\" x=\"20\" y=\"20\"/></elements><signals><signal name=\"GND\" class=\"0\"><contactref element=\"R1\" pad=\"1\"/><contactref element=\"R2\" pad=\"1\"/><via x=\"1\" y=\"1\" extent=\"1-16\" drill=\"0.3\"/><wire x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\" width=\"0.2\" layer=\"1\"/></signal><signal name=\"N$1\" class=\"0\"><contactref element=\"R1\" pad=\"2\"/></signal><signal name=\"EMPTY\" class=\"0\"></signal></signals></board></drawing></eagle>"
+ },
+ {
+  "id": "1d10879f",
+  "kind": "valid",
+  "name": "synthetic.brd",
+  "text": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<!DOCTYPE eagle SYSTEM \"eagle.dtd\">\n<eagle version=\"9.6.2\"><drawing><settings><setting alwaysvectorfont=\"no\"/></settings><layers><layer number=\"1\" name=\"Top\" color=\"4\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"16\" name=\"Bottom\" color=\"1\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"20\" name=\"Dimension\" color=\"15\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"21\" name=\"tPlace\" color=\"7\" fill=\"1\" visible=\"yes\" active=\"yes\"/></layers><board><plain></plain><libraries><library name=\"lib\"><packages><package name=\"P\"><smd name=\"1\" x=\"0\" y=\"0\" dx=\"1\" dy=\"1\" layer=\"1\"/><smd name=\"2\" x=\"2\" y=\"0\" dx=\"1\" dy=\"1\" layer=\"1\"/><smd name=\"3\" x=\"4\" y=\"0\" dx=\"1\" dy=\"1\" layer=\"1\"/><smd name=\"4\" x=\"6\" y=\"0\" dx=\"1\" dy=\"1\" layer=\"1\"/><smd name=\"5\" x=\"8\" y=\"0\" dx=\"1\" dy=\"1\" layer=\"1\"/><smd name=\"6\" x=\"10\" y=\"0\" dx=\"1\" dy=\"1\" layer=\"1\"/><smd name=\"7\" x=\"12\" y=\"0\" dx=\"1\" dy=\"1\" layer=\"1\"/><smd name=\"8\" x=\"14\" y=\"0\" dx=\"1\" dy=\"1\" layer=\"1\"/></package></packages></library></libraries><elements><element name=\"E0\" library=\"lib\" package=\"P\" value=\"10k\" x=\"0\" y=\"100\"/><element name=\"E1\" library=\"lib\" package=\"P\" value=\"10k\" x=\"3\" y=\"100\"/><element name=\"E2\" library=\"lib\" package=\"P\" value=\"10k\" x=\"6\" y=\"100\"/><element name=\"E3\" library=\"lib\" package=\"P\" value=\"10k\" x=\"9\" y=\"100\"/><element name=\"E4\" library=\"lib\" package=\"P\" value=\"10k\" x=\"12\" y=\"100\"/><element name=\"E5\" library=\"lib\" package=\"P\" value=\"10k\" x=\"15\" y=\"100\"/><element name=\"E6\" library=\"lib\" package=\"P\" value=\"10k\" x=\"18\" y=\"100\"/><element name=\"E7\" library=\"lib\" package=\"P\" value=\"10k\" x=\"21\" y=\"100\"/></elements><signals></signals></board></drawing></eagle>"
+ },
+ {
+  "id": "25ca6b4f",
+  "kind": "error",
+  "name": "board.brd",
+  "b64": "//4A2EEAANw="
+ },
+ {
+  "id": "fe523bb9",
+  "kind": "error",
+  "name": "synthetic.brd",
+  "text": "<eagle version=\"9\"></eagle>"
+ },
+ {
+  "id": "52c148ef",
+  "kind": "error",
+  "name": "synthetic.brd",
+  "text": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<!DOCTYPE eagle SYSTEM \"eagle.dtd\">\n<eagle>"
+ },
+ {
+  "id": "a627f8b9",
+  "kind": "error",
+  "name": "synthetic.brd",
+  "text": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<!DOCTYPE eagle SYSTEM \"eagle.dtd\">\n<eagle version=\"9.6.2\"><drawing><settings><setting alwaysvectorfont=\"no\"/></settings><layers><layer number=\"1\" name=\"Top\" color=\"4\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"16\" name=\"Bottom\" color=\"1\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"20\" name=\"Dimension\" color=\"15\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"21\" name=\"tPlace\" color=\"7\" fill=\"1\" visible=\"yes\" active=\"yes\"/></layers></drawing></eagle>"
+ },
+ {
+  "id": "4fec6033",
+  "kind": "error",
+  "name": "synthetic.brd",
+  "text": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<!DOCTYPE eagle SYSTEM \"eagle.dtd\">\n<eagle version=\"9.6.2\"><drawing><settings><setting alwaysvectorfont=\"no\"/></settings><layers><layer number=\"1\" name=\"Top\" color=\"4\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"16\" name=\"Bottom\" color=\"1\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"20\" name=\"Dimension\" color=\"15\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"21\" name=\"tPlace\" color=\"7\" fill=\"1\" visible=\"yes\" active=\"yes\"/></layers><library name=\"x\"><packages/></library></drawing></eagle>"
+ },
+ {
+  "id": "560bbea7",
+  "kind": "error",
+  "name": "synthetic.brd",
+  "text": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<!DOCTYPE eagle SYSTEM \"eagle.dtd\">\n<eagle version=\"9.6.2\"><drawing><settings><setting alwaysvectorfont=\"no\"/></settings><layers><layer number=\"1\" name=\"Top\" color=\"4\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"16\" name=\"Bottom\" color=\"1\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"20\" name=\"Dimension\" color=\"15\" fill=\"1\" visible=\"yes\" active=\"yes\"/><layer number=\"21\" name=\"tPlace\" color=\"7\" fill=\"1\" visible=\"yes\" active=\"yes\"/></layers><board><plain/><libraries/><elements/><elements/></board></drawing></eagle>"
+ },
+ {
+  "id": "abc47d2b",
+  "kind": "null",
+  "name": "board",
+  "text": "<"
+ }
+]

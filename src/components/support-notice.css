@@ -12,3 +12,5 @@
 .support-notice-actions .outline-button{padding:9px 14px;font-size:12px;font-weight:500}
 .support-notice-skip{margin-left:auto}
 @media(max-width:560px){.support-notice-skip{margin-left:0}}
+.support-verification { margin-top: 16px; }
+.support-verification input { width: 100%; box-sizing: border-box; margin-bottom: 10px; font: 12px monospace; padding: 8px; background: var(--panel); color: inherit; border: 1px solid var(--line); border-radius: 6px; }

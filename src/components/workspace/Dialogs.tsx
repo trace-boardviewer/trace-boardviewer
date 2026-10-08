@@ -1,11 +1,14 @@
-import { AlertCircle, Check, ChevronDown, ChevronRight, FileBox, FolderOpen, KeyRound, LayoutPanelLeft, Maximize2, Moon, Square, Sun } from 'lucide-react';
+import { AlertCircle, Check, ChevronDown, ChevronRight, FileBox, FileSearch, FolderOpen, KeyRound, LayoutPanelLeft, Maximize2, Moon, Square, Sun } from 'lucide-react';
 import { useId, useState } from 'react';
 import type { KeyRequest } from '../../app/api';
+import { diagnosticSupported } from '../../app/diagnostic-session';
 import { validateKeyText } from '../../app/keys';
 import { LANGUAGE_NAMES, LANGUAGES, normalizeLanguage } from '../../lib/i18n';
 import type { Translator } from '../../lib/i18n';
 import type { AppSettings, Board, RecentFile } from '../../lib/types';
+import { networkActivitySupported } from '../../lib/network-activity';
 import { currentDesktop, updateCheckSupported } from '../../lib/update-check';
+import NetworkSettings from '../NetworkSettings';
 import { UpdateSettings } from '../UpdateNotice';
 import { modifierLabels } from './shortcuts';
 import { Modal } from './ui';
@@ -37,15 +40,17 @@ export function SettingsDialog({ settings, onUpdate, onClose, initialFocus }: { 
     <div className="settings-section"><span className="settings-label" id={appearanceId}>{t('settings.appearance')}</span><div className="settings-options" role="group" aria-labelledby={appearanceId}>{(['dark', 'light', 'system'] as const).map(value => <button type="button" key={value} className={settings.theme === value ? 'selected' : ''} aria-pressed={settings.theme === value} data-testid={`theme-${value}`} onClick={() => onUpdate({ theme: value })}>{value === 'dark' ? <Moon size={17} /> : value === 'light' ? <Sun size={17} /> : <Square size={17} />}{t(value === 'dark' ? 'settings.themeDark' : value === 'light' ? 'settings.themeLight' : 'settings.themeSystem')}</button>)}</div></div>
     <div className="settings-section"><span className="settings-label" id={layoutId}>{t('settings.layout')}</span><div className="settings-options" role="group" aria-labelledby={layoutId}>{(['workshop', 'focus'] as const).map(value => <button type="button" key={value} aria-pressed={settings.layout === value} className={settings.layout === value ? 'selected' : ''} onClick={() => onUpdate({ layout: value })}>{value === 'workshop' ? <LayoutPanelLeft size={17} /> : <Maximize2 size={17} />}{t(value === 'workshop' ? 'layout.workshop' : 'layout.focus')}</button>)}</div></div>
     <div className="setting-toggles"><label><span><strong>{t('settings.motion')}</strong><small>{t('settings.motionHint')}</small></span><input type="checkbox" role="switch" checked={settings.motion} onChange={e => onUpdate({ motion: e.target.checked })} /></label><label><span><strong>{t('settings.labels')}</strong><small>{t('settings.labelsHint')}</small></span><input type="checkbox" role="switch" checked={settings.showLabels} onChange={e => onUpdate({ showLabels: e.target.checked })} /></label><label><span><strong>{t('settings.connections')}</strong><small>{t('settings.connectionsHint')}</small></span><input type="checkbox" role="switch" checked={settings.showConnections} onChange={e => onUpdate({ showConnections: e.target.checked })} /></label>{updateCheckSupported(currentDesktop()) && <UpdateSettings t={t} checked={settings.updateCheck} onChange={updateCheck => onUpdate({ updateCheck })} />}</div>
+    {networkActivitySupported(currentDesktop()) && <NetworkSettings t={t} language={language} settings={settings} />}
     <div className="modal-footer"><span className="muted">{t('settings.autosave')}</span><button type="button" className="primary-button" onClick={onClose}><Check size={16} />{t('common.done')}</button></div>
   </Modal>;
 }
 
-export function HelpDialog({ onClose }: { onClose(): void }) {
+export function HelpDialog({ onClose, onDiagnostic }: { onClose(): void; onDiagnostic?(): void }) {
   const { t } = useUi();
   const { mod, alt } = modifierLabels();
   return <Modal title={t('help.title')} closeLabel={t('common.close')} close={onClose} testId="help-dialog">
     <div className="shortcuts">{SHORTCUTS(mod).map(([label, key]) => <div key={label}><span>{t(label)}</span><kbd>{key}</kbd></div>)}{EXTRA_SHORTCUTS(mod, alt).map(([label, key]) => <div key={label}><span>{label}</span><kbd>{key}</kbd></div>)}</div>
+    {onDiagnostic && diagnosticSupported(currentDesktop()) && <div className="help-diagnostic"><button type="button" className="outline-button" data-testid="help-diagnostic" onClick={onDiagnostic}><FileSearch size={15} aria-hidden="true" />{t('help.diagnosticReport')}</button><small>{t('help.diagnosticHint')}</small></div>}
     <p className="help-footer">{t('help.footer')}</p>
   </Modal>;
 }
@@ -78,6 +83,6 @@ export function KeyDialog({ request, onSubmit, onCancel }: { request: KeyRequest
     <label className="note-label" htmlFor="board-key">{T.keyLabel(request.kind)}</label>
     <textarea id="board-key" className="note-editor mono" spellCheck={false} autoComplete="off" value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !invalid) { e.preventDefault(); onSubmit(draft); } }} />
     <div className="note-counter mono" role="status">{invalid ? check.error : T.keyValid}</div>
-    <div className="modal-footer"><button type="button" className="outline-button" onClick={onCancel}>{t('common.close')}</button><button type="button" className="primary-button" data-testid="key-submit" disabled={invalid} onClick={() => onSubmit(draft)}><Check size={16} />{T.keyUse}</button></div>
+    <div className="modal-footer"><button type="button" className="outline-button" data-testid="key-skip" onClick={onCancel}>{t('common.skip')}</button><button type="button" className="primary-button" data-testid="key-submit" disabled={invalid} onClick={() => onSubmit(draft)}><Check size={16} />{T.keyUse}</button></div>
   </Modal>;
 }

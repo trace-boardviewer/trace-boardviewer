@@ -7,10 +7,10 @@ export class UiError extends Error {
   constructor(msg: Message) { super('UiError'); this.msg = msg; }
 }
 
-/** A recognized format the parser could not read; its English text is shown verbatim, its code may ask for a key. */
+/** A recognized format the parser could not read: its catalog message in the active language, or else its English text verbatim; its code may ask for a key. */
 export class FormatFailureError extends UiError {
   readonly failure: FormatFailure;
-  constructor(failure: FormatFailure) { super({ text: failure.message }); this.failure = failure; }
+  constructor(failure: FormatFailure) { super(failure.issue ? { issue: failure.issue } : { text: failure.message }); this.failure = failure; }
 }
 
 export interface NativeError {

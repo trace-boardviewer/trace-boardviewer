@@ -3,7 +3,8 @@ import formats from '../../../electron/formats.json';
 import { GenCadParseError } from '../gencad';
 import type { Board } from '../types';
 import { BoardFormatError as CommonError, MAX_IMPORT_BYTES, textInput } from './common';
-import { BoardFormatError, FORMAT_CAPABILITIES, PARSERS, SUPPORTED_EXTENSIONS, companionNames, parseBoard } from './index';
+import { defineBoardAdapter, sniffed } from './adapter';
+import { BOARD_ADAPTERS, BoardFormatError, CONTAINER_CAPABILITIES, FORMAT_CAPABILITIES, PARSERS, SUPPORTED_EXTENSIONS, companionNames, detectFormat, parseBoard, parseBoardDetailed } from './index';
 
 const GENCAD = `$HEADER
 GENCAD 1.4
@@ -86,8 +87,8 @@ const failure = (action: () => unknown): BoardFormatError => {
 };
 
 describe('capability matrix and extension list', () => {
-  it('every capability extension is in electron/formats.json and vice versa, all lowercase with a leading dot', () => {
-    const declared = new Set(FORMAT_CAPABILITIES.flatMap(capability => capability.extensions));
+  it('every capability extension (boards and archives) is in electron/formats.json and vice versa, all lowercase with a leading dot', () => {
+    const declared = new Set([...FORMAT_CAPABILITIES, ...CONTAINER_CAPABILITIES].flatMap(capability => capability.extensions));
     const listed = new Set(formats.extensions);
     expect([...declared].sort()).toEqual([...listed].sort());
     expect([...SUPPORTED_EXTENSIONS].sort()).toEqual([...listed].sort());
@@ -95,13 +96,14 @@ describe('capability matrix and extension list', () => {
     for (const extension of SUPPORTED_EXTENSIONS) expect(extension).toMatch(/^\.[a-z0-9_]+$/);
     expect(Object.isFrozen(SUPPORTED_EXTENSIONS)).toBe(true);
   });
-  it('capabilities are unique, honestly labelled and only GenCAD, the real-file validated BVR3, KiCad PCB and EAGLE board XML are marked supported', () => {
+  it('capabilities are unique and supported adapters carry real-file validation', () => {
     const ids = FORMAT_CAPABILITIES.map(capability => capability.id);
     expect(new Set(ids).size).toBe(ids.length);
     for (const capability of FORMAT_CAPABILITIES) {
-      expect(['supported', 'draft', 'recognized-unsupported', 'extension-only']).toContain(capability.status);
-      expect(['real-files', 'synthetic-fixtures', 'none']).toContain(capability.validation);
+      expect(['supported', 'open-tool-validated', 'draft', 'recognized-unsupported', 'extension-only']).toContain(capability.status);
+      expect(['real-files', 'open-tool-files', 'synthetic-fixtures', 'none']).toContain(capability.validation);
       if (capability.status === 'supported') expect(capability.validation).toBe('real-files');
+      if (capability.status === 'open-tool-validated') expect(capability.validation).toBe('open-tool-files');
       if (capability.status === 'draft') expect(capability.validation).toBe('synthetic-fixtures');
       expect(['nets', 'none']).toContain(capability.electrical);
       expect(['real', 'estimated', 'mixed']).toContain(capability.geometry);
@@ -111,9 +113,10 @@ describe('capability matrix and extension list', () => {
       for (const requirement of capability.requires ?? []) expect(['key', 'companions']).toContain(requirement);
       if (capability.status === 'recognized-unsupported' || capability.status === 'extension-only') expect(capability.electrical).toBe('none');
     }
-    expect(FORMAT_CAPABILITIES.filter(capability => capability.status === 'supported').map(capability => capability.id)).toEqual(['gencad', 'bvr', 'kicad', 'eagle']);
+    expect(FORMAT_CAPABILITIES.filter(capability => capability.status === 'supported').map(capability => capability.id)).toEqual(['gencad', 'brd', 'bdv', 'fz', 'kicad', 'eagle', 'altium', 'samsung-cad', 'tvw', 'easyeda-pro']);
+    expect(FORMAT_CAPABILITIES.filter(capability => capability.status === 'open-tool-validated').map(capability => capability.id)).toEqual(['bvr', 'odbpp', 'ipc356', 'ipc2581']);
     expect(FORMAT_CAPABILITIES.find(capability => capability.id === 'asc')?.requires).toEqual(['companions']);
-    expect(FORMAT_CAPABILITIES.find(capability => capability.id === 'fz')?.requires).toEqual(['key']);
+    expect(FORMAT_CAPABILITIES.find(capability => capability.id === 'fz')?.requires).toBeUndefined();
     expect(FORMAT_CAPABILITIES.find(capability => capability.id === 'xzz')?.requires).toBeUndefined();
     for (const id of ['gencad', 'brd', 'brd2', 'bdv', 'bvr', 'bvr1', 'asc', 'fz', 'xzz', 'cst', 'kicad', 'eagle', 'altium', 'samsung-cad', 'mentor-neutral', 'allegro-brd', 'tvw', 'gerber', 'odbpp', 'ipc2581']) {
       expect(ids, id).toContain(id);
@@ -128,23 +131,27 @@ describe('capability matrix and extension list', () => {
     expect(companionNames('format.asc')).toEqual(['pins.asc', 'nails.asc']);
     expect(formats.companions).toEqual({ 'format.asc': ['pins.asc', 'nails.asc'], 'pins.asc': ['format.asc', 'nails.asc'], 'nails.asc': ['format.asc', 'pins.asc'] });
   });
-  it('registers GenCAD first, with unique parser ids, and re-exports the shared error class', () => {
-    expect(PARSERS[0].id).toBe('gencad');
+  it('lets GenCAD content outrank the BRD readers (CAD/BRD extensions collide), with unique parser ids, and re-exports the shared error class', () => {
+    // Adapter v2: precedence comes from sniff confidence, not from a registration order (registry.test.ts pins the overlaps).
     const ids = PARSERS.map(entry => entry.id);
     expect(new Set(ids).size).toBe(ids.length);
-    for (const id of ['brd', 'cst', 'kicad']) expect(ids).toContain(id);
-    expect(ids.indexOf('gencad')).toBeLessThan(ids.indexOf('brd'));
+    for (const id of ['gencad', 'brd', 'cst', 'kicad']) expect(ids).toContain(id);
+    const withLandrexLines = GENCAD + '$TEXT\nstr_length:\nvar_data:\n$ENDTEXT\n';
+    expect(parseBoard(textInput(withLandrexLines, 'board.brd')).format).toBe('GENCAD 1.4');
+    expect(detectFormat(textInput(withLandrexLines, 'board.brd'))[0].adapter.id).toBe('gencad');
     expect(BoardFormatError).toBe(CommonError);
   });
-  it('registers the Samsung CAD reader before the recognizers, as a draft family with nets (it used to be recognized-unsupported)', () => {
-    expect(FORMAT_CAPABILITIES.find(capability => capability.id === 'samsung-cad')).toMatchObject({ status: 'draft', validation: 'synthetic-fixtures', electrical: 'nets', extensions: ['.cad'] });
-    const ids = PARSERS.map(entry => entry.id);
-    expect(ids).toContain('samsung-cad');
-    expect(ids.indexOf('samsung-cad')).toBeGreaterThan(ids.indexOf('gencad'));
-    expect(ids.indexOf('samsung-cad')).toBeLessThan(ids.indexOf('recognizers'));
+  it('reads Samsung CAD files with component pins and test vias, validated on a real export', () => {
+    expect(FORMAT_CAPABILITIES.find(capability => capability.id === 'samsung-cad')).toMatchObject({ status: 'supported', validation: 'real-files', electrical: 'nets', extensions: ['.cad'] });
+    expect(PARSERS.map(entry => entry.id)).toContain('samsung-cad');
+    const samsung = textInput('###Panel Added: synthetic\nCOMP  U1   PN-100  0  0  1.000  2.000  1  0\nC_PIN  U1-1    1.000   2.000  0  0  0  X  /VCC\n', 'board.cad');
+    expect(parseBoard(samsung).format).toBe('Samsung CAD');
+    const ranked = detectFormat(samsung);
+    expect(ranked[0].adapter.id).toBe('samsung-cad');
+    expect(ranked.filter(candidate => candidate.adapter.capability.status === 'recognized-unsupported').every(candidate => candidate.confidence < ranked[0].confidence)).toBe(true);
   });
-  it('splits the BVR family: BVRAW_FORMAT_3 is validated with real files, BVRAW_FORMAT_1 stays a synthetic-fixture draft', () => {
-    expect(FORMAT_CAPABILITIES.find(capability => capability.id === 'bvr')).toMatchObject({ status: 'supported', validation: 'real-files' });
+  it('splits the BVR family: BVRAW_FORMAT_3 is validated with open tool-written files, BVRAW_FORMAT_1 stays a synthetic-fixture draft', () => {
+    expect(FORMAT_CAPABILITIES.find(capability => capability.id === 'bvr')).toMatchObject({ status: 'open-tool-validated', validation: 'open-tool-files', openTool: { tool: 'kicad-boardview' } });
     expect(FORMAT_CAPABILITIES.find(capability => capability.id === 'bvr1')).toMatchObject({ status: 'draft', validation: 'synthetic-fixtures' });
     expect(FORMAT_CAPABILITIES.find(capability => capability.id === 'bvr')?.notes.join(' ')).toMatch(/Raspberry Pi Pico/);
   });
@@ -202,19 +209,17 @@ describe('parseBoard dispatcher', () => {
     expect(failure(() => parseBoard({ name: 'x.cad', data: 'text' as unknown as Uint8Array })).code).toBe('INVALID_FORMAT');
   });
   it('passes BoardFormatError through and wraps unexpected adapter failures with the parser id', () => {
-    const boom = { id: 'boom', parse: () => { throw new RangeError('index out of range'); } };
-    const strict = { id: 'strict', parse: () => { throw new BoardFormatError('needs a key', 'KEY_REQUIRED', 'FZ/CAE', 'fz'); } };
-    PARSERS.unshift(boom);
-    try {
-      const error = failure(() => parseBoard(textInput(GENCAD, 'x.cad')));
-      expect(error.message).toMatch(/^boom: unexpected parser failure: index out of range/);
-      expect(error.format).toBe('boom'); expect(error.cause).toBeInstanceOf(RangeError);
-    } finally { PARSERS.shift(); }
-    PARSERS.unshift(strict);
-    try {
-      const error = failure(() => parseBoard(textInput(GENCAD, 'x.fz')));
-      expect(error).toMatchObject({ code: 'KEY_REQUIRED', format: 'FZ/CAE', keyKind: 'fz', message: 'needs a key' });
-    } finally { PARSERS.shift(); }
+    // The adapters a dispatch considers are an option now (the registry itself is frozen); the strongest one is parsed first.
+    const gencad = BOARD_ADAPTERS.find(adapter => adapter.id === 'gencad')!;
+    const injected = (id: string, parse: () => never) => defineBoardAdapter({ ...gencad, capability: { ...gencad.capability, id, name: id }, sniff: () => sniffed(100, 'test'), parse });
+    const boom = injected('boom', () => { throw new RangeError('index out of range'); });
+    const strict = injected('strict', () => { throw new BoardFormatError('needs a key', 'KEY_REQUIRED', 'FZ/CAE', 'fz'); });
+    const others = BOARD_ADAPTERS.filter(adapter => adapter.id !== 'gencad');
+    const error = failure(() => parseBoardDetailed(textInput(GENCAD, 'x.cad'), { adapters: [boom, ...others] }));
+    expect(error.message).toMatch(/^boom: unexpected parser failure: index out of range/);
+    expect(error.format).toBe('boom'); expect(error.cause).toBeInstanceOf(RangeError);
+    const keyed = failure(() => parseBoardDetailed(textInput(GENCAD, 'x.fz'), { adapters: [strict, ...others] }));
+    expect(keyed).toMatchObject({ code: 'KEY_REQUIRED', format: 'FZ/CAE', keyKind: 'fz', message: 'needs a key' });
     expect(parseBoard(textInput(GENCAD, 'x.cad')).format).toBe('GENCAD 1.4');
   });
 });

@@ -1,0 +1,7 @@
+{
+ "target": "schematic:altium-sch",
+ "finding": "invariant",
+ "note": "defs: empty or non-text id",
+ "name": "",
+ "text": "|HEADER=Schematic Capture"
+}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SCHEMATIC_LIMITS, SchematicError } from './model';
 import { childList, childLists, DEFAULT_SEXPR_LIMITS, isAtom, isList, listHead, parseNumber, readSexpr, type SexprList } from './sexpr';
+import { catching, expectScaling } from '../../test-support/timing';
 
 const read = (text: string, limits = {}) => readSexpr(text, limits);
 const shape = (node: unknown): unknown => {
@@ -130,11 +131,12 @@ describe('parseNumber', () => {
   });
 
   it('takes a 40,000-digit token in linear time and keeps its results', () => {
-    const started = performance.now();
-    expect(parseNumber('0'.repeat(40_000) + '25', 'x')).toBe(25);
-    expect(parseNumber('0'.repeat(40_000) + '.5', 'x')).toBe(0.5);
-    for (const text of ['1'.repeat(40_000) + 'x', '1'.repeat(40_000) + 'e', '1'.repeat(40_000)]) fails(() => parseNumber(text, 'width'), 'INVALID_FORMAT', /width/);
-    expect(performance.now() - started).toBeLessThan(250);
+    const tokens = (size: number) => ({ valid: ['0'.repeat(size) + '25', '0'.repeat(size) + '.5'], malformed: ['1'.repeat(size) + 'x', '1'.repeat(size) + 'e', '1'.repeat(size)] });
+    // A pattern that retries every position of the digits needs about 1 s for 40,000 of them, so a regression fails at the first pair.
+    expectScaling('parseNumber on a long token', [2500, 10_000, 40_000], size => { const { valid, malformed } = tokens(size); return () => { for (const text of valid) parseNumber(text, 'x'); for (const text of malformed) catching(() => parseNumber(text, 'width'))(); }; });
+    const { valid, malformed } = tokens(40_000);
+    expect(valid.map(text => parseNumber(text, 'x'))).toEqual([25, 0.5]);
+    for (const text of malformed) fails(() => parseNumber(text, 'width'), 'INVALID_FORMAT', /width/);
   });
 
   it('names the offending line when a node is passed', () => {

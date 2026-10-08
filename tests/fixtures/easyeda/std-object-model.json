@@ -1,0 +1,245 @@
+{
+  "TRACK": {
+    "gge6": {
+      "gId": "gge6",
+      "layerid": "1",
+      "net": "S$7",
+      "pointArr": [
+        {
+          "x": 357,
+          "y": 171
+        },
+        {
+          "x": 456,
+          "y": 171
+        }
+      ],
+      "strokeWidth": 1
+    }
+  },
+  "PAD": {
+    "gge8": {
+      "gId": "gge8",
+      "layerid": "11",
+      "shape": "ELLIPSE",
+      "x": 428,
+      "y": 179,
+      "net": "TP",
+      "width": 6,
+      "height": 6,
+      "number": "1",
+      "holeR": 1.8,
+      "pointArr": [],
+      "rotation": "0"
+    }
+  },
+  "VIA": {
+    "gge11": {
+      "gId": "gge11",
+      "x": 441,
+      "y": 180,
+      "net": "",
+      "diameter": 3.2,
+      "layerid": 11,
+      "holeR": "0.8"
+    }
+  },
+  "TEXT": {},
+  "DIMENSION": {},
+  "FOOTPRINT": {
+    "gge43": {
+      "TRACK": {
+        "gge45": {
+          "gId": "gge45",
+          "layerid": "3",
+          "net": "",
+          "pointArr": [
+            {
+              "x": 410.42,
+              "y": 148.31
+            },
+            {
+              "x": 425.54,
+              "y": 148.31
+            }
+          ],
+          "strokeWidth": 1
+        }
+      },
+      "PAD": {
+        "gge46": {
+          "gId": "gge46",
+          "layerid": "11",
+          "shape": "RECT",
+          "x": 413,
+          "y": 143,
+          "net": "VCC",
+          "width": 3.2,
+          "height": 3.8,
+          "number": "1",
+          "holeR": 1.4,
+          "pointArr": [
+            {
+              "x": 411.4,
+              "y": 141.1
+            },
+            {
+              "x": 414.6,
+              "y": 141.1
+            },
+            {
+              "x": 414.6,
+              "y": 144.9
+            },
+            {
+              "x": 411.4,
+              "y": 144.9
+            }
+          ],
+          "rotation": "0"
+        },
+        "gge47": {
+          "gId": "gge47",
+          "layerid": "11",
+          "shape": "ELLIPSE",
+          "x": 418,
+          "y": 143,
+          "net": "SIG",
+          "width": 3.9,
+          "height": 3.9,
+          "number": "2",
+          "holeR": 1.4,
+          "pointArr": [],
+          "rotation": "0"
+        },
+        "gge48": {
+          "gId": "gge48",
+          "layerid": "11",
+          "shape": "ELLIPSE",
+          "x": 423,
+          "y": 143,
+          "net": "GND",
+          "width": 3.9,
+          "height": 3.9,
+          "number": "3",
+          "holeR": 1.4,
+          "pointArr": [],
+          "rotation": "0"
+        }
+      },
+      "VIA": {},
+      "TEXT": {
+        "gge44": {
+          "gId": "gge44",
+          "layerid": "3",
+          "type": "P",
+          "x": 424.98,
+          "y": 123.59,
+          "rotation": "0",
+          "mirror": "",
+          "fontSize": "4.5",
+          "text": "Q1",
+          "pathStr": "M 1 1 L 2 2",
+          "strokeWidth": "0.7"
+        }
+      },
+      "ARC": {
+        "gge49": {
+          "gId": "gge49",
+          "layerid": "3",
+          "net": "",
+          "d": "M425.58,148.27 A10.07,10.07 0 1,0 410.38,148.27",
+          "c_helper_dots": "",
+          "strokeWidth": 1
+        }
+      },
+      "RECT": {},
+      "CIRCLE": {},
+      "gId": "gge43",
+      "itemOrder": [
+        "gge44",
+        "gge45",
+        "gge46",
+        "gge47",
+        "gge48",
+        "gge49"
+      ],
+      "head": {
+        "x": "417",
+        "y": "140",
+        "c_para": "package`TO-92`value`BC547`",
+        "gId": "gge43",
+        "layerid": "1"
+      },
+      "net": ""
+    }
+  },
+  "ARC": {
+    "gge22": {
+      "gId": "gge22",
+      "layerid": "10",
+      "net": "",
+      "d": "M425,92 A107.5,107.5 0 0 1 425,307",
+      "c_helper_dots": "",
+      "strokeWidth": 1
+    },
+    "gge23": {
+      "gId": "gge23",
+      "layerid": "10",
+      "net": "",
+      "d": "M425,307 A107.5,107.5 -0 0,1 425,92",
+      "c_helper_dots": "",
+      "strokeWidth": 1
+    }
+  },
+  "RECT": {},
+  "CIRCLE": {},
+  "COPPERAREA": {},
+  "SOLIDREGION": {},
+  "DRCRULE": {
+    "trackWidth": 0.7
+  },
+  "FABRICATION": {},
+  "SIGNALS": {
+    "": [
+      {
+        "gId": "gge8",
+        "cmd": "PAD",
+        "layerid": 11,
+        "fid": 0
+      }
+    ]
+  },
+  "head": {
+    "c_para": null
+  },
+  "layers": {
+    "1": {
+      "name": "TopLayer",
+      "color": "#FF0000",
+      "visible": true,
+      "active": true,
+      "config": true
+    },
+    "10": {
+      "name": "BoardOutline",
+      "color": "#FF00FF",
+      "visible": true,
+      "active": false,
+      "config": true
+    }
+  },
+  "BBox": {
+    "x": 297,
+    "y": 75,
+    "width": 267,
+    "height": 238
+  },
+  "itemOrder": [
+    "gge43",
+    "gge22",
+    "gge23",
+    "gge6",
+    "gge8"
+  ]
+}

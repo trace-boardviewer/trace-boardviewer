@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { SearchResult, SearchRow } from '../../lib/crossprobe';
 import type { Board, BoardComponent, BoardNote, BoardPin } from '../../lib/types';
 import { PANEL_AUTO_COLLAPSE_BELOW, autoCollapsePanels, deriveSide, noteMatches, normalizeMeasurements, resolvePanels } from './model';
-import { flattenResults, GROUP_LABEL, listComponents, resultIdentity } from './search-model';
+import { flattenResults, GROUP_LABEL, resultIdentity } from './search-model';
 
 const component = (id: string, ref: string, side: BoardComponent['side']): BoardComponent => ({ id, ref, value: '', package: '', side, bounds: { minX: 0, minY: 0, maxX: 1, maxY: 1 }, position: { x: 0, y: 0 }, rotation: 0, pinIds: [], outline: [] });
 const pin = (id: string, componentId: string, side: BoardPin['side']): BoardPin => ({ id, componentId, number: '1', name: '', net: '', side, radius: 0.2, shape: 'round', x: 0, y: 0 });
@@ -90,13 +90,5 @@ describe('search view-model', () => {
     expect(resultIdentity(null)).toBe('');
     expect(resultIdentity(full)).not.toBe(resultIdentity(result('r1', [group('board-components', [r1])])));
     expect(resultIdentity(full)).not.toBe(resultIdentity({ ...full, query: 'r2' }));
-  });
-  it('lists the components of one side (both-sided parts always) in natural order', () => {
-    const numbered = { ...board, components: [component('1', 'R10', 'top'), component('2', 'R2', 'top'), component('3', 'R3', 'bottom'), component('4', 'J1', 'both')] } as Board;
-    const natural = new Intl.Collator('en', { numeric: true }).compare;
-    expect(listComponents(numbered, 'top', false, natural).map(c => c.ref)).toEqual(['J1', 'R2', 'R10']);
-    expect(listComponents(numbered, 'bottom', false, natural).map(c => c.ref)).toEqual(['J1', 'R3']);
-    expect(listComponents(numbered, 'top', true, natural).map(c => c.ref)).toEqual(['J1', 'R2', 'R3', 'R10']);
-    expect(listComponents(null, 'top', true, natural)).toEqual([]);
   });
 });

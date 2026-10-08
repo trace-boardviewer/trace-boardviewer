@@ -15,7 +15,9 @@
  *  - All objects are plain JSON-like data (structured-clone safe) so a Worker can post them to the UI.
  */
 
-export type SchematicFormat = 'kicad-sch' | 'kicad-legacy-sch' | 'eagle-sch';
+import { boundText } from '../bounded-text';
+
+export type SchematicFormat = 'kicad-sch' | 'kicad-legacy-sch' | 'eagle-sch' | 'altium-sch';
 
 export interface SchPoint { x: number; y: number }
 export interface SchBounds { minX: number; minY: number; maxX: number; maxY: number }
@@ -265,7 +267,7 @@ export interface SchematicDesign { schematic: Schematic; connectivity: SchConnec
 export type SchematicErrorCode = 'INVALID_FORMAT' | 'UNRECOGNIZED' | 'LIMIT_EXCEEDED' | 'UNSUPPORTED_VARIANT' | 'ABORTED';
 export class SchematicError extends Error {
   constructor(message: string, readonly code: SchematicErrorCode = 'INVALID_FORMAT', readonly format?: SchematicFormat) {
-    super(message); this.name = 'SchematicError';
+    super(boundText(message)); this.name = 'SchematicError';
   }
 }
 

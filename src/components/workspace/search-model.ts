@@ -1,5 +1,4 @@
 import type { SearchResult, SearchRow, SearchSource } from '../../lib/crossprobe';
-import type { Board } from '../../lib/types';
 
 /** Pure view-model of the unified search list: one flat, virtualizable sequence of group headers and result rows. */
 export type FlatItem =
@@ -41,10 +40,4 @@ export function rowKey(row: SearchRow): string {
     case 'schematic-nets': return `sn:${row.documentId}:${row.netKey}`;
     case 'documents': return `dh:${row.documentId}:${row.page}:${row.itemIndex}`;
   }
-}
-
-/** Components of the current side (or all) in natural order for the empty-query list. */
-export function listComponents(board: Board | null, side: 'top' | 'bottom', allSides: boolean, order: (a: string, b: string) => number) {
-  if (!board) return [];
-  return board.components.filter(c => allSides || c.side === 'both' || c.side === side).sort((a, b) => order(a.ref, b.ref) || (a.id < b.id ? -1 : 1));
 }

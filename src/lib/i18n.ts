@@ -1,15 +1,8 @@
-import hu from '../../electron/locales/hu.json';
-import en from '../../electron/locales/en.json';
-import de from '../../electron/locales/de.json';
-import fr from '../../electron/locales/fr.json';
-import it from '../../electron/locales/it.json';
-import sk from '../../electron/locales/sk.json';
-import pl from '../../electron/locales/pl.json';
-import uk from '../../electron/locales/uk.json';
+import { en } from './i18n-english';
 
 /**
  * One translation core shared (by contract) with electron/i18n.cjs: the same catalogs in
- * electron/locales/*.json, the same lookup, plural and interpolation rules. Both are covered by
+ * electron/locales/<language>/<namespace>.json, the same lookup, plural and interpolation rules. Both are covered by
  * a parity test, so a native dialog and the web UI always say the same thing in a language.
  */
 export const LANGUAGES = ['hu', 'en', 'de', 'fr', 'it', 'sk', 'pl', 'uk'] as const;
@@ -30,14 +23,39 @@ export const LOCALE_TAGS: Readonly<Record<Language, string>> = {
 /** Board data (references, net names) is ordered the same way in every UI language. */
 export const DATA_LOCALE = 'en';
 
-export type MessageKey = keyof typeof hu;
+/** English is the type source: a key exists when `electron/locales/en/` has it (see ./i18n-english.ts). */
+export type MessageKey = keyof typeof en;
 export type Params = Readonly<Record<string, string | number>>;
 export type PluralForms = Partial<Record<Intl.LDMLPluralRule, string>> & { other: string };
 export type CatalogValue = string | PluralForms;
 export type Catalog = Readonly<Record<string, CatalogValue>>;
 export type Translator = (key: MessageKey, params?: Params) => string;
 
-export const catalogs: Readonly<Record<Language, Catalog>> = { hu, en, de, fr, it, sk, pl, uk };
+/**
+ * Every namespace file of the other seven languages (English is imported by name in ./i18n-english.ts, which gives it its type).
+ * The glob is resolved by Vite at build time; a new namespace needs no registration here.
+ */
+const namespaceFiles = import.meta.glob<Catalog>(['../../electron/locales/*/*.json', '!../../electron/locales/en/*.json'], { eager: true, import: 'default' });
+
+/** Merges the namespace files of each language into one flat catalog; a key defined twice is a defect and throws. */
+function mergeCatalogs(): Readonly<Record<Language, Catalog>> {
+  const merged: Record<Language, Record<string, CatalogValue>> = { hu: {}, en: { ...en }, de: {}, fr: {}, it: {}, sk: {}, pl: {}, uk: {} };
+  const origin = new Map<string, string>();
+  for (const [file, part] of Object.entries(namespaceFiles).sort(([a], [b]) => (a < b ? -1 : 1))) {
+    const match = /\/locales\/([a-z]+)\/([^/]+)\.json$/.exec(file);
+    const language = match?.[1] as Language | undefined;
+    if (!match || !language || !Object.hasOwn(merged, language)) continue;
+    for (const [key, value] of Object.entries(part)) {
+      const id = `${language}:${key}`;
+      if (origin.has(id)) throw new Error(`Locale key "${key}" of "${language}" is defined in both ${origin.get(id)}.json and ${match[2]}.json`);
+      origin.set(id, match[2]);
+      merged[language][key] = value;
+    }
+  }
+  return merged;
+}
+
+export const catalogs: Readonly<Record<Language, Catalog>> = mergeCatalogs();
 
 export type ParseKey = Extract<MessageKey, `parse.error.${string}` | `parse.warning.${string}`>;
 /** A parser message that stays structured, so it can be shown in whichever language is active. */

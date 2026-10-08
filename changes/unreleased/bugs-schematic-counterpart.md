@@ -1,0 +1,1 @@
+- Show in schematic: after the button is pressed, or after a part is picked in the schematic, the inspector keeps showing the schematic counterpart of the selected board part ("Linked to one schematic part", sheet, pins matched) instead of "The schematic counterpart is not resolved yet." The counterpart now follows the board selection, whoever made it.

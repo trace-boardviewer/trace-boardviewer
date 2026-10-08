@@ -46,9 +46,9 @@ function build(): { main: string; channel: string } {
 describe('schematic dispatcher', () => {
   const GENERIC_XML = '<?xml version="1.0"?><eagle version="9.6.2"><drawing><board/></drawing></eagle>';
 
-  it('registers the three parsers and publishes an exact capability table', () => {
-    expect(SCHEMATIC_PARSERS.map(entry => entry.id)).toEqual(['kicad-sch', 'kicad-legacy-sch', 'eagle-sch']);
-    expect(SCHEMATIC_CAPABILITIES.map(entry => entry.id)).toEqual(['kicad-sch', 'kicad-legacy-sch', 'eagle-sch']);
+  it('registers the four parsers and publishes an exact capability table', () => {
+    expect(SCHEMATIC_PARSERS.map(entry => entry.id)).toEqual(['altium-sch', 'kicad-sch', 'kicad-legacy-sch', 'eagle-sch']);
+    expect(SCHEMATIC_CAPABILITIES.map(entry => entry.id)).toEqual(['altium-sch', 'kicad-sch', 'kicad-legacy-sch', 'eagle-sch']);
     expect(SCHEMATIC_CAPABILITIES.find(entry => entry.id === 'eagle-sch')?.connectivity).toBe('declared-nets');
   });
 

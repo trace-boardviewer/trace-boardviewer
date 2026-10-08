@@ -1,0 +1,18 @@
+{
+  "support.title": "TRACE je zadarmo a také zostane",
+  "support.body": "Ak vám TRACE šetrí čas pri práci v dielni, podporte jeho ďalší vývoj sumou €5. Vaša podpora financuje nástroje a služby, ktoré stoja za vývojom TRACE, certifikát na podpisovanie kódu pre Windows, program Apple Developer potrebný na podpísanie verzie pre macOS, webovú stránku a nové projekty — ďalší príde čoskoro a neskôr bude integrovaný do TRACE.",
+  "support.thanks": "Ďakujeme všetkým, ktorí už podporujú TRACE ❤",
+  "support.testing": "Veľmi pekne ďakujeme, že testujete TRACE a zdieľate svoj názor, za to patrí zvláštna vďaka! Ak nájdete chybu, určite ju nahláste.",
+  "support.stripe": "Podporiť sumou €5",
+  "support.kofi": "Kúpiť kávu na Ko-fi",
+  "support.bug": "Nahlásiť chybu",
+  "support.notNow": "Teraz nie",
+  "support.bugFailed": "Stránku na nahlásenie chyby sa nepodarilo otvoriť.",
+  "support.button": "Podporiť TRACE",
+  "support.buttonFailed": "Stránku na podporu TRACE sa nepodarilo otvoriť.",
+  "support.reference": "Kód podpory",
+  "support.referenceHint": "Na Ko-fi skopíruj tento kód do správy pri platbe. Stripe ho dostane automaticky. Po platbe sa vráť sem, over ju a skry výzvy na podporu na jeden rok.",
+  "support.verify": "Overiť platbu",
+  "support.pending": "Potvrdenie platby ešte neprišlo. Môžeš to preskočiť a skúsiť neskôr.",
+  "support.unavailable": "Overenie platby teraz nie je dostupné. Môžeš to preskočiť a skúsiť neskôr."
+}

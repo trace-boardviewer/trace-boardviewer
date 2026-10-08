@@ -1,0 +1,110 @@
+[
+ {
+  "id": "5b8b7dfc",
+  "kind": "valid",
+  "name": "board.brd",
+  "text": "str_length:\n0\nvar_data:\n0 1 1 0\nParts:\nU1 8 1\nPins:\n10 20 1 1 N1\n"
+ },
+ {
+  "id": "2c52365f",
+  "kind": "valid",
+  "name": "board.brd",
+  "text": "str_length:\n0\nvar_data:\n0 1 1 0\nParts:\nU1 7 1\nPins:\n10 20 1 1 N1\n"
+ },
+ {
+  "id": "72f5ef38",
+  "kind": "valid",
+  "name": "board.brd",
+  "text": "str_length:\n0\nvar_data:\n0 1 1 0\nParts:\nU1 0 1\nPins:\n10 20 1 1 N1\n"
+ },
+ {
+  "id": "301ad8d1",
+  "kind": "valid",
+  "name": "board.brd",
+  "text": "str_length:\n0\nvar_data:\n0 1 1 1\nParts:\nU1 1 1\nPins:\n10 20 1 1 N1\nNails:\n5 30 40 2 N1\n"
+ },
+ {
+  "id": "4f107951",
+  "kind": "valid",
+  "name": "board.brd",
+  "text": "str_length:\n0\nvar_data:\n0 1 1 1\nParts:\nU1 1 1\nPins:\n10 20 1 1 N1\nNails:\n5 30 40 1 N1\n"
+ },
+ {
+  "id": "7579c887",
+  "kind": "valid",
+  "name": "board.brd",
+  "text": "str_length:\n0\nvar_data:\n0 1 1 1\nParts:\nU1 1 1\nPins:\n10 20 1 1 UNCONNECTED3\nNails:\n1 10 20 1 VCC\n"
+ },
+ {
+  "id": "bd6ad8f9",
+  "kind": "valid",
+  "name": "board.brd",
+  "text": "BRDOUT: 4 1000 1000\n0 0\n1000 0\n1000 1000\n0 1000\nNETS: 1\n1 GND\nPARTS: 1\nJ1 100 100 200 200 0 1\nPINS: 2\n150 150 1 0\n150 170 1 0\n"
+ },
+ {
+  "id": "31a6228a",
+  "kind": "valid",
+  "name": "board.brd",
+  "text": "str_length:\n123\nvar_data:\n4 1 2 0\nFormat:\n0 0\n1000 0\n1000 1000\n0 1000\nParts:\nU1 1 2\nPins:\n100 100 0 1 GND\n200 100 0 1 VCC\nNails:\n"
+ },
+ {
+  "id": "0afe9ea1",
+  "kind": "valid",
+  "name": "board.brd",
+  "text": "str_length:\n0\nvar_data:\n4 3 7 2\nFormat:\n0 0\n2000 0\n2000 1000\n0 1000\nParts:\nU1 1 3\nR1 2 5\nJ1 0 7\nPins:\n100 100 1 1 VCC\n100 200 -99 1 UNCONNECTED12\n100 300 2 1\n500 500 3 2 GND\n500 600 4 2 UNCONNECTED\n900.5 100 5 3 SDA\n900.5 200 6 3 UNCONNECTED7\nNails:\n1 100 100 1 VCC\n2 100 300 0 S"
+ },
+ {
+  "id": "5f0b6138",
+  "kind": "valid",
+  "name": "board.brd",
+  "text": "str_length:\n0\nvar_data:\n4 3 7 2\nFormat:\n0 0\n2000 0\n2000 1000\n0 1000\nParts:\nU1 1 3\nR1 2 5\nJ1 9 7\nPins:\n100 100 1 1 VCC\n100 200 -99 1 UNCONNECTED12\n100 300 2 1\n500 500 3 2 GND\n500 600 4 2 UNCONNECTED\n900.5 100 5 3 SDA\n900.5 200 6 3 UNCONNECTED7\nNails:\n1 100 100 1 VCC\n2 100 300 0 SCL\n"
+ },
+ {
+  "id": "270516bc",
+  "kind": "valid",
+  "name": "board.brd",
+  "text": "str_length:\n0\nvar_data:\n0 1 11 0\nParts:\nU1 1 11\nPins:\n100 100 1 1 UNCONNECTED\n101 100 2 1 unconnected3\n102 100 3 1 UNCONNECTED<123>\n103 100 4 1 UNCONNECTED-5\n104 100 5 1 UNCONNECTED_7\n105 100 6 1 UNCONNECTED(2)\n106 100 7 1 NC\n107 100 8 1 UNCONNECTEDX\n108 100 9 1 MY_UNCONNECTED1\n109 100 10 1 NOT-UNCONNECTED\n110 100 11 1 UNCONNECT1\n"
+ },
+ {
+  "id": "c4879bd2",
+  "kind": "error",
+  "name": "a.brd",
+  "b64": "I+JjKA=="
+ },
+ {
+  "id": "49719f9e",
+  "kind": "error",
+  "name": "board.brd",
+  "text": "BRDOUT:"
+ },
+ {
+  "id": "95a4200a",
+  "kind": "error",
+  "name": "truncated.brd",
+  "text": "  BRDOUT: 0 0 0"
+ },
+ {
+  "id": "05b21798",
+  "kind": "error",
+  "name": "board.brd",
+  "text": "str_length:\n0\nvar_data:\n4"
+ },
+ {
+  "id": "624276e3",
+  "kind": "error",
+  "name": "board.brd",
+  "text": "BRDOUT: 4 1000 1000\nNETS: 0\n"
+ },
+ {
+  "id": "70f82ec9",
+  "kind": "error",
+  "name": "board.brd",
+  "text": "str_length:\n0\nvar_data:\n4 3 7 2"
+ },
+ {
+  "id": "0cbaedad",
+  "kind": "null",
+  "name": "board.brd",
+  "text": "B"
+ }
+]

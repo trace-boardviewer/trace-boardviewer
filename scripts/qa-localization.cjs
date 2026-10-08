@@ -108,11 +108,23 @@ async function fileIdentity(filename) {
   const stat = await fs.stat(filename);
   return { path: filename, sha256: hash.digest('hex'), bytes: stat.size };
 }
+/** A language catalog is a folder of namespace files; its identity is one SHA-256 over the file names and contents in name order. */
+async function catalogIdentity(directory) {
+  const names = (await fs.readdir(directory)).filter(name => name.endsWith('.json')).sort();
+  const hash = createHash('sha256');
+  let bytes = 0;
+  for (const name of names) {
+    const data = await fs.readFile(path.join(directory, name));
+    hash.update(name); hash.update('\0'); hash.update(data); hash.update('\0');
+    bytes += data.length;
+  }
+  return { path: directory, files: names.length, sha256: hash.digest('hex'), bytes };
+}
 async function sourceIdentity() {
   const sourceFiles = ['src/App.tsx', 'src/styles.css', 'src/lib/types.ts', 'src/components/BoardCanvas.tsx', 'src/lib/i18n.ts', 'src/lib/gencad.ts', 'src/lib/board-worker.ts',
     'electron/main.cjs', 'electron/preload.cjs', 'electron/i18n.cjs', 'package.json', 'dist/index.html'];
   const files = await Promise.all(sourceFiles.map(async name => ({ name, ...await fileIdentity(path.join(ROOT, name)) })));
-  const catalogs = await Promise.all(languages.map(async ({ code }) => ({ code, ...await fileIdentity(path.join(ROOT, 'electron', 'locales', `${code}.json`)) })));
+  const catalogs = await Promise.all(languages.map(async ({ code }) => ({ code, ...await catalogIdentity(path.join(ROOT, 'electron', 'locales', code)) })));
   return { recordedAt: new Date().toISOString(), files, catalogs };
 }
 function assertCatalogIdentity(actual, expected) {
@@ -518,10 +530,18 @@ async function nativeRun(packaged) {
       const nativeRequire = process.getBuiltinModule('node:module').createRequire(nativePath.join(appPath, 'package.json'));
       const io = nativeRequire('node:fs');
       const crypto = nativeRequire('node:crypto');
+      // Same identity as sourceIdentity(): one SHA-256 over the namespace file names and contents of a language, in name order.
       const catalogs = codes.map(code => {
-        const filename = nativePath.join(appPath, 'electron', 'locales', `${code}.json`);
-        const bytes = io.readFileSync(filename);
-        return { code, path: filename, sha256: crypto.createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length };
+        const directory = nativePath.join(appPath, 'electron', 'locales', code);
+        const names = io.readdirSync(directory).filter(name => name.endsWith('.json')).sort();
+        const hash = crypto.createHash('sha256');
+        let bytes = 0;
+        for (const name of names) {
+          const data = io.readFileSync(nativePath.join(directory, name));
+          hash.update(name); hash.update('\0'); hash.update(data); hash.update('\0');
+          bytes += data.length;
+        }
+        return { code, path: directory, files: names.length, sha256: hash.digest('hex'), bytes };
       });
       return { isPackaged: app.isPackaged, appPath, runtimeExecutable: process.execPath, version: app.getVersion(), versions: process.versions, catalogs };
     }, languages.map(({ code }) => code));
