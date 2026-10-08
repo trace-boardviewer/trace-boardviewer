@@ -16,6 +16,23 @@ Open a boardview or PCB file (KiCad, EAGLE, BVR, GenCAD and more) next to its sc
   <a href="https://donate.stripe.com/7sYaEZeET2op8PxaGE5EY00"><img src="docs/readme/support.svg" width="248" height="56" alt="Support TRACE"></a>
 </p>
 
+<p align="center">Thank you for trying TRACE and sharing your feedback. Special thanks to everyone who uses the app and supports its development. Support is always optional.</p>
+
+**Quick compatibility · 1.3.1-rc.2 (test version)**
+
+| | What you can use | Scope or reason |
+| --- | --- | --- |
+| ✓ | GenCAD, KiCad PCB, EAGLE XML, Altium PcbDoc, EasyEDA Pro | Selected real exports checked; version and geometry limits apply. |
+| ✓ | BRD/BRD2, BDV, BVR, ASC, BV/BV2, TVW, FZ/CAE, F2B | Selected boardview variants; some bodies and pad sizes are estimates. FZ/CAE tries default format keys. |
+| ✓ | Native Allegro BRD | Real checks cover 16.2, 16.4, 16.5, 16.6 and 17.2; other documented layouts use synthetic tests. Unknown layouts are refused. |
+| ✓ | Mentor Neutral, Tebo ICT pairs, Fabmaster FARC/FAZ | Documented component/pin subsets; companion files and omitted geometry are explained. |
+| ✓ | KiCad/EAGLE/Altium schematics, PDFs and images | Offline search and cross-probe; scanned PDFs have optional English OCR. |
+| ⚠ | HyperLynx, Fabmaster FATF, EasyEDA Standard, CSV/TSV, ZIP, XZZ | Draft validation; encrypted XZZ needs your session key. IPC-2581, IPC-D-356 and ODB++ were checked with open-tool exports; vendor writers remain unverified. |
+| ✗ | Native PADS SDB, BRD_V1.0, VS2 listings, Gerber as a complete board | Recognized with an explanation; the complete electrical model or format mapping is missing or unverified. Request a readable export. |
+| ✗ | Every dialect, unavailable encryption keys, PCB editing or copper routing | This is a viewer for documented layouts. Key entry is skippable; unsupported files never lock the app. |
+
+Windows x64, macOS Apple silicon and Linux x86-64 share these features; macOS/Linux packages are experimental. [Full file types and exact limits](docs/SUPPORT.md).
+
 <p align="center">Free and open source (MIT) · no account, no telemetry · 
 <a href="https://ko-fi.com/tracerboardview">Ko-fi</a> · 
 <a href="https://github.com/trace-boardviewer/trace-boardviewer/issues/new?template=bug_report.yml">Report a bug</a> · 
