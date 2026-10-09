@@ -404,3 +404,4 @@ export function countTokenClasses(tokens: ReadonlyArray<Pick<TokenClassification
   for (const token of tokens) counts[token.class]++;
   return counts;
 }
+

@@ -42,5 +42,9 @@
   "network.resultTooLarge": "A válasz túl nagy",
   "network.resultTimeout": "Időtúllépés",
   "network.resultNetwork": "Hálózati hiba",
-  "network.resultBadResponse": "Váratlan válasz"
+  "network.resultBadResponse": "Váratlan válasz",
+  "network.bugReport": "Hibajelentés",
+  "network.bugReportHint": "A jelentés csak akkor megy el, ha a jelentés űrlapján a Küldés gombra kattintasz.",
+  "network.resultCancelled": "Megszakítva",
+  "network.resultHttpStatus": "Nem elfogadott HTTP-állapot: {status}"
 }

@@ -42,5 +42,9 @@
   "network.resultTooLarge": "Antwort zu groß",
   "network.resultTimeout": "Zeitüberschreitung",
   "network.resultNetwork": "Netzwerkfehler",
-  "network.resultBadResponse": "Unerwartete Antwort"
+  "network.resultBadResponse": "Unerwartete Antwort",
+  "network.bugReport": "Fehlerbericht",
+  "network.bugReportHint": "Ein Bericht wird erst gesendet, wenn du im Berichtsformular auf Senden klickst.",
+  "network.resultCancelled": "Abgebrochen",
+  "network.resultHttpStatus": "Nicht akzeptierter HTTP-Status: {status}"
 }

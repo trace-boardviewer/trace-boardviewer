@@ -132,7 +132,7 @@ describe('what the Result column says', () => {
   const classes = egress.ERROR_CLASSES;
 
   it('the main process names the error classes this view has words for (a new class is a deliberate change here too)', () => {
-    expect([...classes].sort()).toEqual(['bad-response', 'busy', 'disabled', 'hash-mismatch', 'host', 'invalid-url', 'method', 'network', 'not-allowed', 'not-registered', 'path', 'redirect', 'scheme', 'storage', 'timeout', 'too-large']);
+    expect([...classes].sort()).toEqual(['bad-response', 'busy', 'cancelled', 'disabled', 'hash-mismatch', 'host', 'http-status', 'invalid-url', 'method', 'network', 'not-allowed', 'not-registered', 'path', 'redirect', 'scheme', 'storage', 'timeout', 'too-large']);
   });
 
   it('an answer shows its HTTP status, a request in flight says so, and every refusal and failure has a label that exists in all languages', () => {
@@ -149,8 +149,11 @@ describe('what the Result column says', () => {
     expect(resultText(entry({ outcome: 'refused', status: null, error: 'disabled' })).key).toBe('network.resultDisabled');
     expect(resultText(entry({ outcome: 'refused', status: null, error: 'busy' })).key).toBe('network.resultBusy');
     for (const error of ['host', 'scheme', 'path', 'method', 'invalid-url', 'not-registered', 'not-allowed']) expect(resultText(entry({ outcome: 'refused', status: null, error })).key, error).toBe('network.resultBlocked');
-    const failed: Record<string, string> = { redirect: 'network.resultRedirect', 'too-large': 'network.resultTooLarge', timeout: 'network.resultTimeout', network: 'network.resultNetwork', 'bad-response': 'network.resultBadResponse', storage: 'network.resultFailed', 'hash-mismatch': 'network.resultFailed' };
+    const failed: Record<string, string> = { cancelled: 'network.resultCancelled', redirect: 'network.resultRedirect', 'too-large': 'network.resultTooLarge', timeout: 'network.resultTimeout', network: 'network.resultNetwork', 'bad-response': 'network.resultBadResponse', storage: 'network.resultFailed', 'hash-mismatch': 'network.resultFailed' };
     for (const [error, key] of Object.entries(failed)) expect(resultText(entry({ outcome: 'error', status: null, error })).key, error).toBe(key);
+    expect(resultText(entry({ outcome: 'error', status: 503, error: 'http-status' }))).toEqual({ key: 'network.resultHttpStatus', params: { status: 503 } });
+    expect(resultText(entry({ outcome: 'error', status: null, error: 'http-status' })).key).toBe('network.resultFailed');
+    expect(resultText(entry({ outcome: 'error', status: null, error: 'cancelled' })).key).toBe('network.resultCancelled');
     expect(resultText(entry({ outcome: 'error', status: null, error: null })).key).toBe('network.resultFailed');
   });
 

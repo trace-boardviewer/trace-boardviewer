@@ -23,7 +23,10 @@ const close = (a, b, tol, label) => assert.ok(Math.abs(a - b) <= tol, `${label}:
 const colorNear = (pixel, expected, tol, label) => assert.ok(expected.every((v, i) => Math.abs(pixel[i] - v) <= tol) && pixel[3] === 255, `${label}: rgba(${pixel}) vs rgb(${expected}) tol ${tol}`);
 
 async function main() {
-  const browser = await chromium.launch({ args: ['--force-color-profile=srgb'] });
+  const browser = await chromium.launch({
+    ...(process.env.TRACE_CHROMIUM_PATH ? { executablePath: process.env.TRACE_CHROMIUM_PATH } : {}),
+    args: ['--force-color-profile=srgb'],
+  });
   const problems = [];
   const requests = [];
   const open = async (viewport, { scale = 1, query = '' } = {}) => {
@@ -514,17 +517,17 @@ async function main() {
     assert.equal(await page.locator('.imgv-toolbar button[aria-label^="Calibrate"]').isDisabled(), true);
   });
   await test('rapid document switching: queued decodes never start, an aborted decode releases its bitmap, the last request wins', async () => {
-    const big = await page.evaluate(() => window.__imgv.fixtureBytes('big-png').then(b => Array.from(b)));
-    const png = await page.evaluate(() => window.__imgv.fixtureBytes('quad-png').then(b => Array.from(b)));
-    const jpeg = await page.evaluate(() => window.__imgv.fixtureBytes('quad-jpeg').then(b => Array.from(b)));
     await h.load('svg-quad');
     await page.evaluate(() => window.__imgv.resetCounters());
-    await page.evaluate(async ([a, b, c]) => {
+    await page.evaluate(async () => {
       const frame = () => new Promise(r => requestAnimationFrame(() => r()));
-      window.__imgv.loadBytes('big', Uint8Array.from(a)); await frame();
-      window.__imgv.loadBytes('png', Uint8Array.from(b)); await frame();
-      window.__imgv.loadBytes('jpeg', Uint8Array.from(c));
-    }, [big, png, jpeg]);
+      const big = await window.__imgv.fixtureBytes('big-png');
+      const png = await window.__imgv.fixtureBytes('quad-png');
+      const jpeg = await window.__imgv.fixtureBytes('quad-jpeg');
+      window.__imgv.loadBytes('big', big); await frame();
+      window.__imgv.loadBytes('png', png); await frame();
+      window.__imgv.loadBytes('jpeg', jpeg);
+    });
     await page.waitForFunction(() => window.__imgv.state().fixture === 'jpeg' && window.__imgv.phase() === 'ready', null, { timeout: 30000 });
     await h.settle();
     assert.match(await h.text('.imgv-status'), /400 × 300 px · JPEG/);

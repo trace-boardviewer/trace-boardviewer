@@ -16,6 +16,43 @@ const file = (name: string, bytes: Uint8Array) => new File([bytes as BlobPart], 
 // The harness board "divider": components r1, r2, u1 (references R1, R2, U1); pins r1.1.0 r1.2.1 / r2.1.2 r2.2.3 / u1.1.4 u1.2.5.
 
 describe('opening a board converts positional notes once', () => {
+  it('keeps old component and pin notes unresolved for an unsafe positional reader result, with an idempotent saved round trip', async () => {
+    const h = createHarness();
+    const board = makeBoard('short-header.bdv', [{ ref: 'U1', id: 'part:0', pins: [['1', 'N1']] }, { ref: 'U2', id: 'part:1', pins: [['1', 'N2']] }]);
+    board.format = 'Honhan BDV'; board.legacyPositionalNotesUnsafe = true;
+    const original = [
+      legacy('part-note', 'part:0', undefined, { text: 'note about U2', measurements: { voltage: '1.8 V' } }),
+      legacy('pin-note', 'part:0', 'pin:0', { text: 'U2 pin note', measurements: { resistance: '0.4 Ω' } }),
+      { id: 'keyed', target: { ref: 'U2' }, text: 'stable identity', updatedAt: OLD } as KeyedNote,
+    ];
+    h.desktop.notes.set(hexKey(1), structuredClone(original));
+    const payload = await openNative(h, 'short-header.bdv', 1, board);
+    const expected = [
+      { ...original[0], unresolved: { reason: 'legacy-order-unknown', at: NOW } },
+      { ...original[1], unresolved: { reason: 'legacy-order-unknown', at: NOW } },
+      original[2],
+    ];
+    expect(h.state().notes).toEqual(expected);
+    expect(stored(h)).toEqual(expected);
+    expect(saves(h)).toHaveLength(1);
+    await h.controller.actions.openRecent(payload.path);
+    await h.controller.idle();
+    expect(h.state().notes).toEqual(expected);
+    expect(saves(h)).toHaveLength(1);
+  });
+
+  it('leaves the original positional file untouched when saving unsafe notes fails', async () => {
+    const h = createHarness();
+    const board = makeBoard('short-header.bdv', [{ ref: 'U1', id: 'part:0', pins: [['1', 'N1']] }, { ref: 'U2', id: 'part:1', pins: [['1', 'N2']] }]);
+    board.format = 'Honhan BDV'; board.legacyPositionalNotesUnsafe = true;
+    const original = [legacy('part-note', 'part:0', undefined, { text: 'note about U2', measurements: { voltage: '1.8 V' } }), legacy('pin-note', 'part:0', 'pin:0', { text: 'U2 pin note', measurements: { resistance: '0.4 Ω' } })];
+    h.desktop.notes.set(hexKey(1), structuredClone(original));
+    h.desktop.failures.saveNotes = () => new Error("Error invoking remote method 'trace:save-notes': Error: [STORE_WRITE_FAILED] Disk full.");
+    await openNative(h, 'short-header.bdv', 1, board);
+    expect(h.state().notes.map(note => (note as LegacyNote).unresolved?.reason)).toEqual(['legacy-order-unknown', 'legacy-order-unknown']);
+    expect(stored(h)).toEqual(original);
+  });
+
   it('turns resolvable notes into keyed notes, writes them back, and keeps what could not be placed, marked and listed', async () => {
     const h = createHarness();
     h.desktop.notes.set(hexKey(1), [

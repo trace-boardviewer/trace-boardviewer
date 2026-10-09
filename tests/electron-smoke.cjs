@@ -94,8 +94,8 @@ test('real Electron: bridge surface, native errors with codes, workspace and doc
     const names = await page.evaluate(() => Object.keys(window.traceDesktop).sort());
     assert.deepEqual(names, [
       'acceptBoard', 'appendReadings', 'checkForUpdates', 'clearNetworkActivity', 'close', 'droppedFilePath', 'exportReadings', 'exportWorkspace', 'getNetworkActivity', 'getNotes', 'getSettings', 'importReadings', 'initialBoard', 'isMaximized',
-      'checkSupport', 'getSupportStatus', 'prepareSupport', 'listReadingFamilies', 'loadWorkspace', 'locateDocuments', 'maximize', 'minimize', 'onFlushRequest', 'onMaximized', 'onOpenBoard', 'openBoard', 'openSupportLink', 'openUpdatePage', 'pickDiagnosticFile', 'pickDocuments', 'readBoard', 'readDocument', 'readReadings',
-      'recentBoards', 'saveDiagnosticReport', 'saveNotes', 'saveSettings', 'saveWorkspace',
+      'cancelBugReport', 'checkSupport', 'discardBugReportDraft', 'getBugReportDraft', 'getSupportStatus', 'listReadingFamilies', 'loadWorkspace', 'locateDocuments', 'maximize', 'minimize', 'onFlushRequest', 'onMaximized', 'onOpenBoard', 'openBoard', 'openSupportLink', 'openUpdatePage', 'pickDiagnosticFile', 'pickDocuments', 'prepareBugReport', 'prepareSupport', 'readBoard', 'readDocument', 'readReadings',
+      'recentBoards', 'saveBugReportDraft', 'saveDiagnosticReport', 'saveNotes', 'saveSettings', 'saveWorkspace', 'sendBugReport',
     ].sort());
     assert.equal(await page.evaluate(() => typeof window.ipcRenderer + typeof window.require + typeof window.process), 'undefinedundefinedundefined');
   });
@@ -168,7 +168,7 @@ test('real Electron: bridge surface, native errors with codes, workspace and doc
   });
 
   // New IPC 'trace:open-support-link'.
-  await t.test('support notice: openSupportLink sends an id over the real bridge; main opens exactly the four constant URLs and rejects everything else', async () => {
+  await t.test('support notice: openSupportLink sends an id over the real bridge; main opens three constant URLs and rejects bug-report routing', async () => {
     const status = await run('() => window.traceDesktop.getSupportStatus()');
     assert.equal(status.value.status, 'inactive');
     const supportEnabled = require('../electron/support-verification.json').enabled;
@@ -182,16 +182,15 @@ test('real Electron: bridge surface, native errors with codes, workspace and doc
     await app.evaluate(({ shell }) => { globalThis.__supportOpened = []; shell.openExternal = async (url) => { globalThis.__supportOpened.push(url); }; });
     assert.equal((await run('() => window.traceDesktop.openSupportLink("stripe")')).ok, true);
     assert.equal((await run('() => window.traceDesktop.openSupportLink("kofi")')).ok, true);
-    assert.equal((await run('() => window.traceDesktop.openSupportLink("bug")')).ok, true);
     assert.equal((await run('() => window.traceDesktop.openSupportLink("support")')).ok, true);
-    for (const bad of ['paypal', 'https://ko-fi.com/tracerboardview', 'https://trace-boardviewer.github.io/support.html', 'Support', 'constructor', '']) {
+    for (const bad of ['bug', 'paypal', 'https://ko-fi.com/tracerboardview', 'https://trace-boardviewer.github.io/support.html', 'Support', 'constructor', '']) {
       const refused = await run('(id) => window.traceDesktop.openSupportLink(id)', bad);
       assert.equal(refused.ok, false, JSON.stringify(bad));
       assert.match(refused.message, /Unknown support link/);
     }
     const stripeUrl = new URL('https://donate.stripe.com/7sYaEZeET2op8PxaGE5EY00');
     if (supportEnabled) stripeUrl.searchParams.set('client_reference_id', prepared.value.code);
-    assert.deepEqual(await app.evaluate(() => globalThis.__supportOpened), [stripeUrl.href, 'https://ko-fi.com/tracerboardview', 'https://github.com/trace-boardviewer/trace-boardviewer/issues/new?template=bug_report.yml', 'https://trace-boardviewer.github.io/support.html']);
+    assert.deepEqual(await app.evaluate(() => globalThis.__supportOpened), [stripeUrl.href, 'https://ko-fi.com/tracerboardview', 'https://trace-boardviewer.github.io/support.html']);
     const supportActivity = (await run('() => window.traceDesktop.getNetworkActivity()')).value;
     assert.equal(JSON.stringify(supportActivity).includes(prepared.value.code), false, 'the support reference never appears in network activity');
     await run('() => window.traceDesktop.clearNetworkActivity()');
@@ -250,7 +249,11 @@ test('real Electron: bridge surface, native errors with codes, workspace and doc
     await run('(s) => window.traceDesktop.saveSettings(s)', { ...saved.value, updateCheck: true });
     // The network activity over the real bridge: the two real calls of main are two entries (host and path only), and the renderer can empty the list.
     const activity = (await run('() => window.traceDesktop.getNetworkActivity()')).value;
-    assert.deepEqual(activity.features.map((feature) => [feature.id, feature.hosts, feature.optIn]), [['update-check', ['api.github.com'], 'updateCheck'], ['support-verification', require('../electron/support.cjs').FEATURE.hosts, 'supportVerification']]);
+    assert.deepEqual(activity.features.map((feature) => [feature.id, feature.hosts, feature.methods, feature.optIn]), [
+      ['update-check', ['api.github.com'], ['GET'], 'updateCheck'],
+      ['support-verification', require('../electron/support.cjs').FEATURE.hosts, ['GET'], 'supportVerification'],
+      ['bug-report', ['trace-bug-report.trace-boardviewer.workers.dev'], ['POST'], null],
+    ]);
     assert.deepEqual(activity.entries.map((entry) => [entry.feature, entry.host, entry.path, entry.outcome, entry.status, entry.error]), [
       ['update-check', 'api.github.com', '/repos/trace-boardviewer/trace-boardviewer/releases/latest', 'ok', 200, null],
       ['update-check', 'api.github.com', '/repos/trace-boardviewer/trace-boardviewer/releases/latest', 'error', null, 'network'],

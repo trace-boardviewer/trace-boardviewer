@@ -717,7 +717,16 @@ function buildEvidence(input) {
   };
 }
 
-const cell = (value) => String(value ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+const MARKDOWN_CELL_ESCAPES = Object.freeze({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', ':': '&#58;',
+  '\\': '\\\\', '|': '\\|', '`': '\\`', '*': '\\*', '_': '\\_', '~': '\\~', '{': '\\{', '}': '\\}',
+  '[': '\\[', ']': '\\]', '(': '\\(', ')': '\\)', '#': '\\#', '+': '\\+', '-': '\\-', '.': '\\.', '!': '\\!',
+});
+
+/** Keep evidence values inert and on one row when included in GitHub-flavored Markdown table cells. */
+const cell = (value) => String(value ?? '')
+  .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ')
+  .replace(/[&<>:\\|`*_~{}\[\]()#+.!-]/g, character => MARKDOWN_CELL_ESCAPES[character]);
 
 function gateText(evidence) {
   const records = Array.isArray(evidence.gate) ? evidence.gate : [];

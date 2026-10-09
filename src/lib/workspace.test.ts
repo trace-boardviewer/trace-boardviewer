@@ -466,7 +466,7 @@ describe('parity with electron/workspace.cjs', () => {
     ['keyed ref with reserved characters', [k({ target: { ref: 'A/B@C%D\u0000\u007f' } }), k({ id: 'k2', target: { ref: 'A/B@C%D' } })]],
     ['keyed with componentId', [k({ componentId: 'U1' })]], ['keyed with pinId', [k({ pinId: 'x' })]], ['keyed with unresolved', [k({ unresolved: { reason: 'legacy-id-missing', at: T0 } })]],
     ['keyed text 8001', [k({ text: longText(8001) })]], ['keyed updatedAt invalid', [k({ updatedAt: 'later' })]], ['keyed measurements', [k({ measurements: { voltage: '1 V', ignored: 'x' } })]],
-    ['unresolved mark', [n({ unresolved: { reason: 'legacy-id-missing', at: T0 } })]], ['unresolved every reason', ['component-missing', 'component-ambiguous', 'pin-missing', 'pin-ambiguous', 'legacy-id-missing', 'legacy-indistinguishable', 'duplicate-target'].map((reason, i) => n({ id: `u${i}`, componentId: `C${i}`, unresolved: { reason, at: T0 } }))],
+    ['unresolved mark', [n({ unresolved: { reason: 'legacy-id-missing', at: T0 } })]], ['unresolved every reason', ['component-missing', 'component-ambiguous', 'pin-missing', 'pin-ambiguous', 'legacy-id-missing', 'legacy-indistinguishable', 'legacy-order-unknown', 'duplicate-target'].map((reason, i) => n({ id: `u${i}`, componentId: `C${i}`, unresolved: { reason, at: T0 } }))],
     ['unresolved reason unknown', [n({ unresolved: { reason: 'because', at: T0 } })]], ['unresolved without time', [n({ unresolved: { reason: 'legacy-id-missing' } })]],
     ['unresolved not an object', [n({ unresolved: true })]], ['unresolved time invalid', [n({ unresolved: { reason: 'legacy-id-missing', at: 'later' } })]],
     ['500 keyed notes', manyKeyed(500)], ['501 keyed notes', manyKeyed(501)],

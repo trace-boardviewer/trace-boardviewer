@@ -195,6 +195,31 @@ describe('model worker: search and link reports off the UI thread', () => {
     expect(h.state().search.result?.groups[0].rows.map(row => (row as { ref: string }).ref)).toEqual(['U1']);
   });
 
+  it('drops previous-query rows while the model worker is delayed and retains current-query partials', async () => {
+    const h = createHarness();
+    h.boardWorkers.model = true;
+    seedWorkspace(h, 1, '/boards/a.cad', [SCH]);
+    h.schematicWorkers.designs['divider.kicad_sch'] = dividerDesign();
+    await openNative(h, 'a.cad', 1, dividerBoard('a.cad'));
+    await h.controller.idle();
+
+    h.controller.actions.setSearchQuery('R1');
+    await h.controller.idle();
+    expect(h.state().search.result?.groups[0].rows.map(row => (row as { ref: string }).ref)).toEqual(['R1']);
+
+    const response = deferred();
+    h.boardWorkers.modelGate = response.promise;
+    h.controller.actions.setSearchQuery('R2');
+    expect(h.state().search).toMatchObject({ query: 'R2', pending: true, result: { query: 'R2' } });
+    expect(h.state().search.result?.groups[0].rows).toEqual([]);
+    expect(h.state().search.result?.groups[2].rows.map(row => (row as { ref: string }).ref)).toContain('R2');
+
+    response.resolve();
+    await h.controller.idle();
+    expect(h.state().search).toMatchObject({ query: 'R2', pending: false, result: { query: 'R2' } });
+    expect(h.state().search.result?.groups[0].rows.map(row => (row as { ref: string }).ref)).toEqual(['R2']);
+  });
+
   it('falls back to the shared index on this thread when the model worker crashes', async () => {
     const h = await modelHarness();
     h.boardWorkers.crash[0]();

@@ -4,6 +4,8 @@ import { textInput } from './formats/common';
 import { parseBvr } from './formats/bvr';
 import { parseKicad } from './formats/kicad';
 import { parseSamsungCad } from './formats/samsung-cad';
+import { parseBdv } from './formats/bdv';
+import { parseAsc } from './formats/asc';
 import { migrateNotes, noteForSubject, noteKeyIndex, unresolvedNotes } from './note-keys';
 import type { Board, BoardNote, KeyedNote, LegacyNote } from './types';
 import { noteTarget, upsertNote, validateNotes } from './workspace';
@@ -146,5 +148,111 @@ describe.each(FORMATS)('note keys on a $name board', ({ parse, positional }) => 
     expect(result.notes.slice(0, 3).map(note => (note as KeyedNote).target)).toEqual([{ ref: 'U1' }, { ref: 'U1', pin: '3' }, { ref: 'J1', pin: '1' }]);
     expect(unresolvedNotes(board, result.notes).map(item => [item.note.id, item.note.text, item.problem])).toEqual([['d', 'a part this parse does not have', 'legacy-id-missing']]);
     expect(migrateNotes(board, result.notes, T0)).toEqual({ notes: result.notes, changed: false, migrated: 0, unresolved: 0 });
+  });
+});
+
+describe('historical shortened BDV note migration', () => {
+  it('preserves old component and pin ids instead of attaching them to a newly recovered first part', () => {
+    const lines = [
+      '<<format.asc>>', ...Array.from({ length: 8 }, (_, index) => `; format header ${index + 1}`),
+      '0 0', '2 0', '2 1', '0 1',
+      '<<pins.asc>>', ...Array.from({ length: 6 }, (_, index) => `; pins header ${index + 1}`),
+      'Part U1 (T)', '1 1 0.1 0.2 1 N1 0', 'Part U2 (T)', '1 1 0.2 0.2 1 N2 0',
+    ];
+    const board = parseBdv({ name: 'short-header.bdv', data: bytes(lines.join('\n') + '\n') })!;
+    expect(board.components.map(component => [component.id, component.ref])).toEqual([['part:0', 'U1'], ['part:1', 'U2']]);
+    expect(board.legacyPositionalNotesUnsafe).toBe(true);
+    // These are the exact output ids from the older fixed-eight-line reader: it skipped U1 and its pin, leaving U2 as part:0/pin:0.
+    const original: LegacyNote[] = [
+      { id: 'old-part', componentId: 'part:0', text: 'note about U2', measurements: { voltage: '1.8 V' }, updatedAt: T0 },
+      { id: 'old-pin', componentId: 'part:0', pinId: 'pin:0', text: 'U2 pin note', measurements: { resistance: '0.4 Ω' }, updatedAt: T0 },
+    ];
+    const result = migrateNotes(board, original, T0);
+    expect(result).toMatchObject({ migrated: 0, unresolved: 2 });
+    expect(result.notes).toEqual(original.map(note => ({ ...note, unresolved: { reason: 'legacy-order-unknown', at: T0 } })));
+    expect(unresolvedNotes(board, result.notes).map(item => [item.note.id, item.problem])).toEqual([['old-part', 'legacy-order-unknown'], ['old-pin', 'legacy-order-unknown']]);
+  });
+
+  it('keeps ordinary full-header BDV migration safe when component and pin order is explicit', () => {
+    const lines = [
+      '<<format.asc>>', ...Array.from({ length: 8 }, (_, index) => `; format header ${index + 1}`),
+      '0 0', '2 0', '2 1', '0 1',
+      '<<pins.asc>>', ...Array.from({ length: 8 }, (_, index) => `; pins header ${index + 1}`),
+      'Part U1 (T)', '1 1 0.1 0.2 1 N1 0', 'Part U2 (T)', '1 1 0.2 0.2 1 N2 0',
+    ];
+    const board = parseBdv({ name: 'full-header.bdv', data: bytes(lines.join('\n') + '\n') })!;
+    expect(board.legacyPositionalNotesUnsafe).toBeUndefined();
+    const result = migrateNotes(board, [
+      { id: 'old-part', componentId: 'part:0', text: 'U1', updatedAt: T0 },
+      { id: 'old-pin', componentId: 'part:0', pinId: 'pin:0', text: 'U1 pin', updatedAt: T0 },
+    ], T0);
+    expect(result.notes).toEqual([
+      { id: 'old-part', target: { ref: 'U1' }, text: 'U1', updatedAt: T0 },
+      { id: 'old-pin', target: { ref: 'U1', pin: '1' }, text: 'U1 pin', updatedAt: T0 },
+    ]);
+  });
+
+  it('does not block positional notes when only the outline header is shortened', () => {
+    const lines = [
+      '<<format.asc>>', '0 0', '2 0', '2 1', '0 1',
+      '<<pins.asc>>', ...Array.from({ length: 8 }, (_, index) => `; pins header ${index + 1}`),
+      'Part U1 (T)', '1 1 0.1 0.2 1 N1 0',
+    ];
+    const board = parseBdv({ name: 'short-outline-header.bdv', data: bytes(lines.join('\n') + '\n') })!;
+    expect(board.legacyPositionalNotesUnsafe).toBeUndefined();
+    expect(migrateNotes(board, [{ id: 'old-part', componentId: 'part:0', text: 'U1', updatedAt: T0 }], T0).notes).toEqual([
+      { id: 'old-part', target: { ref: 'U1' }, text: 'U1', updatedAt: T0 },
+    ]);
+  });
+});
+
+describe('ASC companion note migration', () => {
+  const open = (pinsHeader: number, nailsHeader: number, formatHeader = 8): Board => {
+    const companions = {
+      'pins.asc': bytes([...Array.from({ length: pinsHeader }, (_, index) => `; pins header ${index + 1}`), 'Part U1 (T)', '1 1 0.1 0.2 1 GND 0', 'Part U2 (T)', '1 1 0.2 0.2 1 GND 0'].join('\n') + '\n'),
+      'nails.asc': bytes([...Array.from({ length: nailsHeader }, (_, index) => `; nails header ${index + 1}`), 'N1 0.1 0.2 1 0 (T) 0 GND', 'N2 0.2 0.2 1 0 (T) 0 GND'].join('\n') + '\n'),
+    };
+    const board = parseAsc({
+      name: 'format.asc',
+      data: bytes([...Array.from({ length: formatHeader }, (_, index) => `; format header ${index + 1}`), '0 0', '2 0', '2 1', '0 1'].join('\n') + '\n'),
+      companions,
+    });
+    if (!board) throw new Error('synthetic ASC fixture was not recognized');
+    return board;
+  };
+
+  it('leaves component and pin notes unresolved when a shortened pins header can shift the old ids', () => {
+    const board = open(6, 7);
+    expect(board.components.slice(0, 2).map(component => [component.id, component.ref])).toEqual([['part:0', 'U1'], ['part:1', 'U2']]);
+    expect(board.legacyPositionalNotesUnsafe).toBe(true);
+    const keyed: KeyedNote = { id: 'keyed', target: { ref: 'U1' }, text: 'already keyed', updatedAt: T0 };
+    const notes: BoardNote[] = [keyed,
+      { id: 'old-part', componentId: 'part:0', text: 'note about U2', measurements: { voltage: '1.8 V' }, updatedAt: T0 },
+      { id: 'old-pin', componentId: 'part:0', pinId: 'pin:0', text: 'U2 pin note', measurements: { resistance: '0.4 Ω' }, updatedAt: T0 },
+    ];
+    const migrated = migrateNotes(board, notes, T0);
+    expect(migrated).toMatchObject({ migrated: 0, unresolved: 2 });
+    expect(migrated.notes).toEqual([keyed, ...notes.slice(1).map(note => ({ ...note, unresolved: { reason: 'legacy-order-unknown', at: T0 } }))]);
+  });
+
+  it('leaves notes unresolved when only a shortened nails header can shift old test-point ids', () => {
+    const board = open(8, 6);
+    expect(board.legacyPositionalNotesUnsafe).toBe(true);
+    const migrated = migrateNotes(board, [{ id: 'old-pin', componentId: 'part:2', pinId: 'pin:2', text: 'test point', updatedAt: T0 }], T0);
+    expect(migrated).toMatchObject({ migrated: 0, unresolved: 1 });
+    expect(migrated.notes[0]).toMatchObject({ id: 'old-pin', text: 'test point', componentId: 'part:2', pinId: 'pin:2', unresolved: { reason: 'legacy-order-unknown' } });
+  });
+
+  it('keeps full component and test-point headers safe, and an outline-only shortening does not set the flag', () => {
+    const full = open(8, 7);
+    expect(full.legacyPositionalNotesUnsafe).toBeUndefined();
+    expect(migrateNotes(full, [{ id: 'old-part', componentId: 'part:0', text: 'U1', updatedAt: T0 }], T0).notes).toEqual([
+      { id: 'old-part', target: { ref: 'U1' }, text: 'U1', updatedAt: T0 },
+    ]);
+    const outlineOnly = open(8, 7, 4);
+    expect(outlineOnly.legacyPositionalNotesUnsafe).toBeUndefined();
+    expect(migrateNotes(outlineOnly, [{ id: 'old-part', componentId: 'part:0', text: 'U1', updatedAt: T0 }], T0).notes).toEqual([
+      { id: 'old-part', target: { ref: 'U1' }, text: 'U1', updatedAt: T0 },
+    ]);
   });
 });

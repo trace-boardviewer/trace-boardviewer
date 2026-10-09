@@ -277,7 +277,7 @@ export interface NoteMigration {
 
 /**
  * Turns the positional notes of a board that have not been tried yet into keyed notes, resolving each id against `board` (as the current
- * importer parsed it). A note whose id is missing, whose part or pin cannot be addressed, or whose key another note already holds is kept
+ * importer parsed it). If the reader marks positional identity unsafe, every pending positional note is preserved unresolved. Otherwise a note whose id is missing, whose part or pin cannot be addressed, or whose key another note already holds is kept
  * as it is with `unresolved: { reason, at: now }` (the first of two notes that map to the same key wins, in list order). Already keyed notes and
  * notes already marked unresolved are left alone, so a second run returns `changed: false`.
  */
@@ -288,6 +288,10 @@ export function migrateNotes(board: Board, notes: readonly BoardNote[], now: str
   let migrated = 0, unresolved = 0;
   const next = notes.map((note): BoardNote => {
     if (!isPendingLegacyNote(note)) return note;
+    if (board.legacyPositionalNotesUnsafe) {
+      unresolved++;
+      return { ...note, unresolved: { reason: 'legacy-order-unknown', at: now } };
+    }
     const result = index.target(note.componentId, note.pinId);
     let reason: NoteProblem;
     if (result.ok) {

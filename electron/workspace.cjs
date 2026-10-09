@@ -205,7 +205,7 @@ function noteKeyText(key) {
 }
 // Same list as NOTE_PROBLEMS in src/lib/workspace.ts (and the NoteProblem union in src/lib/types.ts).
 const NOTE_PROBLEMS = Object.freeze([
-  'component-missing', 'component-ambiguous', 'pin-missing', 'pin-ambiguous', 'legacy-id-missing', 'legacy-indistinguishable', 'duplicate-target',
+  'component-missing', 'component-ambiguous', 'pin-missing', 'pin-ambiguous', 'legacy-id-missing', 'legacy-indistinguishable', 'legacy-order-unknown', 'duplicate-target',
 ]);
 
 // A reference or pin number as a key holds it: NFKC and trim, 1 to 256 characters (null when it is none).

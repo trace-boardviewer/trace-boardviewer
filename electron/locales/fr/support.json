@@ -14,5 +14,7 @@
   "support.referenceHint": "Sur Ko-fi, copiez ce code dans le message du paiement. Stripe le reçoit automatiquement. Après le paiement, revenez ici pour vérifier et masquer les rappels pendant un an.",
   "support.verify": "Vérifier le paiement",
   "support.pending": "La confirmation du paiement n’est pas encore arrivée. Vous pouvez passer cette étape et réessayer plus tard.",
-  "support.unavailable": "La vérification du paiement est indisponible. Vous pouvez passer cette étape et réessayer plus tard."
+  "support.unavailable": "La vérification du paiement est indisponible. Vous pouvez passer cette étape et réessayer plus tard.",
+  "support.retry": "Réessayer",
+  "support.retrying": "Nouvelle tentative de vérification du paiement…"
 }

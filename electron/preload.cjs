@@ -69,6 +69,12 @@ contextBridge.exposeInMainWorld('traceDesktop', Object.freeze({
   // Format diagnostic report (Help): main opens both dialogs; the first call takes no argument, the second forwards only the report.
   pickDiagnosticFile: () => call('trace:diagnostic-pick'),
   saveDiagnosticReport: (report) => call('trace:diagnostic-save', report),
+  prepareBugReport: (request) => call('trace:bug-report-prepare', request),
+  sendBugReport: (request) => call('trace:bug-report-send', request),
+  cancelBugReport: (request) => call('trace:bug-report-cancel', request),
+  getBugReportDraft: () => call('trace:bug-report-draft-get'),
+  saveBugReportDraft: (request) => call('trace:bug-report-draft-save', request),
+  discardBugReportDraft: () => call('trace:bug-report-draft-discard'),
   // Readings (repair store, docs/READINGS_FORMAT.md): a family is named by its 64-hex id. readReadings hands the readings over as the
   // text of a JSON array (one string crosses the bridge, not 100,000 objects). importReadings and exportReadings open main-owned dialogs:
   // the renderer never sends a path; it gets a base name and the text back, and sends a pack to be validated and written.
@@ -77,7 +83,7 @@ contextBridge.exposeInMainWorld('traceDesktop', Object.freeze({
   appendReadings: (familyId, events) => call('trace:append-readings', familyId, events),
   importReadings: () => call('trace:import-readings'),
   exportReadings: (request) => call('trace:export-readings', request),
-  // Support notice and top bar heart: the renderer names one of four fixed links by id ('stripe' | 'kofi' | 'bug' | 'support'); main.cjs holds the URLs and rejects anything else.
+  // Support notice and top bar heart: the renderer names one of three fixed links by id ('stripe' | 'kofi' | 'support'); bug reports stay in-app.
   openSupportLink: (id) => call('trace:open-support-link', id),
   getSupportStatus: () => call('trace:get-support-status'),
   prepareSupport: () => call('trace:prepare-support'),

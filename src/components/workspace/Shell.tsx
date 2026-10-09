@@ -9,8 +9,9 @@ import type { Board, ViewCommand, ViewSide } from '../../lib/types';
 import { unresolvedNotes } from '../../lib/note-keys';
 import type { NoteSubject } from '../../lib/note-keys';
 import SupportNotice from '../SupportNotice';
+import BugReportDialog from '../BugReportDialog';
+import { shouldPreserveBugReportOnBoardChange } from '../../app/bug-report-session';
 import UpdateNotice from '../UpdateNotice';
-import { BUG_REPORT_FAILED_KEY, openFixedLink, resolveSupportLinkOpener } from '../../lib/support-notice';
 import { useSupportStatus } from '../../lib/support-status';
 import { UPDATE_OPEN_FAILED_KEY } from '../../lib/update-check';
 import type { BoardCamera } from '../board-camera';
@@ -44,7 +45,7 @@ import './workspace.css';
 const T = { dropDocuments: 'Drop to attach', dropDocumentsHint: 'Documents are attached to this board. Board files open as a new board.', tabpanel: 'Workspace', notAFile: 'Nothing readable was dropped.' };
 const isBoardName = (name: string) => { const dot = name.lastIndexOf('.'); return dot >= 0 && SUPPORTED_EXTENSIONS.includes(name.slice(dot).toLowerCase()); };
 const NARROW_PANE = 760, AUTO_COLLAPSE_WIDTH = 1280;
-type ModalName = 'settings' | 'help' | 'diagnostic' | 'recents' | 'info' | 'export' | 'link' | 'notes' | null;
+type ModalName = 'settings' | 'help' | 'diagnostic' | 'recents' | 'info' | 'export' | 'link' | 'notes' | 'bug-report' | null;
 const NO_ALIASES: WorkspaceAliases = { refs: {}, nets: {} };
 interface LocalToast { id: number; kind: 'info' | 'success' | 'error'; message: Message }
 
@@ -67,8 +68,13 @@ export default function Shell({ api }: { api: WorkspaceApi }) {
   const support = useSupportStatus(desktop);
   const [supportRequested, setSupportRequested] = useState(0);
   const onUpdateOpenFailed = useCallback(() => notify({ key: UPDATE_OPEN_FAILED_KEY }, true), [notify]);
-  // Top bar "Report a bug" button: the main process opens the GitHub bug report form (id only, never a URL); a failure shows a toast.
-  const reportBug = useCallback(() => { void openFixedLink('bug', () => resolveSupportLinkOpener(window.traceDesktop), () => notify({ key: BUG_REPORT_FAILED_KEY }, true)); }, [notify]);
+  const [reportSurface, setReportSurface] = useState<'welcome' | 'board' | 'documents' | 'schematic' | 'settings' | 'other'>('welcome');
+  // Both report entry points open the same local form. Capture the view when it opens, before any later import changes the workspace.
+  const reportBug = useCallback(() => {
+    const surface = !stateRef.current.board ? 'welcome' : stateRef.current.activeTab === 'documents' ? 'documents' : stateRef.current.activeTab === 'schematic' ? 'schematic' : 'board';
+    setReportSurface(surface);
+    setModal('bug-report');
+  }, []);
   // The heart opens the optional reminder so a returning supporter can verify a payment.
   const openSupportPage = useCallback(() => setSupportRequested(value => value + 1), []);
   const copy = useCallback((value: string) => { navigator.clipboard.writeText(value).then(() => notify({ key: 'toast.copied' }), () => notify({ key: 'toast.clipboardUnavailable' }, true)); }, [notify]);
@@ -80,6 +86,7 @@ export default function Shell({ api }: { api: WorkspaceApi }) {
   const [measure, setMeasure] = useState(false);
   const [viewCommand, setViewCommand] = useState<(ViewCommand & { automatic?: boolean }) | null>(null);
   const [modal, setModal] = useState<ModalName>(null);
+  const modalRef = useRef(modal); modalRef.current = modal;
   const [noteTarget, setNoteTarget] = useState<NoteSubject | null>(null);
   const [dragging, setDragging] = useState(false);
   const [recentSelections, setRecentSelections] = useState<string[]>([]);
@@ -140,7 +147,7 @@ export default function Shell({ api }: { api: WorkspaceApi }) {
   // --- board lifecycle effects ---
   useEffect(() => {
     if (restoredBoard.current !== board) setSide('top');
-    setMeasure(false); setNetVisible(true); setRecentSelections([]); setModal(null); setNoteTarget(null);
+    setMeasure(false); setNetVisible(true); setRecentSelections([]); if (!shouldPreserveBugReportOnBoardChange(modalRef.current)) setModal(null); setNoteTarget(null);
     // The initial fit is automatic (never persisted) and is skipped when this board already has a stored view.
     if (state.boardKey && !boardCameraRef.current) setViewCommand({ type: 'fit', nonce: ++commandCounter.current, automatic: true });
   }, [state.boardKey, command]);
@@ -333,6 +340,7 @@ export default function Shell({ api }: { api: WorkspaceApi }) {
 
       {modal === 'settings' && <SettingsDialog settings={settings} onUpdate={update} onClose={closeModal} initialFocus={settingsFocus.current} />}
       {modal === 'help' && <HelpDialog onClose={closeModal} onDiagnostic={() => setModal('diagnostic')} />}
+      {modal === 'bug-report' && <BugReportDialog t={t} desktop={desktop} surface={reportSurface} lastImport={state.import.reportContext ?? null} onClose={closeModal} />}
       {modal === 'diagnostic' && <DiagnosticDialog onClose={closeModal} />}
       {modal === 'recents' && <RecentsDialog recents={state.import.recents} onOpenRecent={path => { setModal(null); void actions.openRecent(path); }} onOpenOther={() => { setModal(null); open(); }} onClose={closeModal} />}
       {modal === 'info' && board && <InfoDialog board={board} onClose={closeModal} />}
@@ -340,7 +348,7 @@ export default function Shell({ api }: { api: WorkspaceApi }) {
       {modal === 'notes' && board && <UnresolvedNotesDialog api={api} onClose={closeModal} />}
       {modal === 'link' && <LinkDialog api={api} aliases={aliases} onCreate={createAlias} onRemove={removeAlias} onClose={closeModal} />}
       {noteTarget && <NoteDialog api={api} target={noteTarget} onClose={closeNote} />}
-      <SupportNotice ready={ready && support.ready} suppressed={support.active} requested={supportRequested} blocked={!!modal || !!noteTarget || !!state.import.keyRequest || state.import.phase !== 'idle'} t={t} onShown={onSupportShown} onSettled={onSupportSettled} onVerified={support.verified} />
+      <SupportNotice ready={ready && support.ready} suppressed={support.active} requested={supportRequested} blocked={!!modal || !!noteTarget || !!state.import.keyRequest || state.import.phase !== 'idle'} t={t} onShown={onSupportShown} onSettled={onSupportSettled} onVerified={support.verified} onReportBug={reportBug} />
       {/* Like the update strip, the key dialog waits for the support notice: shown on top of it, its Esc cancelled the key request instead of skipping the notice (H3-03). The request itself stays pending in the core. */}
       {supportSettled && state.import.keyRequest && <KeyDialog key={state.import.keyRequest.fileName + state.import.keyRequest.code} request={state.import.keyRequest} onSubmit={value => actions.submitKey(value)} onCancel={() => actions.cancelKeyRequest()} />}
       {toasts.length > 0 && <div className="wsp-toasts" aria-live="polite">{toasts.map(toast => <div key={toast.id} className={'toast' + (toast.kind === 'error' ? ' error' : '')} role={toast.kind === 'error' ? 'alert' : 'status'} data-testid="toast">

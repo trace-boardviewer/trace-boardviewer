@@ -14,5 +14,7 @@
   "support.referenceHint": "Na Ko-fi skopíruj tento kód do správy pri platbe. Stripe ho dostane automaticky. Po platbe sa vráť sem, over ju a skry výzvy na podporu na jeden rok.",
   "support.verify": "Overiť platbu",
   "support.pending": "Potvrdenie platby ešte neprišlo. Môžeš to preskočiť a skúsiť neskôr.",
-  "support.unavailable": "Overenie platby teraz nie je dostupné. Môžeš to preskočiť a skúsiť neskôr."
+  "support.unavailable": "Overenie platby teraz nie je dostupné. Môžeš to preskočiť a skúsiť neskôr.",
+  "support.retry": "Skúsiť znova",
+  "support.retrying": "Opakuje sa overenie platby…"
 }

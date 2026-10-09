@@ -192,3 +192,4 @@ function makeEntry(data: Uint8Array, view: DataView, spec: EntrySpec): ZipEntry 
     },
   });
 }
+

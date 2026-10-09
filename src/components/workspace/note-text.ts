@@ -13,7 +13,7 @@ export const REFUSAL_TEXT: Readonly<Partial<Record<NoteTargetFailure, MessageKey
 export const PROBLEM_TEXT: Readonly<Record<NoteProblem, MessageKey>> = {
   'component-missing': 'notes.reasonComponentMissing', 'component-ambiguous': 'notes.reasonComponentAmbiguous',
   'pin-missing': 'notes.reasonPinMissing', 'pin-ambiguous': 'notes.reasonPinAmbiguous',
-  'legacy-id-missing': 'notes.reasonLegacyIdMissing', 'legacy-indistinguishable': 'notes.reasonLegacyIndistinguishable',
+  'legacy-id-missing': 'notes.reasonLegacyIdMissing', 'legacy-indistinguishable': 'notes.reasonLegacyIndistinguishable', 'legacy-order-unknown': 'notes.reasonLegacyOrderUnknown',
   'duplicate-target': 'notes.reasonDuplicateTarget',
 };
 

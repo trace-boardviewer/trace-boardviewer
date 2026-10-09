@@ -42,5 +42,9 @@
   "network.resultTooLarge": "Réponse trop volumineuse",
   "network.resultTimeout": "Délai dépassé",
   "network.resultNetwork": "Erreur réseau",
-  "network.resultBadResponse": "Réponse inattendue"
+  "network.resultBadResponse": "Réponse inattendue",
+  "network.bugReport": "Rapport de problème",
+  "network.bugReportHint": "Un rapport est envoyé uniquement si vous choisissez Envoyer dans le formulaire.",
+  "network.resultCancelled": "Annulé",
+  "network.resultHttpStatus": "Statut HTTP non accepté : {status}"
 }

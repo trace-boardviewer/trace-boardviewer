@@ -19,5 +19,6 @@
   "notes.fallbackUnnamedPart": "A fájl nem ad jelölést ennek az alkatrésznek, ezért a megjegyzés a nyákon lévő pozíciójához kötődik.",
   "notes.fallbackUnnamedPin": "A fájl nem ad számot ennek a pinnek, ezért a megjegyzés a nyákon lévő pozíciójához kötődik.",
   "notes.refusePart": "Ehhez az alkatrészhez nem menthető megjegyzés: egy azonos jelölésű másik alkatrész pontosan ugyanott van, így a kettő nem különböztethető meg.",
-  "notes.refusePin": "Ehhez a pinhez nem menthető megjegyzés: egy másik szám nélküli pin pontosan ugyanott van, így a kettő nem különböztethető meg."
+  "notes.refusePin": "Ehhez a pinhez nem menthető megjegyzés: egy másik szám nélküli pin pontosan ugyanott van, így a kettő nem különböztethető meg.",
+  "notes.reasonLegacyOrderUnknown": "Ezt a régi megjegyzést nem lehet biztonságosan hozzárendelni, mert az olvasó más sorrendben kezelhette a rekordokat."
 }

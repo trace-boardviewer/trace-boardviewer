@@ -4,7 +4,7 @@ import { createFakeDesktop } from '../app/testing';
 import { LANGUAGES, catalogs, translate } from './i18n';
 import type { Language } from './i18n';
 import {
-  BUG_REPORT_FAILED_KEY, SUPPORT_BUTTON_FAILED_KEY, SUPPORT_BUTTON_KEY, SUPPORT_LINK_IDS, SUPPORT_NOTICE_KEYS, SUPPORT_NOTICE_OPT_OUT, WEB_SUPPORT_LINKS,
+  SUPPORT_BUTTON_FAILED_KEY, SUPPORT_BUTTON_KEY, SUPPORT_LINK_IDS, SUPPORT_NOTICE_KEYS, SUPPORT_NOTICE_OPT_OUT, WEB_SUPPORT_LINKS,
   claimSupportNotice, closesOnBackdrop, createBackdropDismisser, createSupportLinkRequester, isSupportLinkId, openFixedLink, openSupportLinkInBrowser,
   resetSupportNoticeLaunch, resolveSupportLinkOpener, supportNoticeAllowed, postponeSupportNotice, SUPPORT_REMINDER_INTERVAL_MS,
 } from './support-notice';
@@ -17,21 +17,20 @@ import type { SupportLinkId, SupportLinkOpener } from './support-notice';
  */
 const STRIPE = 'https://donate.stripe.com/7sYaEZeET2op8PxaGE5EY00';
 const KOFI = 'https://ko-fi.com/tracerboardview';
-const BUG = 'https://github.com/trace-boardviewer/trace-boardviewer/issues/new?template=bug_report.yml';
 const SUPPORT_PAGE = 'https://trace-boardviewer.github.io/support.html';
 const readSource = (relative: string): string => readFileSync(new URL(`../../${relative}`, import.meta.url), 'utf8');
 
 describe('link ids', () => {
-  it('there are exactly four ids, stripe, kofi, bug and support, in this order', () => {
-    expect([...SUPPORT_LINK_IDS]).toEqual(['stripe', 'kofi', 'bug', 'support']);
+  it('there are exactly three external support-link ids, stripe, kofi and support, in this order', () => {
+    expect([...SUPPORT_LINK_IDS]).toEqual(['stripe', 'kofi', 'support']);
   });
 
   it('isSupportLinkId accepts those four strings and nothing else (case, spacing, prototype names, URLs, non-strings)', () => {
     expect(isSupportLinkId('stripe')).toBe(true);
     expect(isSupportLinkId('kofi')).toBe(true);
-    expect(isSupportLinkId('bug')).toBe(true);
+    expect(isSupportLinkId('bug')).toBe(false);
     expect(isSupportLinkId('support')).toBe(true);
-    for (const value of ['Stripe', 'KOFI', ' stripe', 'kofi ', '', 'ko-fi', 'Bug', 'bug ', 'issues', 'Support', 'SUPPORT', ' support', 'support ', 'supports', 'website', 'constructor', '__proto__', 'toString', STRIPE, KOFI, BUG, SUPPORT_PAGE, 'https://evil.example/', undefined, null, 0, true, ['stripe'], ['support'], { id: 'stripe' }, { id: 'support' }, new String('stripe'), new String('support')]) {
+    for (const value of ['Stripe', 'KOFI', ' stripe', 'kofi ', '', 'ko-fi', 'Bug', 'bug ', 'issues', 'Support', 'SUPPORT', ' support', 'support ', 'supports', 'website', 'constructor', '__proto__', 'toString', STRIPE, KOFI, SUPPORT_PAGE, 'https://evil.example/', undefined, null, 0, true, ['stripe'], ['support'], { id: 'stripe' }, { id: 'support' }, new String('stripe'), new String('support')]) {
       expect(isSupportLinkId(value), String(value)).toBe(false);
     }
   });
@@ -95,7 +94,6 @@ describe('copy', () => {
     expect(SUPPORT_NOTICE_KEYS).toEqual({
       title: 'support.title', body: 'support.body', thanks: 'support.thanks', testing: 'support.testing', stripe: 'support.stripe', kofi: 'support.kofi', bug: 'support.bug', notNow: 'support.notNow',
     });
-    expect(BUG_REPORT_FAILED_KEY).toBe('support.bugFailed');
   });
 
   it('the top bar heart button has its own two keys, support.button and support.buttonFailed, apart from the notice keys', () => {
@@ -144,8 +142,8 @@ describe('copy', () => {
     expect(HU['support.notNow']).toBe('Most nem');
   });
 
-  it.each(LANGUAGES)('%s: all eight keys (and the bug toast key) are real, non-empty, single-line strings that translate() renders (no key echoed back)', (lang: Language) => {
-    for (const key of [...Object.values(SUPPORT_NOTICE_KEYS), BUG_REPORT_FAILED_KEY]) {
+  it.each(LANGUAGES)('%s: all eight notice keys are real, non-empty, single-line strings that translate() renders (no key echoed back)', (lang: Language) => {
+    for (const key of Object.values(SUPPORT_NOTICE_KEYS)) {
       const value = (catalogs[lang] as Record<string, unknown>)[key];
       expect(typeof value, `${lang} ${key}`).toBe('string');
       expect((value as string).trim().length, `${lang} ${key}`).toBeGreaterThan(2);
@@ -290,18 +288,14 @@ describe('opener selection and the browser-only fallback', () => {
     expect(openWindow.mock.calls).toEqual([[STRIPE, '_blank', 'noopener'], [KOFI, '_blank', 'noopener'], [SUPPORT_PAGE, '_blank', 'noopener']]);
   });
 
-  it('the web constants are exactly the four links of the main process, keyed by the four ids; the bug form address comes from the one repository slug', () => {
-    expect({ ...WEB_SUPPORT_LINKS }).toEqual({ stripe: STRIPE, kofi: KOFI, bug: BUG, support: SUPPORT_PAGE });
+  it('the browser constants expose only the three external support links; bug reporting stays in-app', () => {
+    expect({ ...WEB_SUPPORT_LINKS }).toEqual({ stripe: STRIPE, kofi: KOFI, support: SUPPORT_PAGE });
     expect(Object.isFrozen(WEB_SUPPORT_LINKS)).toBe(true);
     const main = readSource('electron/main.cjs');
     for (const url of [STRIPE, KOFI, SUPPORT_PAGE]) expect(main.split(url).length - 1, `${url} appears once in electron/main.cjs`).toBe(1);
     expect(readSource('src/lib/support-notice.ts').split(SUPPORT_PAGE).length - 1, 'the browser-only table names the support page once').toBe(1);
     for (const id of SUPPORT_LINK_IDS) expect(main, `main.cjs maps ${id}`).toMatch(new RegExp(`\\b${id}:\\s*[\`']https://`));
-    // The slug is written once, in electron/repository.json; both processes build the bug form address from it and neither names a repository of its own.
-    expect(JSON.parse(readSource('electron/repository.json'))).toEqual({ repository: 'trace-boardviewer/trace-boardviewer' });
-    expect(main).toContain('bug: `https://github.com/${updates.REPOSITORY}/issues/new?template=bug_report.yml`');
-    expect(readSource('src/lib/support-notice.ts')).toContain('bug: `https://github.com/${github.repository}/issues/new?template=bug_report.yml`');
-    for (const file of ['electron/main.cjs', 'electron/updates.cjs', 'src/lib/support-notice.ts']) expect(readSource(file), `${file} names no repository of its own`).not.toMatch(/github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9._-]+/);
+    expect(readSource('src/lib/support-notice.ts')).not.toMatch(/github\.com|repository\.json|bug_report\.yml/i);
   });
 
   it('openSupportLinkInBrowser refuses ids outside the allow-list', async () => {

@@ -184,7 +184,7 @@ export function createFakeDesktop(): FakeDesktop {
       return payload;
     },
     acceptBoard: async (path, key) => { await step('acceptBoard', key); fake.recents = [{ name: path.split('/').pop() ?? path, path, openedAt: new Date(T0).toISOString() }, ...fake.recents.filter(item => item.path !== path)]; },
-    initialBoard: async () => fake.initial,
+    initialBoard: async () => { const failure = fake.failures.initialBoard?.(''); if (failure) throw failure; return fake.initial; },
     recentBoards: async () => [...fake.recents],
     getSettings: async () => { throw new Error('not used'); },
     saveSettings: async () => {},
@@ -248,6 +248,8 @@ export interface FakeBoardWorkers {
   terminated: number;
   /** Boards (or parser replies) by file name. */
   replies: Record<string, unknown>;
+  /** Enum-only success context returned with the fake parser result. */
+  reportContexts: Record<string, { stage?: string; formatId?: string }>;
   /** Holds the reply of a file name until the promise settles. */
   gates: Record<string, Promise<unknown>>;
   /** Options each import was posted with (session keys). */
@@ -268,7 +270,7 @@ export interface FakeBoardWorkers {
 }
 export function createBoardWorkers(): FakeBoardWorkers {
   const fake: FakeBoardWorkers = {
-    created: 0, terminated: 0, replies: {}, gates: {}, options: [], model: false, progress: {}, modelRequests: [], modelGate: null, crash: [],
+    created: 0, terminated: 0, replies: {}, reportContexts: {}, gates: {}, options: [], model: false, progress: {}, modelRequests: [], modelGate: null, crash: [],
     factory: (onMessage, onError) => {
       fake.created++;
       let dead = false;
@@ -291,11 +293,12 @@ export function createBoardWorkers(): FakeBoardWorkers {
             const reply = fake.replies[name];
             const board = reply !== undefined && 'components' in (reply as object) ? reply as Board : null;
             if (!board) { onMessage(reply); return; }
-            if (!fake.model) { onMessage({ board }); return; }
+            const reportContext = fake.reportContexts[name] ?? { stage: 'done' };
+            if (!fake.model) { onMessage({ board, reportContext }); return; }
             host = createModelHost(structuredClone(board), response => {
               void (async () => { await fake.modelGate; if (!dead) onMessage(structuredClone(response)); })();
             }, { schedule: run => { void Promise.resolve().then(run); } });
-            onMessage({ board, model: MODEL_PROTOCOL });
+            onMessage({ board, model: MODEL_PROTOCOL, reportContext });
           })();
         },
         terminate: () => { if (!dead) { dead = true; fake.terminated++; } },

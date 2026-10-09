@@ -152,6 +152,7 @@ test('static: drift guard - appId, productName, asar and files match package.jso
   const negations = macConfig.files.filter((pattern) => pattern.startsWith('!'));
   assert.deepEqual(negations.filter((pattern) => !ALLOWED_NEGATIONS.includes(pattern)), [], 'only documented negations are allowed');
   assert.deepEqual(macConfig.files.filter((pattern) => !pattern.startsWith('!')), build.files.filter((pattern) => !pattern.startsWith('!')), 'the positive patterns are identical, in order');
+  assert.ok(build.files.includes('shared/bug-report-contract.cjs'), 'the shared report contract is packaged');
   assert.deepEqual(build.files.filter((pattern) => pattern.startsWith('!') && !macConfig.files.includes(pattern)), [], 'a negation added to package.json must also be in the Mac list');
   assert.deepEqual(macConfig.files.slice(-negations.length), negations, 'negations come last');
   assert.ok(!('asarUnpack' in macConfig) && !('extraResources' in macConfig) && !('extraFiles' in macConfig), 'no extra payload beyond package.json build');
@@ -215,7 +216,7 @@ test('static: the mac job builds the unsigned arm64 zip inside the release workf
   assert.equal(job.defaults.run.shell, 'bash');
   assert.equal(job.env.TRACE_ARCH, 'arm64');
   assert.equal(job.env.CSC_IDENTITY_AUTO_DISCOVERY, 'false');
-  assert.deepEqual(Object.keys(job.outputs).sort(), ['artifact_name', 'version']);
+  assert.deepEqual(Object.keys(job.outputs).sort(), ['artifact_name', 'native_acceptance', 'version']);
 
   const pinsOf = (steps) => new Map(steps.filter((step) => step.uses).map((step) => step.uses.split('@')));
   const buildPins = pinsOf(workflow.jobs.build.steps);
@@ -244,6 +245,7 @@ test('static: the mac job builds the unsigned arm64 zip inside the release workf
   assert.match(checksum.run, /shasum -a 256 "\$\(basename "\$zip"\)" > "\$\(basename "\$zip"\)\.sha256"/, 'the same "<sha256>  <file name>" line as the EXE checksum');
   const smokeStep = job.steps.find((step) => step.run && step.run.includes('scripts/mac-smoke.cjs'));
   assert.ok(smokeStep['timeout-minutes'], 'the smoke step has its own timeout');
+  assert.equal(smokeStep.if, "steps.metadata.outputs.native_acceptance == 'true'", 'only the version/event-scoped release gate can defer native smoke');
   assert.match(smokeStep.run, /--app "\$TRACE_APP" --arch "\$TRACE_ARCH" --commit "\$TRACE_COMMIT" --artifact "\$TRACE_ZIP" --out "test-results\/mac\/mac-smoke-evidence-\$TRACE_ARCH\.json"/);
   assert.doesNotMatch(smokeStep.run, /--evidence-only/, 'the release build runs the full smoke test');
 
@@ -263,7 +265,7 @@ test('static: the mac job builds the unsigned arm64 zip inside the release workf
   assert.match(upload.with.path, /-mac-\$\{\{ env\.TRACE_ARCH \}\}\.zip\n/);
   assert.match(upload.with.path, /-mac-\$\{\{ env\.TRACE_ARCH \}\}\.zip\.sha256\n?$/);
   const evidence = job.steps.find((step) => step.name === 'Upload macOS smoke evidence');
-  assert.equal(evidence.if, 'always()');
+  assert.equal(evidence.if, "always() && steps.metadata.outputs.native_acceptance == 'true'");
   assert.match(evidence.with.path, /test-results\/mac\/\*\.json/);
   assert.equal(evidence.with['retention-days'], 14);
 });

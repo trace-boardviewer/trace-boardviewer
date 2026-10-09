@@ -14,5 +14,7 @@
   "support.referenceHint": "Na Ko-fi skopiuj ten kod do wiadomości płatności. Stripe otrzyma go automatycznie. Po płatności wróć tutaj, aby ją potwierdzić i ukryć przypomnienia na rok.",
   "support.verify": "Potwierdź płatność",
   "support.pending": "Potwierdzenie płatności jeszcze nie dotarło. Możesz pominąć ten krok i sprawdzić później.",
-  "support.unavailable": "Potwierdzenie płatności jest teraz niedostępne. Możesz pominąć ten krok i spróbować później."
+  "support.unavailable": "Potwierdzenie płatności jest teraz niedostępne. Możesz pominąć ten krok i spróbować później.",
+  "support.retry": "Spróbuj ponownie",
+  "support.retrying": "Ponawianie weryfikacji płatności…"
 }

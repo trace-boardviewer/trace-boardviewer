@@ -19,5 +19,6 @@
   "notes.fallbackUnnamedPart": "Il file non assegna alcun riferimento a questo componente, quindi la nota è legata alla sua posizione sulla scheda.",
   "notes.fallbackUnnamedPin": "Il file non assegna alcun numero a questo pin, quindi la nota è legata alla sua posizione sulla scheda.",
   "notes.refusePart": "Per questo componente non si può salvare alcuna nota: un altro componente con lo stesso riferimento si trova esattamente nella stessa posizione, quindi i due non si distinguono.",
-  "notes.refusePin": "Per questo pin non si può salvare alcuna nota: un altro pin senza numero si trova esattamente nella stessa posizione, quindi i due non si distinguono."
+  "notes.refusePin": "Per questo pin non si può salvare alcuna nota: un altro pin senza numero si trova esattamente nella stessa posizione, quindi i due non si distinguono.",
+  "notes.reasonLegacyOrderUnknown": "Questa nota precedente non può essere associata in sicurezza, perché l’ordine dei record potrebbe essere cambiato nel lettore."
 }

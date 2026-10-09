@@ -1,18 +1,16 @@
-import github from '../../electron/repository.json';
 import type { MessageKey } from './i18n';
 
 /**
  * Support notice: a short, skippable reminder at startup and once per hour while the app is in use. This module is the pure part:
  * the link ids, the reminder claim, the copy keys and the way a link request is made. The dialog itself is
  * src/components/SupportNotice.tsx; the links themselves are constants of the MAIN process (electron/main.cjs, channel
- * 'trace:open-support-link'): the renderer sends an id, never a URL.
+ * 'trace:open-support-link'): the renderer sends an id, never a URL. Bug reports use the local form.
  */
 
 /**
- * The only four things the renderer may ask the main process to open: the two donation pages, the GitHub bug report form and the
- * project's own support page on its website (the top bar's heart button).
+ * The only things the renderer may ask the main process to open are the two donation pages and the project's support page.
  */
-export const SUPPORT_LINK_IDS = ['stripe', 'kofi', 'bug', 'support'] as const;
+export const SUPPORT_LINK_IDS = ['stripe', 'kofi', 'support'] as const;
 export type SupportLinkId = (typeof SUPPORT_LINK_IDS)[number];
 
 export function isSupportLinkId(value: unknown): value is SupportLinkId {
@@ -23,9 +21,6 @@ export function isSupportLinkId(value: unknown): value is SupportLinkId {
 export const SUPPORT_NOTICE_KEYS = {
   title: 'support.title', body: 'support.body', thanks: 'support.thanks', testing: 'support.testing', stripe: 'support.stripe', kofi: 'support.kofi', bug: 'support.bug', notNow: 'support.notNow',
 } as const satisfies Record<string, MessageKey>;
-
-/** Toast text when the bug report page could not be opened from the top bar button (the label of that button is SUPPORT_NOTICE_KEYS.bug). */
-export const BUG_REPORT_FAILED_KEY = 'support.bugFailed' as const satisfies MessageKey;
 
 /** The top bar's support (heart) button: its accessible label and tooltip, and the toast when the support page could not be opened. */
 export const SUPPORT_BUTTON_KEY = 'support.button' as const satisfies MessageKey;
@@ -99,14 +94,13 @@ export function createSupportLinkRequester(open: SupportLinkOpener): { request(i
 }
 
 /**
- * Browser-only development mode (no Electron bridge): the same four links, duplicated here on purpose because there is no main
+ * Browser-only development mode (no Electron bridge): the same three links, duplicated here on purpose because there is no main
  * process to hold them. The desktop app never uses this table; electron/main.cjs owns the real constants (a test keeps both in step).
- * The bug report form is an address of the repository slug both processes read from electron/repository.json (see electron/updates.cjs).
+ * Bug reports are handled inside the application.
  */
 export const WEB_SUPPORT_LINKS: Readonly<Record<SupportLinkId, string>> = Object.freeze({
   stripe: 'https://donate.stripe.com/7sYaEZeET2op8PxaGE5EY00',
   kofi: 'https://ko-fi.com/tracerboardview',
-  bug: `https://github.com/${github.repository}/issues/new?template=bug_report.yml`,
   support: 'https://trace-boardviewer.github.io/support.html',
 });
 
@@ -131,7 +125,7 @@ export function resolveSupportLinkOpener(desktop: { openSupportLink?: (id: Suppo
 }
 
 /**
- * One click on a top bar link button (the bug report form, the support page): the opener of the moment is asked for exactly this id and
+ * One click on a top bar support link button: the opener of the moment is asked for exactly this id and
  * a failure of any kind (a rejection, or a synchronous throw while resolving or calling the opener) is reported through `onFailure` once.
  * It never rejects, so the click handler can fire and forget it.
  */

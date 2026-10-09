@@ -49,10 +49,10 @@ describe('the catalogs carry every string of the notes UI in all eight languages
     }
   });
   it('every problem, fallback and refusal the library can report has a text', () => {
-    expect(Object.keys(PROBLEM_TEXT).sort()).toEqual(['component-ambiguous', 'component-missing', 'duplicate-target', 'legacy-id-missing', 'legacy-indistinguishable', 'pin-ambiguous', 'pin-missing']);
+    expect(Object.keys(PROBLEM_TEXT).sort()).toEqual(['component-ambiguous', 'component-missing', 'duplicate-target', 'legacy-id-missing', 'legacy-indistinguishable', 'legacy-order-unknown', 'pin-ambiguous', 'pin-missing']);
     expect(Object.keys(FALLBACK_TEXT).sort()).toEqual(['duplicate-reference', 'unnamed-part', 'unnamed-pin']);
     expect(Object.keys(REFUSAL_TEXT).sort()).toEqual(['part-indistinguishable', 'pin-indistinguishable']);
-    expect(new Set([...Object.values(PROBLEM_TEXT), ...Object.values(FALLBACK_TEXT), ...Object.values(REFUSAL_TEXT)]).size).toBe(12);
+    expect(new Set([...Object.values(PROBLEM_TEXT), ...Object.values(FALLBACK_TEXT), ...Object.values(REFUSAL_TEXT)]).size).toBe(13);
   });
 });
 
@@ -77,20 +77,22 @@ describe('the unresolved notes list', () => {
     { id: 'b', target: { ref: 'C77', pin: '2' }, text: 'on a part the board does not have', updatedAt: T0 },
     { id: 'c', target: { ref: 'U1', pin: '9' }, text: '', measurements: { other: 'only a measurement' }, updatedAt: T0 },
     { id: 'd', componentId: 'part:3', text: 'two notes wanted the same pin', updatedAt: T0, unresolved: { reason: 'duplicate-target', at: T0 } },
+    { id: 'e', componentId: 'part:0', pinId: 'pin:0', text: 'old note kept safely', updatedAt: T0, unresolved: { reason: 'legacy-order-unknown', at: T0 } },
   ];
   const api = apiOf({ board: b, notes });
 
   it.each(LANGUAGES)('%s: every unresolved note shows its old target, the reason and its text, and can be copied and deleted, all in the catalog language', lang => {
     const html = withUi(lang, createElement(UnresolvedNotesList, { api }));
     const items = html.split('data-testid="unresolved-note"').slice(1);
-    expect(items).toHaveLength(4);
+    expect(items).toHaveLength(5);
     const target = (item: string) => decode(/data-testid="unresolved-target">([^<]*)</.exec(item)![1]);
     const reason = (item: string) => decode(/data-testid="unresolved-reason">([^<]*)</.exec(item)![1]);
     expect(items.map(target)).toEqual([
       `${catalog(lang, 'notes.targetPart')} part:42 · ${catalog(lang, 'inspector.colPin')} pin:7`, `${catalog(lang, 'notes.targetPart')} C77 · ${catalog(lang, 'inspector.colPin')} 2`,
       `${catalog(lang, 'notes.targetPart')} U1 · ${catalog(lang, 'inspector.colPin')} 9`, `${catalog(lang, 'notes.targetPart')} part:3`,
+      `${catalog(lang, 'notes.targetPart')} part:0 · ${catalog(lang, 'inspector.colPin')} pin:0`,
     ]);
-    expect(items.map(reason)).toEqual([catalog(lang, 'notes.reasonLegacyIdMissing'), catalog(lang, 'notes.reasonComponentMissing'), catalog(lang, 'notes.reasonPinMissing'), catalog(lang, 'notes.reasonDuplicateTarget')]);
+    expect(items.map(reason)).toEqual([catalog(lang, 'notes.reasonLegacyIdMissing'), catalog(lang, 'notes.reasonComponentMissing'), catalog(lang, 'notes.reasonPinMissing'), catalog(lang, 'notes.reasonDuplicateTarget'), catalog(lang, 'notes.reasonLegacyOrderUnknown')]);
     for (const item of items) {
       expect(decode(item)).toContain(`aria-label="${catalog(lang, 'notes.copyText')}"`);
       expect(decode(item)).toContain(`aria-label="${catalog(lang, 'common.delete')}"`);

@@ -198,7 +198,7 @@ export function createMockWorkspace(options: MockOptions = {}): MockWorkspace {
     save: { dirty: false, saving: false, failure: null }, selection: { componentId: null, pinId: null, net: null },
     probe: { origin: null, nonce: 0, schematic: null, schematicMapping: null, boardMapping: null, documentRef: null, schematicNetMapping: null, boardNetMapping: null },
     search: { query: '', result: null, pending: false }, link: null, pdfLinks: {}, overlays: {}, notices: [], persistence: options.persistence ?? 'native',
-    import: { phase: 'idle', keyRequest: null, recents: [{ name: 'mainboard.kicad_pcb', path: 'C:/service/mainboard.kicad_pcb', openedAt: '2026-10-04T08:00:00.000Z' }, { name: 'older.gc', path: 'C:/service/older.gc', openedAt: '2026-09-01T08:00:00.000Z' }], file: options.empty ? null : { name: 'mainboard.kicad_pcb', path: 'C:/service/mainboard.kicad_pcb', key: boardKey }, progress: null },
+    import: { phase: 'idle', keyRequest: null, recents: [{ name: 'mainboard.kicad_pcb', path: 'C:/service/mainboard.kicad_pcb', openedAt: '2026-10-04T08:00:00.000Z' }, { name: 'older.gc', path: 'C:/service/older.gc', openedAt: '2026-09-01T08:00:00.000Z' }], file: options.empty ? null : { name: 'mainboard.kicad_pcb', path: 'C:/service/mainboard.kicad_pcb', key: boardKey }, progress: null, reportContext: null },
   };
   const emit = () => { for (const listener of [...listeners]) listener(); };
   const set = (patch: Partial<WorkspaceState> | ((s: WorkspaceState) => Partial<WorkspaceState>)) => { state = { ...state, ...(typeof patch === 'function' ? patch(state) : patch) }; emit(); };

@@ -2,6 +2,7 @@ import { Clock3, FileText, LoaderCircle, Route, Search, StickyNote, X, CircuitBo
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
 import type { WorkspaceApi } from '../../app/api';
 import type { SearchRow } from '../../lib/crossprobe';
+import { searchQueryOf } from '../../lib/crossprobe';
 import { annotatedComponentIds } from '../../lib/note-keys';
 import { symbolKey } from '../../lib/schematic/model';
 import type { BoardComponent, ViewSide } from '../../lib/types';
@@ -73,10 +74,11 @@ export function useSearchController(api: WorkspaceApi, inputRef: RefObject<HTMLI
   useEffect(() => { setActive(0); }, [identity]);
   const activatedRef = useRef(onActivated); activatedRef.current = onActivated;
   const activate = useCallback((row: SearchRow) => {
+    if (!search.result || search.result.query !== searchQueryOf(search.query)) return;
     actionsRef.current.activateSearchRow(row);
     activatedRef.current?.(row);
     if (row.source !== 'documents') inputRef.current?.blur();
-  }, [inputRef]);
+  }, [inputRef, search.query, search.result]);
   const clear = useCallback(() => { setDraft(''); commit(''); }, [commit]);
   const rowsRef = useRef(rows); rowsRef.current = rows;
   const activeRef = useRef(active); activeRef.current = active;

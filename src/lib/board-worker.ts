@@ -1,5 +1,5 @@
 import { GenCadParseError } from './gencad';
-import { parseBoard } from './formats';
+import { parseBoardDetailed } from './formats';
 import { BoardFormatError } from './formats/common';
 import { createModelHost } from './model-host';
 import type { ModelHost } from './model-host';
@@ -10,6 +10,8 @@ import type { FormatFailure, ImportOptions } from './types';
 interface ImportMessage { name: string; data: Uint8Array; companions?: Record<string, Uint8Array>; options?: ImportOptions }
 /** A progress message is posted when the parser advanced by at least this fraction (at most about a hundred per file). */
 const PROGRESS_STEP = 0.01;
+type ReportStage = 'detect' | 'unpack' | 'parse' | 'done';
+const reportStageOf = (phase: string): ReportStage | null => phase === 'detect' || phase === 'unpack' || phase === 'parse' || phase === 'done' ? phase : null;
 
 // One worker per import. The original bytes arrive here (transferred, never decoded by the transport) and the dispatcher
 // recognizes the format; meanwhile `{ progress: { fraction } }` messages report how far a parser that knows it got (the UI's
@@ -24,12 +26,20 @@ self.onmessage = (event: MessageEvent<ImportMessage>) => {
   try {
     if (typeof name !== 'string' || !(data instanceof Uint8Array)) throw new Error('Invalid import message.');
     let posted = 0;
-    const board = withParseProgress(fraction => {
+    let reportStage: ReportStage | null = null;
+    const result = withParseProgress(fraction => {
       if (fraction - posted < PROGRESS_STEP && fraction < 1) return;
       posted = fraction;
       self.postMessage({ progress: { fraction } });
-    }, () => parseBoard({ name, data, companions, options }));
-    self.postMessage({ board, model: MODEL_PROTOCOL });
+    }, () => parseBoardDetailed({ name, data, companions, options }, { onProgress: (_fraction, phase) => {
+      const stage = reportStageOf(phase);
+      if (stage && stage !== reportStage) {
+        reportStage = stage;
+        self.postMessage({ reportContext: { stage } });
+      }
+    } }));
+    const board = result.board;
+    self.postMessage({ board, model: MODEL_PROTOCOL, reportContext: { stage: 'done', formatId: result.adapter } });
     host = createModelHost(board, response => self.postMessage(response));
     host.warm();
   } catch (error) {

@@ -24,6 +24,7 @@ export const NETWORK_KEYS = {
 export const FEATURE_TEXT: Readonly<Record<string, { name: MessageKey; hint: MessageKey }>> = {
   'update-check': { name: 'network.updateCheck', hint: 'network.updateCheckHint' },
   'support-verification': { name: 'support.verify', hint: 'support.referenceHint' },
+  'bug-report': { name: 'network.bugReport', hint: 'network.bugReportHint' },
 };
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -131,6 +132,8 @@ export function resultText(entry: NetworkActivityEntry): ResultText {
     return { key: entry.error === 'disabled' ? 'network.resultDisabled' : entry.error === 'busy' ? 'network.resultBusy' : 'network.resultBlocked' };
   }
   switch (entry.error) {
+    case 'cancelled': return { key: 'network.resultCancelled' };
+    case 'http-status': return entry.status === null ? { key: 'network.resultFailed' } : { key: 'network.resultHttpStatus', params: { status: entry.status } };
     case 'redirect': return { key: 'network.resultRedirect' };
     case 'too-large': return { key: 'network.resultTooLarge' };
     case 'timeout': return { key: 'network.resultTimeout' };

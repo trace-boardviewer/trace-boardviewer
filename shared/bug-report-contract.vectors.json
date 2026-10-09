@@ -1,0 +1,42 @@
+{
+  "schema": "trace-bug-report-vectors/1",
+  "vectors": [
+    {
+      "name": "diagnostics-off-unicode",
+      "report": {
+        "schema": "trace-bug-report/1",
+        "reportId": "123e4567-e89b-42d3-a456-426614174000",
+        "description": "Crashes on launch — árvizsgálat 🛠️",
+        "diagnostics": null
+      },
+      "canonical": "{\"schema\":\"trace-bug-report/1\",\"reportId\":\"123e4567-e89b-42d3-a456-426614174000\",\"description\":\"Crashes on launch — árvizsgálat 🛠️\",\"diagnostics\":null}",
+      "sha256": "3ed1923a645d9dfc9f5c7e0c9a61a8e427d67cf2806d168f0e48f3262ad92d91"
+    },
+    {
+      "name": "minimal-open-context",
+      "report": {
+        "schema": "trace-bug-report/1",
+        "reportId": "123e4567-e89b-42d3-a456-426614174001",
+        "description": "A board opens but has no visible pads.",
+        "diagnostics": {
+          "app": {
+            "version": "1.3.1",
+            "platform": "linux",
+            "arch": "x64"
+          },
+          "locale": "en",
+          "surface": "board",
+          "lastImport": {
+            "outcome": "opened",
+            "stage": "done",
+            "formatId": "gencad",
+            "extensionClass": ".cad",
+            "errorCode": null
+          }
+        }
+      },
+      "canonical": "{\"schema\":\"trace-bug-report/1\",\"reportId\":\"123e4567-e89b-42d3-a456-426614174001\",\"description\":\"A board opens but has no visible pads.\",\"diagnostics\":{\"app\":{\"version\":\"1.3.1\",\"platform\":\"linux\",\"arch\":\"x64\"},\"locale\":\"en\",\"surface\":\"board\",\"lastImport\":{\"outcome\":\"opened\",\"stage\":\"done\",\"formatId\":\"gencad\",\"extensionClass\":\".cad\",\"errorCode\":null}}}",
+      "sha256": "d22c8458ed5c645fe5924471563672f6a7b276fcea541880c3e39e6832aac0f6"
+    }
+  ]
+}

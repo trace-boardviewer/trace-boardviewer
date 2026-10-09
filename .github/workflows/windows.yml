@@ -31,13 +31,14 @@ concurrency:
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     defaults:
       run:
         shell: pwsh
     outputs:
       version: ${{ steps.metadata.outputs.version }}
       artifact_name: ${{ steps.metadata.outputs.artifact_name }}
+      native_acceptance: ${{ steps.metadata.outputs.native_acceptance }}
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -61,6 +62,7 @@ jobs:
         env:
           TRACE_REF: ${{ github.ref }}
           TRACE_TAG: ${{ github.ref_name }}
+          TRACE_EVENT_NAME: ${{ github.event_name }}
         run: |
           $tracePackage = Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json
           $traceVersion = $tracePackage.version
@@ -72,10 +74,17 @@ jobs:
           }
           "version=$traceVersion" >> $env:GITHUB_OUTPUT
           "artifact_name=TRACE-Boardviewer-$traceVersion-windows-x64" >> $env:GITHUB_OUTPUT
+          $traceNativeAcceptance = $env:TRACE_EVENT_NAME -ne 'push' -or $traceVersion -ne '1.3.1'
+          "native_acceptance=$($traceNativeAcceptance.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          if (-not $traceNativeAcceptance) {
+            @('### Native runtime acceptance deferred', '', 'The 1.3.1 automatic push builds and statically checks all three platform packages; packaged runtime acceptance is scheduled after publication.') | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          }
       - name: Run parser and geometry tests
         run: pnpm test
       - name: Run desktop boundary and persistence tests
         run: pnpm test:desktop
+      - name: Check packaged functional QA runner contracts
+        run: node --test tests/packaged-functional-qa-checks.cjs tests/packaged-bug-report-checks.cjs tests/release-before-native-workflow-checks.cjs
       - name: Build portable Windows EXE
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
@@ -101,6 +110,36 @@ jobs:
           $traceLines = @("files: $($traceManifest.fileCount), bytes: $($traceManifest.totalBytes)", "manifest digest: $($traceManifest.manifestDigest)", "TRACE Boardviewer.exe sha256: $($traceManifest.exeSha256)", "resources/app.asar sha256: $($traceManifest.asarSha256)")
           $traceLines | ForEach-Object { Write-Host $_ }
           (@('### Payload manifest (release/win-unpacked)', '', '```text') + $traceLines + @('```')) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+      - name: Inspect configured Electron fuse bytes in the Windows payload
+        run: |
+          $traceExe = (Resolve-Path -LiteralPath 'release/win-unpacked/TRACE Boardviewer.exe').Path
+          node -e "require('./scripts/packaged-functional-qa.cjs').inspectFuses(process.argv[1]).then(() => console.log('Configured fuse bytes match the packaged Windows executable.')).catch(() => { console.error('Configured fuse bytes do not match the packaged Windows executable.'); process.exitCode = 1; })" $traceExe
+          if ($LASTEXITCODE -ne 0) { throw 'Windows payload fuse-byte inspection failed.' }
+      - name: Run packaged functional QA against the manifest-linked Windows payload
+        if: steps.metadata.outputs.native_acceptance == 'true'
+        env:
+          TRACE_VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          $traceExe = (Resolve-Path -LiteralPath 'release/win-unpacked/TRACE Boardviewer.exe').Path
+          $traceAsar = (Resolve-Path -LiteralPath 'release/win-unpacked/resources/app.asar').Path
+          $traceArtifact = (Resolve-Path -LiteralPath "release/TRACE-Boardviewer-$env:TRACE_VERSION.exe").Path
+          $traceChecksum = (Resolve-Path -LiteralPath "release/TRACE-Boardviewer-$env:TRACE_VERSION.exe.sha256").Path
+          $traceManifest = (Resolve-Path -LiteralPath 'payload-manifest.json').Path
+          node scripts/packaged-functional-qa.cjs "--executable=$traceExe" "--asar=$traceAsar" "--artifact=$traceArtifact" "--checksum=$traceChecksum" "--manifest=$traceManifest" "--version=$env:TRACE_VERSION" --os=win32 --arch=x64 --out="$PWD/test-results/packaged-functional/windows-x64.json"
+          if ($LASTEXITCODE -ne 0) { throw "Packaged functional QA failed with exit code $LASTEXITCODE." }
+      - name: Validate packaged functional QA evidence manifest
+        if: always() && steps.metadata.outputs.native_acceptance == 'true'
+        run: node scripts/validate-packaged-functional-evidence.cjs --report test-results/packaged-functional/windows-x64.json --screenshots test-results/packaged-functional/windows-x64-screenshots
+      - name: Upload packaged functional QA evidence
+        if: always() && steps.metadata.outputs.native_acceptance == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: packaged-functional-qa-${{ steps.metadata.outputs.version }}-windows-x64
+          path: |
+            test-results/packaged-functional/windows-x64.json
+            test-results/packaged-functional/windows-x64-screenshots/*.png
+          if-no-files-found: error
+          retention-days: 14
       - name: Upload portable EXE and checksum
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -167,14 +206,19 @@ jobs:
           $traceManifest = Get-Content -LiteralPath $traceManifestFile -Raw | ConvertFrom-Json
           if ($traceManifest.schema -ne 'trace-payload-manifest/1') { throw 'The downloaded payload manifest has an unexpected schema.' }
           Write-Host "Payload manifest to compare with the extracted runtime: $($traceManifest.fileCount) files, $($traceManifest.totalBytes) bytes, digest $($traceManifest.manifestDigest)"
+      - name: Record deferred portable runtime acceptance
+        if: needs.build.outputs.native_acceptance == 'false'
+        run: |
+          @('### Portable runtime acceptance deferred', '', 'The downloaded EXE checksum and runtime manifest were verified. The 1.3.1 automatic push does not launch the app; native acceptance is scheduled after publication.') | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
       - name: Check portable instance isolation
+        if: needs.build.outputs.native_acceptance == 'true'
         env:
           TRACE_VERSION: ${{ needs.build.outputs.version }}
         run: |
           node scripts/check-portable-isolation.cjs --exe "release/TRACE-Boardviewer-$env:TRACE_VERSION.exe" --payload-manifest "payload-manifest/payload-manifest.json" --repeat 2 --out portable-isolation-evidence.json --max-total-sec 2100
           if ($LASTEXITCODE -ne 0) { throw "Portable instance isolation check failed with exit code $LASTEXITCODE (1 = failed assertion, 2 = infrastructure failure)." }
       - name: Show Portable instance isolation summary
-        if: always()
+        if: always() && needs.build.outputs.native_acceptance == 'true'
         env:
           TRACE_EVIDENCE: portable-isolation-evidence.json
         run: |
@@ -225,7 +269,7 @@ jobs:
             (@('### Portable instance isolation', '', '```text') + $traceLines + @('```')) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
           }
       - name: Upload isolation evidence
-        if: always()
+        if: always() && needs.build.outputs.native_acceptance == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: portable-isolation-evidence-${{ needs.build.outputs.version }}
@@ -418,20 +462,21 @@ jobs:
           if ($traceActual -ne $traceExpected) { throw 'Downloaded EXE checksum mismatch: the measured payload is not the uploaded one.' }
           Write-Host "Measured payload: $([IO.Path]::GetFileName($traceExe)) sha256 $traceActual"
       - name: Measure startup race and second-instance leftovers
+        if: needs.build.outputs.native_acceptance == 'true'
         env:
           TRACE_VERSION: ${{ needs.build.outputs.version }}
         run: |
           node scripts/measure-portable-startup.cjs --exe "release/TRACE-Boardviewer-$env:TRACE_VERSION.exe" --staggers 0,2,10,40 --attempts 20 --second-instance 20 --label fixed --out portable-startup-measurement.json --max-total-sec 3000
           if ($LASTEXITCODE -ne 0) { throw "Startup measurement could not be carried out (exit $LASTEXITCODE = infrastructure failure; a measurement has no verdict)." }
       - name: Show startup measurement summary
-        if: always()
+        if: always() && needs.build.outputs.native_acceptance == 'true'
         run: |
           if (-not (Test-Path -LiteralPath portable-startup-measurement.json -PathType Leaf)) { Write-Host 'No measurement file was produced.' } else {
             node -e "const m = require('./scripts/measure-portable-startup.cjs'); console.log(m.formatSummary(require('./portable-startup-measurement.json')));" | Tee-Object -FilePath portable-startup-measurement.txt
             (@('### Portable startup measurement (fixed build; measurement only, never a gate)', '', '```text') + (Get-Content -LiteralPath portable-startup-measurement.txt) + @('```')) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
           }
       - name: Upload startup measurement
-        if: always()
+        if: always() && needs.build.outputs.native_acceptance == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: portable-startup-measurement-${{ needs.build.outputs.version }}
@@ -460,6 +505,7 @@ jobs:
     outputs:
       version: ${{ steps.metadata.outputs.version }}
       artifact_name: ${{ steps.metadata.outputs.artifact_name }}
+      native_acceptance: ${{ steps.metadata.outputs.native_acceptance }}
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -483,6 +529,7 @@ jobs:
         env:
           TRACE_REF: ${{ github.ref }}
           TRACE_TAG: ${{ github.ref_name }}
+          TRACE_EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           version="$(node -p "require('./package.json').version")"
@@ -491,8 +538,22 @@ jobs:
           if [[ "$TRACE_REF" == refs/tags/* && "$TRACE_TAG" != "v$version" ]]; then echo 'Release tag must match the version in package.json.' >&2; exit 1; fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "artifact_name=TRACE-Boardviewer-$version-mac-$TRACE_ARCH" >> "$GITHUB_OUTPUT"
+          native_acceptance=true
+          if [[ "$version" == '1.3.1' && "$TRACE_EVENT_NAME" == 'push' ]]; then
+            native_acceptance=false
+            printf '%s\n' '### Native runtime acceptance deferred' '' 'The 1.3.1 automatic push builds and statically checks all three platform packages; packaged runtime acceptance is scheduled after publication.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "native_acceptance=$native_acceptance" >> "$GITHUB_OUTPUT"
       - name: Run the static macOS packaging checks
         run: node --test tests/mac-config-checks.cjs
+      - name: Check packaged functional QA runner contracts
+        run: node --test tests/packaged-functional-qa-checks.cjs tests/packaged-bug-report-checks.cjs tests/release-before-native-workflow-checks.cjs
+      - name: Run TypeScript checks
+        run: pnpm exec tsc --noEmit
+      - name: Run parser and geometry tests
+        run: pnpm exec vitest run --maxWorkers=3
+      - name: Run desktop boundary and persistence tests
+        run: pnpm test:desktop
       - name: Build the renderer
         run: pnpm run build
       - name: Build the unsigned macOS app
@@ -524,13 +585,49 @@ jobs:
           # 1 means this shell is translated (Rosetta). The smoke script asks the app process itself.
           sysctl -n sysctl.proc_translated || echo "sysctl.proc_translated is not available on this host"
       - name: Run the packaged-app smoke test
+        if: steps.metadata.outputs.native_acceptance == 'true'
         timeout-minutes: 20
         env:
           TRACE_APP: ${{ steps.locate.outputs.app }}
           TRACE_ZIP: ${{ steps.locate.outputs.zip }}
         run: node scripts/mac-smoke.cjs --app "$TRACE_APP" --arch "$TRACE_ARCH" --commit "$TRACE_COMMIT" --artifact "$TRACE_ZIP" --out "test-results/mac/mac-smoke-evidence-$TRACE_ARCH.json"
+      - name: Extract the checksummed macOS ZIP for packaged functional QA
+        env:
+          TRACE_ZIP: ${{ steps.locate.outputs.zip }}
+        run: |
+          set -euo pipefail
+          mkdir -p test-results/mac/functional-package
+          ditto -x -k "$TRACE_ZIP" test-results/mac/functional-package
+          app="test-results/mac/functional-package/TRACE Boardviewer.app"
+          test -x "$app/Contents/MacOS/TRACE Boardviewer"
+          test -f "$app/Contents/Resources/app.asar"
+          echo "TRACE_FUNCTIONAL_APP=$PWD/$app" >> "$GITHUB_ENV"
+          (cd "$(dirname "$TRACE_ZIP")" && shasum -a 256 -c "$(basename "$TRACE_ZIP").sha256")
+      - name: Inspect configured Electron fuse bytes in the checksummed macOS ZIP
+        env:
+          TRACE_FUNCTIONAL_APP: ${{ env.TRACE_FUNCTIONAL_APP }}
+        run: |
+          node -e 'require("./scripts/packaged-functional-qa.cjs").inspectFuses(process.argv[1]).then(() => console.log("Configured fuse bytes match the executable extracted from the checksummed macOS ZIP.")).catch(() => { console.error("Configured fuse bytes do not match the executable extracted from the checksummed macOS ZIP."); process.exitCode = 1; })' "$TRACE_FUNCTIONAL_APP/Contents/MacOS/TRACE Boardviewer"
+      - name: Run packaged functional QA against the extracted ZIP payload
+        if: steps.metadata.outputs.native_acceptance == 'true'
+        timeout-minutes: 20
+        env:
+          TRACE_VERSION: ${{ steps.metadata.outputs.version }}
+          TRACE_ZIP: ${{ steps.locate.outputs.zip }}
+        run: |
+          set -euo pipefail
+          zip="$PWD/$TRACE_ZIP"
+          node scripts/packaged-functional-qa.cjs \
+            "--executable=$TRACE_FUNCTIONAL_APP/Contents/MacOS/TRACE Boardviewer" \
+            "--asar=$TRACE_FUNCTIONAL_APP/Contents/Resources/app.asar" \
+            "--artifact=$zip" "--checksum=$zip.sha256" \
+            "--version=$TRACE_VERSION" --os=darwin --arch=arm64 \
+            --out="$PWD/test-results/mac/packaged-functional-arm64.json"
+      - name: Validate macOS packaged functional QA evidence manifest
+        if: always() && steps.metadata.outputs.native_acceptance == 'true'
+        run: node scripts/validate-packaged-functional-evidence.cjs --report test-results/mac/packaged-functional-arm64.json --screenshots test-results/mac/packaged-functional-arm64-screenshots
       - name: Show macOS smoke summary
-        if: always()
+        if: always() && steps.metadata.outputs.native_acceptance == 'true'
         run: |
           evidence="test-results/mac/mac-smoke-evidence-$TRACE_ARCH.json"
           if [ -f "$evidence" ]; then
@@ -594,14 +691,26 @@ jobs:
           compression-level: 0
           retention-days: 14
       - name: Upload macOS smoke evidence
-        if: always()
+        if: always() && steps.metadata.outputs.native_acceptance == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: mac-smoke-evidence-${{ steps.metadata.outputs.version }}
-          path: test-results/mac/*.json
-          if-no-files-found: warn
+          path: |
+            test-results/mac/*.json
+            test-results/mac/packaged-functional-arm64-screenshots/*.png
+          if-no-files-found: error
           retention-days: 14
           overwrite: true
+      - name: Upload macOS packaged functional QA evidence
+        if: always() && steps.metadata.outputs.native_acceptance == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: packaged-functional-qa-evidence-${{ steps.metadata.outputs.version }}-mac-arm64
+          path: |
+            test-results/mac/packaged-functional-arm64.json
+            test-results/mac/packaged-functional-arm64-screenshots/*.png
+          if-no-files-found: error
+          retention-days: 14
 
   linux:
     # Experimental Linux build: an x86-64 .deb and AppImage (static AppImage runtime) built on an Ubuntu 24.04 runner. The job runs
@@ -624,6 +733,7 @@ jobs:
     outputs:
       version: ${{ steps.metadata.outputs.version }}
       artifact_name: ${{ steps.metadata.outputs.artifact_name }}
+      native_acceptance: ${{ steps.metadata.outputs.native_acceptance }}
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -647,6 +757,7 @@ jobs:
         env:
           TRACE_REF: ${{ github.ref }}
           TRACE_TAG: ${{ github.ref_name }}
+          TRACE_EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           version="$(node -p "require('./package.json').version")"
@@ -655,8 +766,16 @@ jobs:
           if [[ "$TRACE_REF" == refs/tags/* && "$TRACE_TAG" != "v$version" ]]; then echo 'Release tag must match the version in package.json.' >&2; exit 1; fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "artifact_name=TRACE-Boardviewer-$version-linux-$TRACE_ARCH" >> "$GITHUB_OUTPUT"
+          native_acceptance=true
+          if [[ "$version" == '1.3.1' && "$TRACE_EVENT_NAME" == 'push' ]]; then
+            native_acceptance=false
+            printf '%s\n' '### Native runtime acceptance deferred' '' 'The 1.3.1 automatic push builds and statically checks all three platform packages; packaged runtime acceptance is scheduled after publication.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "native_acceptance=$native_acceptance" >> "$GITHUB_OUTPUT"
       - name: Run the static Linux packaging checks
         run: node --test tests/linux-config-checks.cjs tests/linux-workflow-checks.cjs
+      - name: Check packaged functional QA runner contracts
+        run: node --test tests/packaged-functional-qa-checks.cjs tests/packaged-bug-report-checks.cjs tests/release-before-native-workflow-checks.cjs
       - name: Run parser and geometry tests
         run: pnpm test
       - name: Run desktop boundary and persistence tests
@@ -718,7 +837,7 @@ jobs:
           TRACE_UNPACKED: ${{ steps.locate.outputs.unpacked }}
         run: node scripts/linux-smoke.cjs static --appimage "$TRACE_APPIMAGE" --deb "$TRACE_DEB" --unpacked "$TRACE_UNPACKED" --arch "$TRACE_ARCH" --out test-results/linux/linux-static.json
       - name: Smoke-test the .deb under the stock user-namespace restriction (S1, sandbox on through its AppArmor profile)
-        if: "!cancelled() && steps.locate.outcome == 'success'"
+        if: "!cancelled() && steps.locate.outcome == 'success' && steps.metadata.outputs.native_acceptance == 'true'"
         timeout-minutes: 10
         env:
           TRACE_DEB: ${{ steps.locate.outputs.deb }}
@@ -729,8 +848,46 @@ jobs:
           test -f /etc/apparmor.d/trace-boardviewer
           sudo cat /sys/kernel/security/apparmor/profiles | grep -F 'trace-boardviewer (unconfined)'
           xvfb-run -a -s '-screen 0 1600x1000x24' node scripts/linux-smoke.cjs run --scenario S1 --target installed --arch "$TRACE_ARCH" --userns restricted --expect-sandbox on --expect-gate no --out test-results/linux/smoke-S1-deb-restricted.json
+      - name: Run packaged functional QA against the installed DEB under S1 sandbox policy
+        if: "!cancelled() && steps.locate.outcome == 'success' && steps.metadata.outputs.native_acceptance == 'true'"
+        timeout-minutes: 20
+        env:
+          TRACE_VERSION: ${{ steps.metadata.outputs.version }}
+          TRACE_DEB: ${{ steps.locate.outputs.deb }}
+        run: |
+          set -euo pipefail
+          test "$TRACE_ARCH" = x64
+          deb="$PWD/$TRACE_DEB"
+          test -x "/opt/TRACE Boardviewer/trace-boardviewer"
+          test -f "/opt/TRACE Boardviewer/resources/app.asar"
+          xvfb-run -a -s '-screen 0 1600x1000x24' node scripts/packaged-functional-qa.cjs \
+            --executable="/opt/TRACE Boardviewer/trace-boardviewer" \
+            --asar="/opt/TRACE Boardviewer/resources/app.asar" \
+            "--artifact=$deb" "--checksum=$deb.sha256" \
+            "--version=$TRACE_VERSION" --os=linux --arch=x64 \
+            --out="$PWD/test-results/linux/packaged-functional-x64.json"
+      - name: Show packaged functional QA summary
+        if: always() && steps.metadata.outputs.native_acceptance == 'true'
+        run: |
+          evidence='test-results/linux/packaged-functional-x64.json'
+          if [ ! -f "$evidence" ]; then echo 'Packaged functional QA evidence is missing.' >> "$GITHUB_STEP_SUMMARY"; exit 1; fi
+          node -e 'const e=require(process.argv[1]); console.log(["### Packaged functional QA", "", "- verdict: "+e.status, "- source: "+e.sourceSha, "- runtime: "+JSON.stringify(e.runtime), "- artifact: "+e.artifact.name+" ("+e.artifact.bytes+" bytes, SHA-256 "+e.artifact.sha256+")", "- ASAR SHA-256: "+e.artifact.asarSha256, "- checks: "+e.steps.filter(x=>x.status==="pass").length+" passed / "+e.steps.filter(x=>x.status==="fail").length+" failed", "- network attempts: "+e.networkAttempts.length, "- normal quit/restart: "+e.normalQuit, "- Linux package linkage: linux-smoke S0 proves this DEB, the AppImage and unpacked output have identical app.asar bytes"].join("\n"))' "$PWD/$evidence" >> "$GITHUB_STEP_SUMMARY"
+          test "$(node -p "require('./$evidence').status")" = pass
+      - name: Validate Linux DEB packaged functional QA evidence manifest
+        if: always() && steps.metadata.outputs.native_acceptance == 'true'
+        run: node scripts/validate-packaged-functional-evidence.cjs --report test-results/linux/packaged-functional-x64.json --screenshots test-results/linux/packaged-functional-x64-screenshots
+      - name: Upload packaged functional QA evidence
+        if: always() && steps.metadata.outputs.native_acceptance == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: packaged-functional-qa-${{ steps.metadata.outputs.version }}-linux-x64
+          path: |
+            test-results/linux/packaged-functional-x64.json
+            test-results/linux/packaged-functional-x64-screenshots/*.png
+          if-no-files-found: error
+          retention-days: 14
       - name: Smoke-test the AppImage under the stock restriction (S2, no sandbox, the consent dialog is answered)
-        if: "!cancelled() && steps.locate.outcome == 'success'"
+        if: "!cancelled() && steps.locate.outcome == 'success' && steps.metadata.outputs.native_acceptance == 'true'"
         timeout-minutes: 10
         env:
           TRACE_APPIMAGE: ${{ steps.locate.outputs.appimage }}
@@ -739,22 +896,56 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=1
           xvfb-run -a -s '-screen 0 1600x1000x24' node scripts/linux-smoke.cjs run --scenario S2 --target appimage --appimage "$TRACE_APPIMAGE" --arch "$TRACE_ARCH" --userns restricted --expect-sandbox off --expect-gate yes --out test-results/linux/smoke-S2-appimage-restricted.json
       - name: Allow unprivileged user namespaces (the default of Fedora, Debian, Arch and older Ubuntu releases)
-        if: "!cancelled() && steps.locate.outcome == 'success'"
+        if: "!cancelled() && steps.locate.outcome == 'success' && steps.metadata.outputs.native_acceptance == 'true'"
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Smoke-test the AppImage with user namespaces allowed (S3, sandbox on)
-        if: "!cancelled() && steps.locate.outcome == 'success'"
+        if: "!cancelled() && steps.locate.outcome == 'success' && steps.metadata.outputs.native_acceptance == 'true'"
         timeout-minutes: 10
         env:
           TRACE_APPIMAGE: ${{ steps.locate.outputs.appimage }}
         run: xvfb-run -a -s '-screen 0 1600x1000x24' node scripts/linux-smoke.cjs run --scenario S3 --target appimage --appimage "$TRACE_APPIMAGE" --arch "$TRACE_ARCH" --userns allowed --expect-sandbox on --expect-gate no --out test-results/linux/smoke-S3-appimage-userns.json
+      - name: Run packaged functional QA against the AppImage under S3 sandbox policy
+        if: "!cancelled() && steps.locate.outcome == 'success' && steps.metadata.outputs.native_acceptance == 'true'"
+        timeout-minutes: 20
+        env:
+          TRACE_VERSION: ${{ steps.metadata.outputs.version }}
+          TRACE_APPIMAGE: ${{ steps.locate.outputs.appimage }}
+          TRACE_UNPACKED: ${{ steps.locate.outputs.unpacked }}
+        run: |
+          set -euo pipefail
+          image="$PWD/$TRACE_APPIMAGE"
+          asar="$PWD/$TRACE_UNPACKED/resources/app.asar"
+          xvfb-run -a -s '-screen 0 1600x1000x24' node scripts/packaged-functional-qa.cjs \
+            "--executable=$image" "--asar=$asar" \
+            "--artifact=$image" "--checksum=$image.sha256" \
+            "--version=$TRACE_VERSION" --os=linux --arch=x64 \
+            --out="$PWD/test-results/linux/packaged-functional-appimage-x64.json"
+      - name: Verify and upload AppImage functional evidence
+        if: always() && steps.metadata.outputs.native_acceptance == 'true'
+        run: |
+          set -euo pipefail
+          evidence='test-results/linux/packaged-functional-appimage-x64.json'
+          test -f "$evidence"
+          node scripts/validate-packaged-functional-evidence.cjs --report "$evidence" --screenshots test-results/linux/packaged-functional-appimage-x64-screenshots
+          node -e 'const e=require(process.argv[1]); if(!e.artifact?.payloadLinkage?.fuses?.observed) throw new Error("AppImage fuse evidence is missing"); console.log("AppImage functional QA has artifact-linked fuse evidence.")' "$PWD/$evidence"
+      - name: Upload AppImage packaged functional QA evidence
+        if: always() && steps.metadata.outputs.native_acceptance == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: packaged-functional-qa-appimage-${{ steps.metadata.outputs.version }}-linux-x64
+          path: |
+            test-results/linux/packaged-functional-appimage-x64.json
+            test-results/linux/packaged-functional-appimage-x64-screenshots/*.png
+          if-no-files-found: error
+          retention-days: 14
       - name: Smoke-test the unpacked app with user namespaces allowed (S4, sandbox on)
-        if: "!cancelled() && steps.locate.outcome == 'success'"
+        if: "!cancelled() && steps.locate.outcome == 'success' && steps.metadata.outputs.native_acceptance == 'true'"
         timeout-minutes: 10
         env:
           TRACE_UNPACKED: ${{ steps.locate.outputs.unpacked }}
         run: xvfb-run -a -s '-screen 0 1600x1000x24' node scripts/linux-smoke.cjs run --scenario S4 --target unpacked --unpacked "$TRACE_UNPACKED" --arch "$TRACE_ARCH" --userns allowed --expect-sandbox on --expect-gate no --out test-results/linux/smoke-S4-unpacked-userns.json
       - name: Show Linux smoke summary
-        if: always()
+        if: always() && steps.metadata.outputs.native_acceptance == 'true'
         run: node scripts/linux-smoke.cjs summary --dir test-results/linux >> "$GITHUB_STEP_SUMMARY" || echo 'No Linux smoke summary could be written.' >> "$GITHUB_STEP_SUMMARY"
       - name: Scan the packages for private names and paths
         # The release must carry nothing from the build machine. Every text file of the unpacked app, of the extracted AppImage and
@@ -825,7 +1016,7 @@ jobs:
           compression-level: 0
           retention-days: 14
       - name: Upload Linux smoke evidence
-        if: always()
+        if: always() && steps.metadata.outputs.native_acceptance == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: linux-smoke-evidence-${{ steps.metadata.outputs.version }}
@@ -838,7 +1029,7 @@ jobs:
       - name: Stop leftover app processes
         # The smoke script kills what it started; this catches anything a cancelled or timed-out step left behind (app
         # processes and AppImage mounts), so the runner can finish the job cleanly.
-        if: always()
+        if: always() && steps.metadata.outputs.native_acceptance == 'true'
         run: |
           appProcesses='(/opt/TRACE Boardviewer|linux-unpacked|/\.mount_[^/ ]*|/appimage_extracted_[^/ ]*)/trace-boardviewer( |$)|\.AppImage( |$)'
           pgrep -a -f -- "$appProcesses" || echo 'No leftover app processes.'
@@ -887,6 +1078,7 @@ jobs:
           $traceZip = Join-Path release "TRACE-Boardviewer-$env:TRACE_VERSION-mac-arm64.zip"
           $traceAppImage = Join-Path release "TRACE-Boardviewer-$env:TRACE_VERSION-linux-x86_64.AppImage"
           $traceDeb = Join-Path release "TRACE-Boardviewer-$env:TRACE_VERSION-linux-amd64.deb"
+          $traceLinuxValidationNote = if ($env:TRACE_VERSION -eq '1.3.1') { 'Native validation for 1.3.1 is scheduled after publication.' } else { 'The Linux builds are tested automatically on Ubuntu 24.04 only.' }
           $traceAssets = @()
           foreach ($traceFile in @($traceExe, $traceZip, $traceAppImage, $traceDeb)) {
             $traceChecksum = "$traceFile.sha256"
@@ -917,7 +1109,7 @@ jobs:
             and start TRACE Boardviewer from the application menu. On Ubuntu it adds an AppArmor profile so that the Chromium sandbox stays on.
           - TRACE-Boardviewer-${env:TRACE_VERSION}-linux-x86_64.AppImage (+ .sha256): experimental portable Linux x86-64 build for other distributions. Make it executable (chmod +x) and run it; nothing is installed. On Ubuntu 23.10 and newer the system blocks the Chromium sandbox for AppImages, so TRACE asks before it starts without it: use the .deb there.
 
-          The Linux builds are tested automatically on Ubuntu 24.04 only.
+          $traceLinuxValidationNote
 
           User board files are not included.
 

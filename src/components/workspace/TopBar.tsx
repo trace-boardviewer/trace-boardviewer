@@ -22,7 +22,7 @@ export interface TopBarProps {
   activeTab: WorkspaceTab; splitEnabled: boolean; documentCount: number; schematicCount: number;
   focusLayout: boolean; leftOpen: boolean; rightOpen: boolean; maximized: boolean; desktop: TraceDesktop | undefined;
   onTab(tab: WorkspaceTab): void; onSplit(): void; onOpen(): void; onHome(): void; onToggleFocus(): void; onSettings(focus?: string): void; onPanels(which: 'left' | 'right'): void;
-  /** Opens the GitHub bug report form in the system browser. */
+  /** Opens the local in-app bug report form. */
   onReportBug(): void;
   /** Opens the skippable support dialog (the heart button). */
   onSupport(): void;

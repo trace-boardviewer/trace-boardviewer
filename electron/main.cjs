@@ -14,6 +14,7 @@ const diagnostics = require('./diagnostics.cjs');
 const updates = require('./updates.cjs');
 const support = require('./support.cjs');
 const { createEgress, createElectronFetch } = require('./net/egress.cjs');
+const bugReports = require('./bug-reports.cjs');
 const { createJsonStore, createByteBudget, readBounded, hasStreamSeparator, renameWithRetry } = require('./store.cjs');
 const readingsFormat = require('./readings.cjs');
 const { createRepairStore } = require('./repair-store.cjs');
@@ -33,14 +34,12 @@ const MAX_READ_CANDIDATES = 64;
 const DEFAULT_SETTINGS = Object.freeze({
   theme: 'dark', layout: 'workshop', motion: true, showLabels: true, showConnections: true, updateCheck: true,
 });
-// Support notice (shown on every start, see src/components/SupportNotice.tsx) and the heart button of the top bar. The links (Stripe, Ko-fi, the GitHub bug
-// report form and the support page of the project website) live HERE and nowhere else in the desktop app: the renderer sends an id over
-// 'trace:open-support-link', never a URL, and only these four ids are ever opened.
-// The bug report form is an address of the one repository slug (electron/repository.json, read through updates.cjs).
+// Support notice (shown on every start, see src/components/SupportNotice.tsx) and the heart button of the top bar. The links (Stripe, Ko-fi and
+// the support page of the project website) live HERE and nowhere else in the desktop app: the renderer sends an id over
+// 'trace:open-support-link', never a URL, and only these three ids are ever opened. Bug reports stay inside the app.
 const SUPPORT_LINKS = Object.freeze({
   stripe: 'https://donate.stripe.com/7sYaEZeET2op8PxaGE5EY00',
   kofi: 'https://ko-fi.com/tracerboardview',
-  bug: `https://github.com/${updates.REPOSITORY}/issues/new?template=bug_report.yml`,
   support: 'https://trace-boardviewer.github.io/support.html',
 });
 // Update notification (see electron/updates.cjs and src/components/UpdateNotice.tsx): the renderer asks 'trace:check-for-updates' and gets a bare result; it never
@@ -68,6 +67,7 @@ function getEgress() {
     });
     layer.register(updates.FEATURE);
     layer.register(support.FEATURE);
+    if (bugReports.CONFIG.enabled === true) layer.register(bugReports.FEATURE);
     egress = layer;
   }
   return egress;
@@ -99,6 +99,14 @@ let config = { version: 1, settings: { ...DEFAULT_SETTINGS, language: locale }, 
 // One queued atomic store for the settings, the notes and the workspaces: a single shutdown gate
 // (B01) covers every write.
 let store = null;
+let bugReportService = null;
+function getBugReportService() {
+  if (!bugReportService) bugReportService = bugReports.createBugReportService({
+    store: getStore(), egress: getEgress(), getVersion: () => app.getVersion(), platform: process.platform,
+    arch: process.arch, locale: () => locale,
+  });
+  return bugReportService;
+}
 // The readings of every board family (electron/repair-store.cjs): its own queue, closed by the same quit sequence.
 let repairStore = null;
 const readBudget = createByteBudget(MAX_INFLIGHT_READ_BYTES);
@@ -940,6 +948,14 @@ function installIpc() {
   // Format diagnostic report: the first takes no argument (main opens the dialog), the second only the report object, which is validated again here.
   handle('trace:diagnostic-pick', () => pickDiagnosticFile());
   handle('trace:diagnostic-save', (report) => saveDiagnosticReport(report));
+  // Bug reports are prepared and sent by the main process. The renderer can name only a short-lived handle;
+  // it cannot provide a URL, request body, headers, report id or app metadata.
+  handle('trace:bug-report-prepare', (request) => getBugReportService().prepare(request));
+  handle('trace:bug-report-send', (request) => getBugReportService().send(request));
+  handle('trace:bug-report-cancel', (request) => getBugReportService().cancel(request));
+  handle('trace:bug-report-draft-get', () => getBugReportService().getDraft());
+  handle('trace:bug-report-draft-save', (request) => getBugReportService().saveDraft(request));
+  handle('trace:bug-report-draft-discard', () => getBugReportService().discardDraft());
   // Readings (repair store): families are named by their 64-hex id; every event is validated natively before it is written.
   handle('trace:list-readings-families', () => getRepairStore().list());
   handle('trace:read-readings', (familyId, options) => getRepairStore().read(familyId, readingsReadOptions(options)));
@@ -951,8 +967,10 @@ function installIpc() {
     if (typeof id !== 'string' || !Object.hasOwn(SUPPORT_LINKS, id)) throw new Error('Unknown support link.');
     let url = SUPPORT_LINKS[id];
     if (id === 'stripe') {
-      const reference = await getSupportService().prepare();
-      if (reference.available) url += '?client_reference_id=' + reference.code;
+      try {
+        const reference = await getSupportService().prepare();
+        if (reference?.available === true && typeof reference.code === 'string' && /^[a-f0-9]{32}$/.test(reference.code)) url += '?client_reference_id=' + reference.code;
+      } catch { /* The fixed Stripe page still opens when local reference storage is unavailable. */ }
     }
     await openExternalUrl(url);
   });
@@ -1089,6 +1107,9 @@ function createWindow() {
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   mainWindow.webContents.on('will-navigate', (event, url) => { if (!isTrustedUrl(url)) event.preventDefault(); });
   mainWindow.webContents.on('will-redirect', (event, url) => { if (!isTrustedUrl(url)) event.preventDefault(); });
+  mainWindow.webContents.on('did-start-navigation', (_event, _url, _inPlace, isMainFrame) => {
+    if (isMainFrame) bugReportService?.invalidateWindow();
+  });
   mainWindow.webContents.on('will-attach-webview', (event) => event.preventDefault());
   mainWindow.on('maximize', () => mainWindow.webContents.send('trace:maximized', true));
   mainWindow.on('unmaximize', () => mainWindow.webContents.send('trace:maximized', false));
@@ -1151,6 +1172,7 @@ function createWindow() {
   });
   window.on('closed', () => {
     clearTimeout(fallbackShow);
+    bugReportService?.invalidateWindow();
     if (mainWindow === window) { mainWindow = null; rendererReady = false; }
   });
   void loadPage();
@@ -1258,6 +1280,7 @@ if (!singleInstance) {
     // promise resolves after every write accepted before that moment has been committed. Without a live renderer
     // the store closes at once, in this very turn.
     const closeStore = () => Promise.allSettled([
+      bugReportService ? bugReportService.beginShutdown() : Promise.resolve(),
       store ? store.beginShutdown() : Promise.resolve(), repairStore ? repairStore.beginShutdown() : Promise.resolve(), ...exportsInFlight,
     ]);
     shutdown ??= (rendererFlushable(mainWindow) ? flushForClose(mainWindow).then(closeStore) : closeStore())

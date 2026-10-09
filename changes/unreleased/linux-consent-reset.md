@@ -1,0 +1,1 @@
+Corrected the Linux guide's sandbox-warning reset steps to match the consent setting stored in the profile's `config.json`, and clarified that the AppImage smoke checks the packaged consent dialog and remembered choice.

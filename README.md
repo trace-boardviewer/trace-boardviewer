@@ -4,7 +4,7 @@
 
 <h1 align="center">TRACE Boardviewer</h1>
 
-<h2 align="center"><a href="https://github.com/trace-boardviewer/trace-boardviewer/releases/tag/v1.3.1-rc.2">Download 1.3.1-rc.2 · current test release</a></h2>
+<h2 align="center"><a href="https://github.com/trace-boardviewer/trace-boardviewer/releases/tag/v1.3.1">Download TRACE Boardviewer 1.3.1</a></h2>
 
 <p align="center"><strong>Free, open-source boardviewer for electronics repair.</strong><br>
 Open a boardview or PCB file (KiCad, EAGLE, selected Allegro/Altium layouts and more) next to its schematic and PDF datasheets, offline and without an account.</p>
@@ -12,15 +12,15 @@ Open a boardview or PCB file (KiCad, EAGLE, selected Allegro/Altium layouts and 
 <p align="center"><a href="https://trace-boardviewer.github.io/"><strong>Website · 1-minute demo · guides</strong></a></p>
 
 <p align="center">
-  <a href="https://github.com/trace-boardviewer/trace-boardviewer/releases/tag/v1.3.1-rc.2"><img src="docs/readme/download-windows.svg" width="248" height="56" alt="Download for Windows, test version"></a>
-  <a href="https://github.com/trace-boardviewer/trace-boardviewer/releases/tag/v1.3.1-rc.2"><img src="docs/readme/download-apple-silicon.svg" width="248" height="56" alt="Download for macOS, experimental test version"></a>
-  <a href="https://github.com/trace-boardviewer/trace-boardviewer/releases/tag/v1.3.1-rc.2"><img src="docs/readme/download-linux.svg" width="248" height="56" alt="Download for Linux, experimental test version"></a>
+  <a href="https://github.com/trace-boardviewer/trace-boardviewer/releases/tag/v1.3.1"><img src="docs/readme/download-windows.svg" width="248" height="56" alt="Download for Windows"></a>
+  <a href="https://github.com/trace-boardviewer/trace-boardviewer/releases/tag/v1.3.1"><img src="docs/readme/download-apple-silicon.svg" width="248" height="56" alt="Download for macOS, experimental"></a>
+  <a href="https://github.com/trace-boardviewer/trace-boardviewer/releases/tag/v1.3.1"><img src="docs/readme/download-linux.svg" width="248" height="56" alt="Download for Linux, experimental"></a>
   <a href="https://donate.stripe.com/7sYaEZeET2op8PxaGE5EY00"><img src="docs/readme/support.svg" width="248" height="56" alt="Support TRACE"></a>
 </p>
 
 <p align="center">Thank you for trying TRACE and sharing your feedback. Special thanks to everyone who uses the app and supports its development. Support is always optional.</p>
 
-**Quick compatibility · 1.3.1-rc.2 (test version)**
+**Quick compatibility · 1.3.1**
 
 | | What you can use | Scope or reason |
 | --- | --- | --- |
@@ -33,14 +33,14 @@ Open a boardview or PCB file (KiCad, EAGLE, selected Allegro/Altium layouts and 
 | ✗ | Native PADS SDB, BRD_V1.0, VS2 listings, Gerber as a complete board | Recognized with an explanation; the complete electrical model or format mapping is missing or unverified. Request a readable export. |
 | ✗ | Every dialect, unavailable encryption keys, PCB editing or copper routing | This is a viewer for documented layouts. Key entry is skippable; unsupported files never lock the app. |
 
-Windows x64, macOS Apple silicon and Linux x86-64 share these features; macOS/Linux packages are experimental. [Full file types and exact limits](docs/SUPPORT.md).
+Windows x64, macOS Apple silicon and Linux x86-64 share these features; macOS/Linux packages are experimental. Native validation for 1.3.1 is scheduled after publication. [Full file types and exact limits](docs/SUPPORT.md).
 
 <p align="center">Free and open source (MIT) · no account, no telemetry · 
 <a href="https://ko-fi.com/tracerboardview">Ko-fi</a> · 
 <a href="https://github.com/trace-boardviewer/trace-boardviewer/issues/new?template=bug_report.yml">Report a bug</a> · 
 <a href="docs/SUPPORT.md">Supported formats</a></p>
 
-<p align="center"><strong>Test version 1.3.1-rc.2.</strong> The downloads above point to the prerelease. The app's update check still offers stable releases only. See the <a href="CHANGELOG.md">full changes and release history</a>.</p>
+<p align="center"><strong>TRACE Boardviewer 1.3.1 is the current stable release.</strong> The optional update check offers stable releases and never downloads or installs an update. See the <a href="CHANGELOG.md">full changes and release history</a>.</p>
 
 <p align="center">Open a board next to its schematic and datasheets, find a net or a part across all of them, keep your repair notes with the board, and work without an account or a connection.</p>
 
@@ -66,14 +66,14 @@ At start TRACE can ask GitHub once whether a newer stable release exists and sho
 
 - **More board formats:** native Allegro BRD, Jet BV, BV2, Unisoft F2B, Mentor Neutral, Tebo ICT pairs and Fabmaster FARC/FAZ; ODB++ models, IPC-2581, IPC-D-356, EasyEDA Standard/Pro, HyperLynx, Fabmaster FATF and CSV/TSV pin lists. Validation and geometry limits differ by reader; the [generated table](docs/SUPPORT.md) gives the exact scope.
 - **Schematics and scanned documents:** Altium SchDoc joins KiCad and EAGLE schematics. Bundled English OCR makes scanned PDF pages searchable offline, with confidence marks, progress and Cancel.
-- **Faster, cancellable work:** background search, a shared board index, GenCAD/KiCad import progress, a parser watchdog and memory-only ZIP board/companion opening. Fixed extensionless companion files have an all-files chooser option.
-- **Reliable notes and viewing:** stable component/pin identities, backups during migration, visible unresolved notes, consistent part classification, schematic counterpart selection and corrected sheet fitting.
-- **Optional support and networking:** hourly reminders and the heart remain skippable; provider-confirmed support hides both for a calendar year, including offline use. FZ/CAE tries published default format keys; other key entry has Skip and never activates or unlocks the application.
+- **Faster, cancellable work:** background search, a shared board index, GenCAD/KiCad import progress, a parser watchdog and memory-only ZIP board/companion opening. Previous-query results cannot be selected while a newer search is loading. Fixed extensionless companion files have an all-files chooser option.
+- **Reliable notes and viewing:** stable component/pin identities, backups during migration, visible unresolved notes, consistent part classification, schematic counterpart selection and corrected sheet fitting. Older BDV/ASC notes remain unresolved if shortened headers make their target uncertain; a note RC2 already attached to the wrong target cannot be safely repaired automatically.
+- **Optional support and networking:** hourly reminders and the heart remain skippable; Retry keeps keyboard focus available and announces progress; provider-confirmed support hides both for a calendar year, including offline use. Damaged local receipt storage is reported and left intact, with Try again after storage is restored; Stripe remains available if local reference setup fails. FZ/CAE tries published default format keys; other key entry has Skip and never activates or unlocks the application.
 - **Safer imports and clearer failures:** expanded classic boardview variants, bounded malformed-input handling, strict counts/checksums, local content-free format diagnostics and specific explanations for unsupported PADS, BRD_V1.0, VS2 and layer variants.
 
 The [complete changelog](CHANGELOG.md) includes every improvement and fix since 1.3.0, with Windows, macOS and Linux limits and the developer foundations that have no dedicated interface yet.
 
-**Found a bug?** Thank you for testing and for telling us. Use the Report a bug button in the top bar of the app (or in the support notice at start), or open the [bug report form](https://github.com/trace-boardviewer/trace-boardviewer/issues/new?template=bug_report.yml) directly. Please do not attach proprietary or customer boardview files.
+**Found a bug?** Thank you for testing and for telling us. Choose **Report a bug** in the app to describe the issue and optionally include a minimal technical summary. Review the exact preview, edit it, or cancel; nothing is sent until you choose **Send**. Reports go from the app to a separate receiver, with no GitHub account required. Saving a draft is optional; drafts and retry records expire after seven days, and expired local records are removed on the next report access. Failed or uncertain reports are never sent again automatically; retry is manual and reuses the same report. There are no attachments. A local helper can flag some paths and token-like text, but it cannot catch everything and removes text only when you explicitly choose to remove it. You can also open GitHub's [issue form manually](https://github.com/trace-boardviewer/trace-boardviewer/issues/new?template=bug_report.yml). Please do not include proprietary or customer boardview details.
 
 ## Run the portable app
 
@@ -83,11 +83,11 @@ Open a board file with **Open** (or the localized equivalent) or drag it into th
 
 The portable launcher extracts its runtime (about 500 MB) into a private temporary folder of its own for every launch (`%TEMP%\nsXXXX.tmp\app`; while the instance runs that folder holds about 1.1 GB in total, because the launcher keeps the packed archive and a second extracted copy next to the runtime) and removes it on normal exit, so several running instances — and a second launch that hands a board to a running instance — never touch each other's runtime. If a launch is killed (for example with Task Manager) or crashes, its folder may stay behind in `%TEMP%`; delete it by hand once no TRACE process is running. A 0-byte `%TEMP%\trace-boardviewer-portable-init.lock` is shared by all launches (it serializes their start-up for a few milliseconds) and can stay; it is safe to delete when no TRACE launch is starting. Settings, recent files and notes are stored separately in `%APPDATA%\TRACE Boardviewer`. Notes are associated with the board file's content hash, so renaming the board keeps its notes. Board files are read without modification. No board data is uploaded; the app works offline.
 
-Release builds target Windows x64, Linux x86-64 and macOS Apple silicon. The macOS build is an experimental download (`TRACE-Boardviewer-<version>-mac-arm64.zip`): it is unsigned (ad-hoc signed, not notarized), so macOS blocks a downloaded copy until you allow it once. Move `TRACE Boardviewer.app` to Applications, run `xattr -dr com.apple.quarantine "/Applications/TRACE Boardviewer.app"` in Terminal and open the app normally; this removes only the download quarantine flag of that copy (on macOS 15 and newer, System Settings > Privacy & Security > Open Anyway also works when it is offered). It was validated on an Apple M3; Intel Macs and a universal build are not packaged or tested (see [docs/MAC_VALIDATION.md](docs/MAC_VALIDATION.md)).
+Release builds target Windows x64, Linux x86-64 and macOS Apple silicon. The macOS build is an experimental download (`TRACE-Boardviewer-<version>-mac-arm64.zip`): it is unsigned (ad-hoc signed, not notarized), so macOS blocks a downloaded copy until you allow it once. Move `TRACE Boardviewer.app` to Applications, run `xattr -dr com.apple.quarantine "/Applications/TRACE Boardviewer.app"` in Terminal and open the app normally; this removes only the download quarantine flag of that copy (on macOS 15 and newer, System Settings > Privacy & Security > Open Anyway also works when it is offered). An earlier build was validated on an Apple M3; native validation for 1.3.1 is scheduled after publication. Intel Macs and a universal build are not packaged or tested (see [docs/MAC_VALIDATION.md](docs/MAC_VALIDATION.md)).
 
 ## Run on Linux (experimental)
 
-Each release from 1.3.0 on carries two packages of the same x86-64 build. They are built and smoke-tested automatically on Ubuntu 24.04 (GitHub Actions, virtual X display); they have not been tested on a desktop Linux machine yet, and other distributions, desktop environments and Wayland sessions are not tested either. Neither package is signed: check it against the `.sha256` file next to it (`sha256sum -c <file>.sha256`).
+Each release from 1.3.0 on carries two packages of the same x86-64 build. They are built automatically on Ubuntu 24.04; native validation for 1.3.1 is scheduled after publication. Linux packages have not been tested on a desktop Linux machine, and other distributions, desktop environments and Wayland sessions are not tested either. Neither package is signed: check it against the `.sha256` file next to it (`sha256sum -c <file>.sha256`).
 
 - **Ubuntu 24.04 or newer, Debian 12 or newer: `TRACE-Boardviewer-<version>-linux-amd64.deb` (recommended).** Install it with `sudo apt install ./TRACE-Boardviewer-<version>-linux-amd64.deb` and start TRACE Boardviewer from the application menu (or run `trace-boardviewer`). The package installs to `/opt/TRACE Boardviewer`. On systems with AppArmor 4, such as Ubuntu 24.04, it also installs the profile `/etc/apparmor.d/trace-boardviewer`, which lets Chromium's sandbox use user namespaces under Ubuntu's restriction. Remove it with `sudo apt remove trace-boardviewer`; your settings and notes stay.
 - **Other distributions: `TRACE-Boardviewer-<version>-linux-x86_64.AppImage` (portable, nothing is installed).** Make it executable (`chmod +x`) and run it. Its static AppImage runtime needs no libfuse2. Where unprivileged user namespaces are allowed (Fedora, Debian, Arch and openSUSE by default) Chromium's sandbox works as usual. Ubuntu 23.10 and newer restrict them, so there the AppImage can only run without the sandbox; TRACE then asks before it starts that way (Quit is the default, and "Do not ask again" remembers a yes). Use the `.deb` on Ubuntu.
@@ -112,6 +112,7 @@ Known limits: the window icon on GNOME under Wayland comes from an installed des
 - Per-component notes, recent boards and persistent appearance settings.
 - Skippable support reminders at startup and once per hour during use; they wait for imports and other dialogs. A provider-confirmed Stripe or Ko-fi payment hides both the reminder and heart for one calendar year, including offline use. Verification sends only a random support code and is optional. Key entry can also be skipped.
 - **Format diagnostic report:** analyze an unreadable board locally from Help, review counts and format facts, and save or copy the report yourself. No file content or key is included, and nothing is uploaded.
+- **In-app bug reports:** review the exact report before sending it to a separate receiver. Drafts and retries stay on your device; sending and retrying always require your action.
 - Workshop and Focus layouts and dark/light/system themes.
 - Interface in Hungarian, English, German, French, Italian, Slovak, Polish and Ukrainian, with instant switching (the technician-workspace features added in 1.2.0 are still English in every language; see [Languages](#languages)).
 - Rendering optimizations for dense nets and large boards.
@@ -286,7 +287,7 @@ pnpm qa:localization --packaged
 Real-board UI and performance checks are optional local tools. Supply your own board outside the repository with `TRACE_TEST_BOARD` or `--board=<absolute-path>`. The UI scenario expects `AC1`, `AC15`, `U1`, `VU13` and `AGND_AUD`; adapt the script if your board differs.
 
 ```powershell
-$env:TRACE_TEST_BOARD = 'path/to/reference-board.cad'
+$env:TRACE_TEST_BOARD = 'C:\boards\reference-board.cad'
 pnpm qa:browser
 pnpm qa:electron
 pnpm package:dir

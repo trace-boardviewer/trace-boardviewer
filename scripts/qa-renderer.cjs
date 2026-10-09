@@ -4,6 +4,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const assert = require('node:assert/strict');
+const { createHash } = require('node:crypto');
 const { chromium } = require(process.env.TRACE_PLAYWRIGHT_PATH || 'playwright');
 const ROOT = path.resolve(__dirname, '..');
 const OUT = path.join(ROOT, 'test-results');
@@ -67,14 +68,18 @@ SIGNAL OTHER
 NODE R3 2
 $ENDSIGNALS
 `;
-const payloads = {
-  A: { name: 'Renderer-A.cad', path: 'C:/qa/Renderer-A.cad', text: fixture, key: 'c'.repeat(64) },
-  B: { name: 'Renderer-B.cad', path: 'C:/qa/Renderer-B.cad', text: fixture.replaceAll('R1', 'X1').replaceAll('R2', 'X2').replaceAll('R3', 'X3').replace('RECTANGLE 0 0 40 30', 'RECTANGLE 0 0 80 40'), key: 'd'.repeat(64) },
+const boardPayload = (name, text) => {
+  const data = Buffer.from(text, 'utf8');
+  return { name, path: `qa://${name}`, dataBase64: data.toString('base64'), key: createHash('sha256').update(data).digest('hex') };
 };
-const report = { startedAt: new Date().toISOString(), url: URL, fixture: 'Synthetic GENCAD: 3 components, 6 real round pads, 3 nets', checks: [] };
+const payloads = {
+  A: boardPayload('Renderer-A.gcd', fixture),
+  B: boardPayload('Renderer-B.gcd', fixture.replaceAll('R1', 'X1').replaceAll('R2', 'X2').replaceAll('R3', 'X3').replace('RECTANGLE 0 0 40 30', 'RECTANGLE 0 0 80 40')),
+};
+const report = { startedAt: new Date().toISOString(), runtime: (process.env.TRACE_BROWSER_CHANNEL || 'Chromium') + ' / Playwright', url: URL, fixture: 'Synthetic GENCAD: 3 components, 6 real round pads, 3 nets', checks: [] };
 
 async function turn(page) { await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))); }
-async function open(browser) {
+async function open(browser, supportOnly = false) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 960 } });
   const page = await context.newPage();
   const errors = [];
@@ -82,23 +87,33 @@ async function open(browser) {
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
   await page.addInitScript(payloads => {
     const listeners = new Set();
-    window.__rendererQA = { board: null, deliver: key => listeners.forEach(listener => listener(payloads[key])) };
+    const filePayload = payload => ({ name: payload.name, path: payload.path, data: Uint8Array.from(atob(payload.dataBase64), char => char.charCodeAt(0)), key: payload.key });
+    window.__rendererQA = { board: null, initialBoardCalls: 0, workerMessages: [], payloadBytes: atob(payloads.A.dataBase64).length, deliver: key => listeners.forEach(listener => listener(filePayload(payloads[key]))) };
     const NativeWorker = window.Worker;
     window.Worker = class extends NativeWorker {
-      constructor(...args) { super(...args); this.addEventListener('message', event => { if (event.data?.board) window.__rendererQA.board = event.data.board; }); }
+      constructor(...args) { super(...args); this.addEventListener('message', event => { window.__rendererQA.workerMessages.push(event.data); if (event.data?.board) window.__rendererQA.board = event.data.board; }); }
     };
     window.traceDesktop = {
-      openBoard: async () => null, readBoard: async () => null, acceptBoard: async () => {}, initialBoard: async () => payloads.A,
+      openBoard: async () => null, readBoard: async () => null, acceptBoard: async () => {}, initialBoard: async () => { window.__rendererQA.initialBoardCalls++; return filePayload(payloads.A); },
       recentBoards: async () => [], getSettings: async () => ({ language: 'hu', theme: 'dark', layout: 'workshop', motion: false, showLabels: true, showConnections: true }),
       saveSettings: async () => {}, getNotes: async () => [], saveNotes: async () => {}, minimize() {}, maximize() {}, close() {},
       isMaximized: async () => false, onMaximized: () => () => {}, droppedFilePath: () => '',
       onOpenBoard(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     };
   }, payloads);
-  await page.goto(URL, { waitUntil: 'networkidle' });
-  await page.locator('.statusbar').waitFor();
-  await page.waitForFunction(() => window.__rendererQA.board?.name === 'Renderer-A');
-  await turn(page);
+  if (supportOnly) await page.goto(`${URL}/tests/fixtures/support-verification-qa.html`, { waitUntil: 'networkidle' });
+  else {
+    await page.goto(URL, { waitUntil: 'networkidle' });
+    const supportNotice = page.getByTestId('support-notice');
+    if (await supportNotice.count()) await page.getByTestId('support-not-now').click();
+    try { await page.waitForFunction(() => window.__rendererQA.board?.name === 'Renderer-A', null, { timeout: 10000 }); }
+    catch (error) {
+      const state = await page.evaluate(() => ({ title: document.title, body: document.body.innerText, board: window.__rendererQA.board, initialBoardCalls: window.__rendererQA.initialBoardCalls, payloadBytes: window.__rendererQA.payloadBytes, workerMessages: window.__rendererQA.workerMessages.map(message => ({ keys: Object.keys(message ?? {}), error: message?.error, formatError: message?.formatError, progress: message?.progress, format: message?.board?.format })) }));
+      throw new Error(`${error.message}; initial fixture never became ready: ${JSON.stringify(state)}; browser errors: ${errors.join(' | ')}`);
+    }
+    await page.locator('[data-testid="status-coords"]').waitFor();
+    await turn(page);
+  }
   return { context, page, errors };
 }
 async function model(page, rotation = 0, mirrored = false) {
@@ -136,8 +151,8 @@ async function baseHash(page) {
     return hash >>> 0;
   });
 }
-async function run(browser, name, work) {
-  const instance = await open(browser);
+async function run(browser, name, work, supportOnly = false) {
+  const instance = await open(browser, supportOnly);
   const start = Date.now();
   try {
     const details = await work(instance.page);
@@ -156,10 +171,133 @@ async function run(browser, name, work) {
   await fs.mkdir(OUT, { recursive: true });
   const browser = await chromium.launch({ channel: process.env.TRACE_BROWSER_CHANNEL || undefined, headless: true });
   try {
+    if (process.env.TRACE_QA_SUPPORT_RETRY === '1') {
+      await run(browser, 'Support verification retry keeps focus and announces recovery', async page => {
+        await page.evaluate(async () => {
+          window.traceDesktop = {};
+          let call = 0;
+          window.__supportPrepareCount = () => call;
+          window.traceDesktop.prepareSupport = () => call++ === 0
+            ? Promise.resolve({ status: 'unavailable', expiresAt: null, available: true, code: '' })
+            : new Promise(resolve => { window.__resolveSupport = resolve; });
+          const [reactModule, reactDomModule, { default: SupportVerification }, { createTranslator }] = await Promise.all([
+            import('/node_modules/.vite/deps/react.js'), import('/node_modules/.vite/deps/react-dom_client.js'), import('/src/components/SupportVerification.tsx'), import('/src/lib/i18n.ts'),
+          ]);
+          window.__supportReact = reactModule.default ?? reactModule;
+          const createRoot = reactDomModule.createRoot ?? reactDomModule.default?.createRoot;
+          window.__createSupportRoot = createRoot;
+          const host = document.createElement('div');
+          host.id = 'support-retry-test';
+          document.body.append(host);
+          window.__supportRoot = createRoot(host);
+          window.__supportRoot.render(window.__supportReact.createElement(SupportVerification, { t: createTranslator('en') }));
+        });
+        const retry = page.getByTestId('support-retry');
+        await retry.waitFor();
+        assert.match(await page.getByRole('status').innerText(), /Payment verification is unavailable/);
+        assert.equal(await page.getByTestId('support-verification').getByRole('status').count(), 1, 'stable verification wrapper scopes the live status');
+        assert.equal(await page.getByTestId('support-verification').getByTestId('support-verification-controls').count(), 1, 'stable verification wrapper contains its busy controls');
+        assert.equal(await page.getByRole('status').evaluate(status => status.closest('[aria-busy="true"]')), null, 'live status stays outside every busy subtree');
+        await retry.focus();
+        await page.evaluate(() => {
+          const button = document.querySelector('[data-testid="support-retry"]');
+          button.click(); button.click();
+        });
+        await page.waitForFunction(() => document.querySelector('[data-testid="support-retry"]')?.getAttribute('aria-disabled') === 'true');
+        assert.equal(await page.evaluate(() => window.__supportPrepareCount()), 2, 'same-turn repeated activation starts only one retry preparation');
+        assert.equal(await page.getByTestId('support-retry').count(), 1, 'Retry remains focused and present during preparation');
+        assert.equal(await page.getByTestId('support-retry').evaluate(button => document.activeElement === button), true);
+        assert.equal(await page.getByTestId('support-verification-controls').getAttribute('aria-busy'), 'true');
+        assert.match(await page.getByRole('status').innerText(), /Retrying payment verification/);
+        assert.equal(await page.getByRole('status').evaluate(status => status.closest('[aria-busy="true"]')), null, 'pending announcement has no busy ancestor');
+        await page.keyboard.press('Enter');
+        await page.keyboard.press('Enter');
+        assert.equal(await page.evaluate(() => window.__supportPrepareCount()), 2, 'repeated Enter activation does not restart preparation');
+        await page.evaluate(() => window.__resolveSupport({ status: 'inactive', expiresAt: null, available: true, code: 'a'.repeat(32) }));
+        await page.getByTestId('support-verify').waitFor();
+        assert.equal(await page.getByTestId('support-verify').evaluate(button => document.activeElement === button), true, 'focus moves to the next useful action after recovery');
+
+        await page.evaluate(async () => {
+          window.__supportRoot.unmount();
+          const host = document.createElement('div');
+          host.id = 'support-retry-test-again';
+          document.body.append(host);
+          window.__supportRoot = window.__createSupportRoot(host);
+          let call = 0;
+          window.traceDesktop.prepareSupport = () => call++ === 0
+            ? Promise.resolve({ status: 'unavailable', expiresAt: null, available: true, code: '' })
+            : new Promise(resolve => { window.__resolveSupport = resolve; });
+          const { default: SupportVerification } = await import('/src/components/SupportVerification.tsx');
+          window.__supportRoot.render(window.__supportReact.createElement(SupportVerification, { t: (key) => key }));
+          const elsewhere = document.createElement('button');
+          elsewhere.textContent = 'Unrelated action';
+          elsewhere.id = 'unrelated-focus';
+          document.body.append(elsewhere);
+        });
+        const retryAgain = page.getByTestId('support-retry');
+        await retryAgain.waitFor();
+        await retryAgain.focus();
+        await page.keyboard.press('Enter');
+        await page.waitForFunction(() => document.querySelector('[data-testid="support-retry"]')?.getAttribute('aria-disabled') === 'true');
+        await page.locator('#unrelated-focus').focus();
+        await page.evaluate(() => window.__resolveSupport({ status: 'inactive', expiresAt: null, available: true, code: 'b'.repeat(32) }));
+        await page.getByTestId('support-verify').waitFor();
+        assert.equal(await page.locator('#unrelated-focus').evaluate(button => document.activeElement === button), true, 'recovery does not steal focus from an action the user chose');
+
+        await page.evaluate(async () => {
+          window.__supportRoot.unmount();
+          const host = document.createElement('div');
+          document.body.append(host);
+          window.__supportRoot = window.__createSupportRoot(host);
+          let call = 0;
+          window.traceDesktop.prepareSupport = () => call++ === 0
+            ? Promise.resolve({ status: 'unavailable', expiresAt: null, available: true, code: '' })
+            : new Promise(resolve => { window.__resolveSupport = resolve; });
+          window.__closed = 0;
+          const [{ SupportDialog }, { createTranslator }] = await Promise.all([
+            import('/src/components/SupportNotice.tsx'), import('/src/lib/i18n.ts'),
+          ]);
+          window.__supportRoot.render(window.__supportReact.createElement(SupportDialog, {
+            t: createTranslator('en'), open: async () => true,
+            onClose: () => { window.__closed++; window.__supportRoot.unmount(); },
+          }));
+        });
+        await page.getByTestId('support-retry').waitFor();
+        await page.getByTestId('support-retry').focus();
+        await page.keyboard.press('Enter');
+        await page.waitForFunction(() => document.querySelector('[data-testid="support-retry"]')?.getAttribute('aria-disabled') === 'true');
+        await page.getByTestId('support-not-now').click();
+        assert.equal(await page.evaluate(() => !document.querySelector('[data-testid="support-notice"]')?.open), true, 'Not now closes during a pending retry');
+        assert.equal(await page.evaluate(() => window.__closed), 1);
+
+        await page.evaluate(async () => {
+          const host = document.createElement('div');
+          document.body.append(host);
+          window.__supportRoot = window.__createSupportRoot(host);
+          let call = 0;
+          window.traceDesktop.prepareSupport = () => call++ === 0
+            ? Promise.resolve({ status: 'unavailable', expiresAt: null, available: true, code: '' })
+            : new Promise(resolve => { window.__resolveSupport = resolve; });
+          const { SupportDialog } = await import('/src/components/SupportNotice.tsx');
+          window.__supportRoot.render(window.__supportReact.createElement(SupportDialog, {
+            t: (key) => key, open: async () => true,
+            onClose: () => { window.__closed++; window.__supportRoot.unmount(); },
+          }));
+        });
+        await page.getByTestId('support-retry').waitFor();
+        await page.getByTestId('support-retry').focus();
+        await page.keyboard.press('Enter');
+        await page.waitForFunction(() => document.querySelector('[data-testid="support-retry"]')?.getAttribute('aria-disabled') === 'true');
+        await page.keyboard.press('Escape');
+        assert.equal(await page.evaluate(() => !document.querySelector('[data-testid="support-notice"]')?.open), true, 'Escape closes during a pending retry');
+        assert.equal(await page.evaluate(() => window.__closed), 2);
+        return { retryFocusableWhileBusy: true, busyAndResultAnnounced: true, pendingStatusOutsideBusy: true, rapidAndEnterRetriesDeduplicated: true, recoveryFocus: 'Verify', unrelatedFocusPreserved: true, notNowAndEscapeCloseWhileBusy: true };
+      }, true);
+    } else {
     await run(browser, 'Quarter rotation bottom mirror and anchored zoom preserve pad geometry', async page => {
       const state = await model(page, 90, true);
-      await page.getByRole('button', { name: 'Forgatás 90°-kal', exact: true }).click();
-      await page.getByRole('button', { name: 'Alsó', exact: true }).click();
+      await page.keyboard.press('r');
+      await page.getByTestId('side-bottom').click();
       await turn(page);
       const pin = state.board.pins.find(pin => pin.componentId === 'R3' && pin.number === '1');
       const anchor = await project(page, pin, state);
@@ -185,13 +323,13 @@ async function run(browser, name, work) {
       const points = [];
       for (const component of ['R1', 'R2']) points.push(await project(page, state.board.pins.find(pin => pin.componentId === component && pin.number === '1'), state));
       const before = await baseHash(page);
-      await page.getByRole('button', { name: 'Távolságmérés', exact: true }).click();
+      await page.getByTestId('measure-tool').click();
       for (const point of points) await page.mouse.click(state.rect.x + point.x, state.rect.y + point.y);
       await turn(page);
       assert.match(await page.locator('.mode-pill').innerText(), /22,36 mm/);
       assert.equal(await baseHash(page), before, 'Measurement should never modify the cached board image');
-      await page.getByRole('button', { name: 'Forgatás 90°-kal', exact: true }).click();
-      await page.getByRole('button', { name: 'Alsó', exact: true }).click(); await turn(page);
+      await page.keyboard.press('r');
+      await page.getByTestId('side-bottom').click(); await turn(page);
       assert.match(await page.locator('.mode-pill').innerText(), /22,36 mm/);
       return { distanceMm: Math.sqrt(500), beforeHash: before, measurement: await page.locator('.mode-pill').innerText() };
     });
@@ -255,11 +393,11 @@ async function run(browser, name, work) {
       return { activeDragCleared: true };
     });
     await run(browser, 'New board clears measurements hover and net caches', async page => {
-      await page.getByRole('textbox', { name: 'Alkatrész keresése', exact: true }).fill('R1');
-      await page.locator('.component-row').filter({ has: page.locator('.component-ref', { hasText: /^R1$/ }) }).click();
-      await page.locator('.pin-row').filter({ hasText: 'GND' }).click(); await turn(page);
+      await page.getByTestId('search-input').fill('R1');
+      await page.locator('[data-testid="search-row"][data-source="board-components"]').filter({ has: page.locator('.component-ref', { hasText: /^R1$/ }) }).click();
+      await page.locator('[data-testid="pin-row"]').filter({ hasText: 'GND' }).click(); await turn(page);
       assert.equal(await page.locator('.net-title strong').innerText(), 'GND');
-      await page.getByRole('button', { name: 'Távolságmérés', exact: true }).click();
+      await page.getByTestId('measure-tool').click();
       const box = await page.locator('canvas.board-canvas').boundingBox();
       await page.mouse.click(box.x + box.width * 0.3, box.y + box.height * 0.35);
       await page.mouse.click(box.x + box.width * 0.6, box.y + box.height * 0.6); await turn(page);
@@ -274,6 +412,7 @@ async function run(browser, name, work) {
       assert.ok(await padVisible(page, await project(page, pin, state)) > 0, 'New board pads must use the new fitted view and cache');
       return { board: state.board.name, selectedNetCleared: true, measurementCleared: true };
     });
+    }
   } finally { await browser.close(); }
   report.finishedAt = new Date().toISOString();
   report.passed = report.checks.every(check => check.passed);

@@ -14,5 +14,7 @@
   "support.referenceHint": "For Ko-fi, copy this code into your payment message. Stripe includes it automatically. After paying, return here to verify and hide support reminders for one year.",
   "support.verify": "Verify payment",
   "support.pending": "Payment confirmation has not arrived yet. You can skip this and check again later.",
-  "support.unavailable": "Payment verification is unavailable. You can skip this and try again later."
+  "support.unavailable": "Payment verification is unavailable. You can skip this and try again later.",
+  "support.retry": "Try again",
+  "support.retrying": "Retrying payment verification…"
 }

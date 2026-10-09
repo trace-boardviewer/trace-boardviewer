@@ -1,6 +1,6 @@
 {
   "name": "trace-boardviewer",
-  "version": "1.3.1-rc.2",
+  "version": "1.3.1",
   "private": true,
   "type": "module",
   "description": "Free, offline boardviewer and repair workspace for boards, schematics and PDFs",
@@ -18,9 +18,10 @@
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
     "test:types": "tsc --noEmit -p tests/tsconfig.json",
+    "test:bug-report-main": "node --test tests/bug-report-main-checks.cjs",
     "fuzz": "node scripts/fuzz-parsers.cjs",
     "fuzz:long": "node scripts/fuzz-parsers.cjs --mode long --minutes 30 --save",
-    "test:desktop": "node --test tests/desktop-checks.cjs tests/store-checks.cjs tests/workspace-checks.cjs tests/portable-config-checks.cjs tests/portable-isolation-checks.cjs tests/payload-manifest-checks.cjs tests/portable-startup-measurement-checks.cjs tests/release-version-checks.cjs tests/support-verification-checks.cjs",
+    "test:desktop": "node --test tests/desktop-checks.cjs tests/store-checks.cjs tests/workspace-checks.cjs tests/portable-config-checks.cjs tests/portable-isolation-checks.cjs tests/payload-manifest-checks.cjs tests/portable-startup-measurement-checks.cjs tests/release-version-checks.cjs tests/support-verification-checks.cjs tests/stable-update-regression-checks.cjs tests/stable-support-regressions.cjs tests/stable-lifecycle-regressions.cjs tests/packaged-functional-qa-checks.cjs tests/packaged-functional-imports-checks.cjs tests/packaged-functional-workspaces-checks.cjs tests/packaged-functional-support-updates-checks.cjs tests/packaged-viewers-fixture-contract-checks.cjs tests/mac-config-checks.cjs tests/linux-config-checks.cjs tests/linux-workflow-checks.cjs",
     "qa:browser": "node scripts/qa-smoke.cjs --browser",
     "qa:electron": "node scripts/qa-smoke.cjs --electron",
     "qa:packaged": "node scripts/qa-smoke.cjs --packaged",
@@ -74,6 +75,7 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "shared/bug-report-contract.cjs",
       "package.json",
       "assets/**/*",
       "LICENSE",

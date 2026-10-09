@@ -232,7 +232,7 @@ const MEASUREMENT_FIELDS = ['voltage', 'resistance', 'other'] as const;
 
 /** Same list as NOTE_PROBLEMS in electron/workspace.cjs (and the NoteProblem union in types.ts). */
 const NOTE_PROBLEMS: readonly NoteProblem[] = Object.freeze([
-  'component-missing', 'component-ambiguous', 'pin-missing', 'pin-ambiguous', 'legacy-id-missing', 'legacy-indistinguishable', 'duplicate-target',
+  'component-missing', 'component-ambiguous', 'pin-missing', 'pin-ambiguous', 'legacy-id-missing', 'legacy-indistinguishable', 'legacy-order-unknown', 'duplicate-target',
 ] as const);
 
 /** A reference or pin number as a key holds it: NFKC and trim, 1 to 256 characters (null when it is none). */

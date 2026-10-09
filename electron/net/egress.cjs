@@ -9,7 +9,7 @@
  * What a registered feature gets, and what it can never change:
  *  - https only, an exact host allow-list (no wildcards, no IP literals, no ports, no credentials in the URL, no fragment, no query unless the
  *    feature says so), optionally an exact path or path prefix allow-list; the URL must already be in its normalized form;
- *  - methods GET and HEAD only, never a request body; the request headers are the feature's fixed ones plus a fixed Accept-Language (en) and the
+ *  - methods GET and HEAD have no request body; a separately action-gated POST may send only bounded canonical JSON. The request headers are the feature's fixed ones plus a fixed Accept-Language (en) and the
  *    fixed User-Agent TRACE-Boardviewer/<version>; no caller-supplied header, no cookie, no authorization, no referrer (credentials 'omit');
  *  - redirects are refused (redirect 'error', and a response that reports a redirect, a 3xx redirect status or another URL is refused too);
  *  - a response size cap and a time cap for the whole exchange, body included (the deadline also wins against a fetch that ignores the abort
@@ -56,7 +56,7 @@ const CLEANUP_GRACE_MS = 250;
  */
 const ERROR_CLASSES = Object.freeze([
   'disabled', 'not-registered', 'invalid-url', 'scheme', 'host', 'path', 'method', 'busy', 'not-allowed',
-  'redirect', 'too-large', 'timeout', 'network', 'bad-response', 'storage', 'hash-mismatch',
+  'redirect', 'too-large', 'timeout', 'cancelled', 'http-status', 'network', 'bad-response', 'storage', 'hash-mismatch',
 ]);
 
 const FEATURE_ID = /^[a-z][a-z0-9-]{1,47}$/;
@@ -73,7 +73,7 @@ const RESPONSE_HEADER = /^[a-z][a-z0-9-]{0,63}$/;
 const REDIRECT_STATUSES = new Set([300, 301, 302, 303, 305, 307, 308]);
 const KNOWN_FIELDS = new Set([
   'id', 'hosts', 'methods', 'paths', 'pathPrefixes', 'allowQuery', 'maxBytes', 'timeoutMs', 'maxInFlight', 'headers', 'responseHeaders',
-  'bodyStatuses', 'optIn', 'redirect', 'download',
+  'bodyStatuses', 'acceptedStatuses', 'requestBody', 'requiresUserAction', 'optIn', 'redirect', 'download',
 ]);
 
 const invalid = (message) => new TypeError(`Invalid network feature: ${message}`); // Developer-facing; a registration error is a programming error.
@@ -102,7 +102,26 @@ function normalizeFeature(descriptor) {
   for (const key of Object.keys(descriptor)) if (!KNOWN_FIELDS.has(key)) throw invalid(`unknown field "${key}".`);
   if (typeof descriptor.id !== 'string' || !FEATURE_ID.test(descriptor.id)) throw invalid('id must be lowercase letters, digits and hyphens.');
   const hosts = stringList(descriptor.hosts, 'hosts', HOSTNAME, { min: 1, max: 8, lower: true });
-  const methods = stringList(descriptor.methods ?? ['GET'], 'methods', /^(?:GET|HEAD)$/, { min: 1, max: 2 }); // No other method, and no request body, exists in this layer.
+  const methods = stringList(descriptor.methods ?? ['GET'], 'methods', /^(?:GET|HEAD|POST)$/, { min: 1, max: 3 });
+  let requestBody = null;
+  if (descriptor.requestBody !== undefined) {
+    const value = descriptor.requestBody;
+    if (!value || typeof value !== 'object' || Array.isArray(value) || value.contentType !== 'application/json' ||
+        Object.keys(value).some((key) => key !== 'contentType' && key !== 'maxBytes')) throw invalid('requestBody is a bounded application/json descriptor.');
+    const bodyMax = integerIn(value.maxBytes, 'requestBody.maxBytes', 1, 16384, undefined);
+    if (bodyMax === undefined || methods.length !== 1 || methods[0] !== 'POST') throw invalid('requestBody requires POST as the only method and a maximum of 16384 bytes.');
+    requestBody = Object.freeze({ contentType: value.contentType, maxBytes: bodyMax });
+  }
+  if (methods.includes('POST') !== Boolean(requestBody)) throw invalid('POST requires requestBody and requestBody requires POST.');
+  if (descriptor.requiresUserAction !== undefined && typeof descriptor.requiresUserAction !== 'boolean') throw invalid('requiresUserAction must be a boolean.');
+  const requiresUserAction = descriptor.requiresUserAction === true;
+  if (methods.includes('POST') && !requiresUserAction) throw invalid('POST features must require a user action.');
+  if (descriptor.acceptedStatuses !== undefined && (!Array.isArray(descriptor.acceptedStatuses) || descriptor.acceptedStatuses.length < 1 || descriptor.acceptedStatuses.length > 8 ||
+      descriptor.acceptedStatuses.some((status) => !Number.isInteger(status) || status < 200 || status > 299) || new Set(descriptor.acceptedStatuses).size !== descriptor.acceptedStatuses.length)) {
+    throw invalid('acceptedStatuses must list one to eight distinct 2xx statuses.');
+  }
+  const acceptedStatuses = descriptor.acceptedStatuses === undefined ? null : Object.freeze([...descriptor.acceptedStatuses]);
+  if (methods.includes('POST') && (!acceptedStatuses || acceptedStatuses.some((status) => ![200, 201].includes(status)))) throw invalid('POST accepted statuses must explicitly allow 200 and/or 201 only.');
   const paths = stringList(descriptor.paths, 'paths', /^\/[\x21-\x7e]{0,199}$/, { max: 8 });
   const pathPrefixes = stringList(descriptor.pathPrefixes, 'pathPrefixes', /^\/(?:[\x21-\x7e]{0,198}\/)?$/, { max: 8 });
   for (const entry of [...paths, ...pathPrefixes]) if (/[?#\\]/.test(entry)) throw invalid('a path must not contain ?, # or a backslash.');
@@ -156,7 +175,7 @@ function normalizeFeature(descriptor) {
   }
   return Object.freeze({
     id: descriptor.id, hosts, methods, paths, pathPrefixes, allowQuery: descriptor.allowQuery === true, maxBytes, timeoutMs, maxInFlight,
-    headers: Object.freeze(headers), responseHeaders, bodyStatuses: Object.freeze(bodyStatuses), optIn, download,
+    headers: Object.freeze(headers), responseHeaders, bodyStatuses: Object.freeze(bodyStatuses), acceptedStatuses, requestBody, requiresUserAction, optIn, download,
   });
 }
 
@@ -181,19 +200,22 @@ const failure = (error) => Object.assign(new Error(error), { egressError: error 
  * Reads the body chunk by chunk, never more than maxBytes: a larger declared or streamed size is cancelled and refused. The abort signal cancels
  * a stalled read. Resolves to the number of bytes read; `onChunk` gets every chunk (a Uint8Array) in order.
  */
-async function readLimited(response, maxBytes, signal, onChunk) {
+async function readLimited(response, maxBytes, signal, onChunk, getAbortError = () => 'timeout') {
   const declared = Number(headerValue(response, 'content-length'));
   if (Number.isFinite(declared) && declared > maxBytes) { discard(response); throw failure('too-large'); }
   const body = response.body;
   if (!body || typeof body.getReader !== 'function') throw failure('bad-response');
   const reader = body.getReader();
-  const stop = () => { void reader.cancel().catch(() => {}); };
+  let rejectAbort;
+  const aborted = new Promise((_resolve, reject) => { rejectAbort = reject; });
+  const stop = () => { void reader.cancel().catch(() => {}); rejectAbort(failure(getAbortError())); };
   signal.addEventListener('abort', stop, { once: true });
+  if (signal.aborted) stop();
   let total = 0;
   try {
     for (;;) {
       let step;
-      try { step = await reader.read(); } catch { throw failure(signal.aborted ? 'timeout' : 'network'); }
+      try { step = await Promise.race([reader.read(), aborted]); } catch (error) { if (error && error.egressError) throw error; throw failure(signal.aborted ? getAbortError() : 'network'); }
       const { done, value } = step;
       if (done) break;
       if (!ArrayBuffer.isView(value)) { await reader.cancel().catch(() => {}); throw failure('bad-response'); }
@@ -201,7 +223,7 @@ async function readLimited(response, maxBytes, signal, onChunk) {
       if (total > maxBytes) { await reader.cancel().catch(() => {}); throw failure('too-large'); }
       await onChunk(value);
     }
-    if (signal.aborted) throw failure('timeout');
+    if (signal.aborted) throw failure(getAbortError());
   } finally {
     signal.removeEventListener('abort', stop);
   }
@@ -236,6 +258,41 @@ const loggedFeature = (id) => (typeof id === 'string' && /^[a-z0-9-]{1,48}$/.tes
 const loggedMethod = (method) => (typeof method === 'string' && /^[A-Z]{3,7}$/.test(method) ? method : 'GET');
 function parsedUrl(rawUrl) {
   try { return typeof rawUrl === 'string' && rawUrl.length <= MAX_URL_LENGTH ? new URL(rawUrl) : null; } catch { return null; }
+}
+function isWellFormedUnicode(value) {
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(++index);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return false;
+    } else if (code >= 0xdc00 && code <= 0xdfff) return false;
+  }
+  return true;
+}
+function isCanonicalJson(value) {
+  try {
+    const parsed = JSON.parse(value);
+    if (JSON.stringify(parsed) !== value) return false;
+    const pending = [{ value: parsed, depth: 0 }];
+    let visited = 0;
+    while (pending.length) {
+      const { value: item, depth } = pending.pop();
+      if (++visited > 4096 || depth > 32) return false;
+      if (typeof item === 'string') {
+        if (!isWellFormedUnicode(item)) return false;
+      } else if (item && typeof item === 'object') {
+        for (const [key, child] of Object.entries(item)) {
+          if (!isWellFormedUnicode(key)) return false;
+          pending.push({ value: child, depth: depth + 1 });
+        }
+      }
+    }
+    return true;
+  } catch { return false; }
+}
+function validAbortSignal(value) {
+  return value === undefined || Boolean(value && typeof value === 'object' && typeof value.aborted === 'boolean' &&
+    typeof value.addEventListener === 'function' && typeof value.removeEventListener === 'function');
 }
 /** A caller's limit can only make a feature's limit smaller. */
 const tighten = (limit, wanted) => (Number.isFinite(wanted) && wanted > 0 ? Math.min(limit, Math.ceil(wanted)) : limit);
@@ -292,12 +349,31 @@ function createEgress(options = {}) {
     const feature = typeof featureId === 'string' ? registry.get(featureId) : undefined;
     if (!feature) return { error: 'not-registered' };
     if (userAgent === null) return { error: 'not-allowed' };
+    if (feature.requiresUserAction && callOptions.userAction !== true) return { error: 'not-allowed' };
+    if (!validAbortSignal(callOptions.signal)) return { error: 'not-allowed' };
     if (feature.optIn && !(callOptions.userAction === true && feature.optIn.bypassWithUserAction) && !enabled(feature.optIn.setting)) return { error: 'disabled' };
     if (kind === 'download' && (!feature.download || directory === null)) return { error: 'not-allowed' };
     // An expected digest that is not a lower-case SHA-256 hex string would silently check nothing: refused instead.
     if (callOptions.expectedSha256 !== undefined && !(kind === 'download' && typeof callOptions.expectedSha256 === 'string' && /^[0-9a-f]{64}$/.test(callOptions.expectedSha256))) return { error: 'not-allowed' };
     const method = callOptions.method ?? feature.methods[0];
     if (typeof method !== 'string' || !feature.methods.includes(method)) return { error: 'method', feature };
+    if (feature.requestBody) {
+      const allowedOptions = kind === 'request' ? ['userAction', 'method', 'timeoutMs', 'maxBytes', 'body', 'signal'] : ['userAction', 'method', 'timeoutMs', 'maxBytes'];
+      if (Object.keys(callOptions).some((key) => !allowedOptions.includes(key))) return { error: 'not-allowed', feature, method };
+    }
+    const suppliedBody = Object.prototype.hasOwnProperty.call(callOptions, 'body');
+    if (method === 'GET' || method === 'HEAD' || kind === 'download') {
+      if (suppliedBody) return { error: 'not-allowed', feature, method };
+    }
+    if (method === 'POST') {
+      if (!feature.requestBody || kind !== 'request' || !suppliedBody || typeof callOptions.body !== 'string') return { error: 'not-allowed', feature, method };
+      // String length is a cheap lower bound on UTF-8 bytes. Reject it before Unicode validation or JSON parsing;
+      // then measure the exact encoded size while the input is already known to fit that bound.
+      if (callOptions.body.length > feature.requestBody.maxBytes) return { error: 'too-large', feature, method };
+      if (Buffer.byteLength(callOptions.body, 'utf8') > feature.requestBody.maxBytes) return { error: 'too-large', feature, method };
+      if (!isWellFormedUnicode(callOptions.body) || !isCanonicalJson(callOptions.body)) return { error: 'not-allowed', feature, method };
+    } else if (feature.requestBody && suppliedBody) return { error: 'not-allowed', feature, method };
+    if (kind === 'download' && callOptions.signal !== undefined) return { error: 'not-allowed', feature, method };
     const url = parsedUrl(rawUrl);
     if (!url || url.href !== rawUrl || rawUrl.includes('#') || url.username || url.password || url.port !== '') return { error: 'invalid-url', feature, method };
     if (url.protocol !== 'https:') return { error: 'scheme', feature, method };
@@ -318,7 +394,7 @@ function createEgress(options = {}) {
     if (reported !== undefined && reported !== null && reported !== '') {
       const parsed = parsedUrl(reported);
       if (!parsed) { discard(response); return { error: 'bad-response' }; }
-      if (parsed.protocol !== 'https:' || parsed.hostname !== url.hostname) { discard(response); return { error: 'redirect' }; }
+      if (parsed.protocol !== 'https:' || parsed.hostname !== url.hostname || parsed.href !== url.href) { discard(response); return { error: 'redirect' }; }
     }
     const status = response.status;
     if (!Number.isInteger(status) || status < 100 || status > 599) { discard(response); return { error: 'bad-response' }; }
@@ -326,25 +402,36 @@ function createEgress(options = {}) {
     const headers = {};
     for (const name of feature.responseHeaders) {
       const value = headerValue(response, name);
-      if (typeof value === 'string') headers[name] = value.replace(/[^\x20-\x7e]/g, '').slice(0, MAX_HEADER_VALUE);
+      if (typeof value === 'string') {
+        const safe = value.replace(/[^\x20-\x7e]/g, '').slice(0, MAX_HEADER_VALUE);
+        if (name === 'retry-after' && feature.acceptedStatuses) {
+          if (/^\d{1,10}$/.test(safe)) headers[name] = String(Math.min(3600, Math.max(1, Number(safe))));
+        } else headers[name] = safe;
+      }
     }
     return { status, headers };
   }
 
-  async function runRequest({ feature, url, method }, init, maxBytes, signal) {
+  async function runRequest({ feature, url, method }, init, maxBytes, signal, getAbortError) {
     const response = await fetchImpl(url.href, init);
+    if (signal.aborted) { discard(response); throw failure(getAbortError()); }
     const checked = inspect(response, feature, url);
     if (checked.error) return { ok: false, error: checked.error, status: checked.status };
     const { status, headers } = checked;
+    if (feature.acceptedStatuses && !feature.acceptedStatuses.includes(status)) {
+      discard(response);
+      return { ok: false, error: 'http-status', status, headers };
+    }
     // The body is read only for the statuses the feature has a use for; any other answer releases it unread.
     if (method === 'HEAD' || !feature.bodyStatuses.includes(status)) { discard(response); return { ok: true, status, headers, body: null }; }
     const chunks = [];
-    await readLimited(response, maxBytes, signal, (chunk) => { chunks.push(Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength)); });
+    await readLimited(response, maxBytes, signal, (chunk) => { chunks.push(Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength)); }, getAbortError);
     return { ok: true, status, headers, body: Buffer.concat(chunks) };
   }
 
-  async function runDownload({ feature, url, method }, init, maxBytes, signal, expectedSha256) {
+  async function runDownload({ feature, url, method }, init, maxBytes, signal, expectedSha256, getAbortError) {
     const response = await fetchImpl(url.href, init);
+    if (signal.aborted) { discard(response); throw failure(getAbortError()); }
     const checked = inspect(response, feature, url);
     if (checked.error) return { ok: false, error: checked.error, status: checked.status };
     if (method !== 'GET' || checked.status !== 200) { discard(response); return { ok: false, error: 'bad-response', status: checked.status }; }
@@ -361,11 +448,11 @@ function createEgress(options = {}) {
       try { handle = await fsImpl.open(temporary, 'wx', 0o600); } catch { discard(response); throw failure('storage'); }
       const bytes = await readLimited(response, maxBytes, signal, async (chunk) => {
         try { hash.update(chunk); await writeAll(handle, chunk); } catch { throw failure('storage'); }
-      });
+      }, getAbortError);
       await handle.sync();
       await handle.close();
       handle = null;
-      if (signal.aborted) throw failure('timeout'); // The deadline passed while the file was being flushed: the caller was told "timeout", so nothing is kept.
+      if (signal.aborted) throw failure(getAbortError()); // The deadline passed while the file was being flushed: nothing is kept.
       const sha256 = hash.digest('hex');
       if (expectedSha256 !== undefined && sha256 !== expectedSha256) throw failure('hash-mismatch');
       // The name is the digest and the feature's one extension: nothing from the URL or from the server reaches the file system.
@@ -395,38 +482,60 @@ function createEgress(options = {}) {
     const timeoutMs = tighten(feature.timeoutMs, callOptions.timeoutMs);
     const controller = new AbortController();
     // Exactly these keys: no cookies and no authorization, no referrer, no redirect, only the fixed headers.
+    const headers = { ...feature.headers, 'Accept-Language': ACCEPT_LANGUAGE, 'User-Agent': userAgent };
+    if (method === 'POST') headers['Content-Type'] = feature.requestBody.contentType;
     const init = {
       method,
-      headers: { ...feature.headers, 'Accept-Language': ACCEPT_LANGUAGE, 'User-Agent': userAgent },
+      headers,
       credentials: 'omit',
       redirect: 'error',
       referrer: '',
       referrerPolicy: 'no-referrer',
       signal: controller.signal,
     };
+    if (method === 'POST') init.body = callOptions.body;
     inFlight.set(feature.id, (inFlight.get(feature.id) ?? 0) + 1);
     let timer;
+    let abortError = 'timeout';
     const TIMED_OUT = Symbol('timed out');
-    // The deadline also wins against a fetch that ignores the abort signal.
-    const deadline = new Promise((resolve) => { timer = setTimeout(() => { controller.abort(); resolve(TIMED_OUT); }, timeoutMs); });
+    const CANCELLED = Symbol('cancelled');
+    let resolveAbort;
+    const externalSignal = kind === 'request' ? callOptions.signal : undefined;
+    const externalAbort = () => {
+      abortError = 'cancelled';
+      controller.abort();
+      resolveAbort(CANCELLED);
+    };
+    const cancellation = new Promise((resolve) => { resolveAbort = resolve; });
+    const deadline = new Promise((resolve) => { timer = setTimeout(() => { abortError = 'timeout'; controller.abort(); resolve(TIMED_OUT); }, timeoutMs); });
+    if (externalSignal) {
+      if (externalSignal.aborted) {
+        clearTimeout(timer);
+        inFlight.set(feature.id, Math.max(0, (inFlight.get(feature.id) ?? 1) - 1));
+        closeEntry(entry, started, 'error', { error: 'cancelled' });
+        return { ok: false, error: 'cancelled' };
+      }
+      externalSignal.addEventListener('abort', externalAbort, { once: true });
+    }
     const work = (async () => {
       try {
         const target = { feature, url, method };
-        return kind === 'download' ? await runDownload(target, init, maxBytes, controller.signal, expectedSha256) : await runRequest(target, init, maxBytes, controller.signal);
+        return kind === 'download' ? await runDownload(target, init, maxBytes, controller.signal, expectedSha256, () => abortError) : await runRequest(target, init, maxBytes, controller.signal, () => abortError);
       } catch (error) {
-        return { ok: false, error: error && error.egressError ? error.egressError : controller.signal.aborted ? 'timeout' : 'network' };
+        return { ok: false, error: error && error.egressError ? error.egressError : controller.signal.aborted ? abortError : 'network' };
       }
     })();
     let result;
     try {
-      result = await Promise.race([work, deadline]);
-      if (result === TIMED_OUT) {
+      result = await Promise.race([work, deadline, cancellation]);
+      if (result === TIMED_OUT || result === CANCELLED) {
         // A download that was cut off removes its temporary file before the answer.
         if (kind === 'download') await new Promise((resolve) => { const wait = setTimeout(resolve, CLEANUP_GRACE_MS); work.then(() => { clearTimeout(wait); resolve(); }); });
-        result = { ok: false, error: 'timeout' };
+        result = { ok: false, error: result === CANCELLED ? 'cancelled' : 'timeout' };
       }
     } finally {
       clearTimeout(timer);
+      if (externalSignal) externalSignal.removeEventListener('abort', externalAbort);
       inFlight.set(feature.id, Math.max(0, (inFlight.get(feature.id) ?? 1) - 1));
     }
     if (result.ok) {
@@ -434,7 +543,7 @@ function createEgress(options = {}) {
       return kind === 'download' ? { ok: true, status: result.status, path: result.path, sha256: result.sha256, bytes: result.bytes } : { ok: true, status: result.status, headers: result.headers, body: result.body };
     }
     closeEntry(entry, started, 'error', { status: result.status, error: ERROR_CLASSES.includes(result.error) ? result.error : 'network' });
-    return { ok: false, error: entry.error, ...(Number.isInteger(result.status) ? { status: result.status } : {}) };
+    return { ok: false, error: entry.error, ...(Number.isInteger(result.status) ? { status: result.status } : {}), ...(result.headers ? { headers: result.headers } : {}) };
   }
 
   const api = {
@@ -446,9 +555,10 @@ function createEgress(options = {}) {
       return feature;
     },
     /**
-     * One GET (or HEAD) for a registered feature. Resolves, never rejects, to { ok: true, status, headers, body } (headers: only the feature's
-     * response header allow-list, lower-case; body: a Buffer, or null when the status has no use for it) or { ok: false, error, status? }.
-     * options: { userAction } (true only when the request answers a direct user action), { method }, { timeoutMs, maxBytes } (smaller only).
+     * One request for a registered feature. POST is available only for a bounded application/json descriptor with requiresUserAction; its body
+     * must be canonical JSON text. Resolves, never rejects, to { ok: true, status, headers, body } (headers are allow-listed; body is a Buffer or
+     * null) or { ok: false, error, status?, headers? }. `acceptedStatuses` applies only when configured; otherwise status behavior is unchanged.
+     * options: { userAction, method, timeoutMs, maxBytes, signal, body } with smaller timeout/size limits only.
      */
     request: (featureId, url, callOptions) => execute('request', featureId, url, callOptions),
     /**

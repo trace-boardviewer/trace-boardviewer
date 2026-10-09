@@ -42,5 +42,9 @@
   "network.resultTooLarge": "Risposta troppo grande",
   "network.resultTimeout": "Tempo scaduto",
   "network.resultNetwork": "Errore di rete",
-  "network.resultBadResponse": "Risposta inattesa"
+  "network.resultBadResponse": "Risposta inattesa",
+  "network.bugReport": "Segnalazione di bug",
+  "network.bugReportHint": "La segnalazione viene inviata solo quando selezioni Invia nel modulo.",
+  "network.resultCancelled": "Annullato",
+  "network.resultHttpStatus": "Stato HTTP non accettato: {status}"
 }

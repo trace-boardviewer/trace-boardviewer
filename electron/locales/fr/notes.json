@@ -19,5 +19,6 @@
   "notes.fallbackUnnamedPart": "Le fichier ne donne aucun repère à ce composant ; la note est donc liée à sa position sur la carte.",
   "notes.fallbackUnnamedPin": "Le fichier ne donne aucun numéro à cette broche ; la note est donc liée à sa position sur la carte.",
   "notes.refusePart": "Aucune note ne peut être enregistrée pour ce composant : un autre composant de même repère se trouve exactement à la même position, les deux ne peuvent donc pas être distingués.",
-  "notes.refusePin": "Aucune note ne peut être enregistrée pour cette broche : une autre broche sans numéro se trouve exactement à la même position, les deux ne peuvent donc pas être distinguées."
+  "notes.refusePin": "Aucune note ne peut être enregistrée pour cette broche : une autre broche sans numéro se trouve exactement à la même position, les deux ne peuvent donc pas être distinguées.",
+  "notes.reasonLegacyOrderUnknown": "Cette ancienne note ne peut pas être associée sans risque, car l’ordre des enregistrements a pu changer dans le lecteur."
 }

@@ -14,5 +14,7 @@
   "support.referenceHint": "Ko-fi esetén másold ezt a kódot a fizetés üzenetébe. A Stripe automatikusan megkapja. Fizetés után itt ellenőrizheted; az igazolás egy évre elrejti a támogatási kéréseket.",
   "support.verify": "Fizetés ellenőrzése",
   "support.pending": "A fizetési visszaigazolás még nem érkezett meg. Kihagyhatod, és később újra ellenőrizheted.",
-  "support.unavailable": "A fizetés ellenőrzése most nem érhető el. Kihagyhatod, és később újra próbálhatod."
+  "support.unavailable": "A fizetés ellenőrzése most nem érhető el. Kihagyhatod, és később újra próbálhatod.",
+  "support.retry": "Próbáld újra",
+  "support.retrying": "Fizetés ellenőrzésének újrapróbálása…"
 }

@@ -24,6 +24,7 @@ publish: null
 files:
   - dist/**/*
   - electron/**/*
+  - shared/bug-report-contract.cjs
   - package.json
   - assets/**/*
   - LICENSE

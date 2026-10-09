@@ -42,5 +42,9 @@
   "network.resultTooLarge": "Відповідь завелика",
   "network.resultTimeout": "Перевищено час очікування",
   "network.resultNetwork": "Помилка мережі",
-  "network.resultBadResponse": "Несподівана відповідь"
+  "network.resultBadResponse": "Несподівана відповідь",
+  "network.bugReport": "Звіт про помилку",
+  "network.bugReportHint": "Звіт буде надіслано лише після натискання «Надіслати» у формі.",
+  "network.resultCancelled": "Скасовано",
+  "network.resultHttpStatus": "Неприйнятний статус HTTP: {status}"
 }

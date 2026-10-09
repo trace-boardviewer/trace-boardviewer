@@ -22,6 +22,11 @@ function check(name, ok, detail) {
   console.log(`${ok ? '  ok  ' : ' FAIL '} ${scenario} :: ${name}${detail !== undefined ? `  [${typeof detail === 'string' ? detail : JSON.stringify(detail)}]` : ''}`);
 }
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function dismissStartupSupportNotice(page) {
+  const notice = page.locator('[data-testid="support-notice"]');
+  await notice.waitFor({ state: 'visible', timeout: 2000 }).catch(() => {});
+  if (await notice.count()) await page.locator('[data-testid="support-not-now"]').click();
+}
 
 function findChromium() {
   if (process.env.TRACE_CHROMIUM_PATH) return process.env.TRACE_CHROMIUM_PATH;
@@ -58,7 +63,7 @@ const POLYFILL = () => {
 
 let browser;
 const pageErrors = [];
-async function openPage({ width = 1440, height = 900, theme = 'dark', query = '', url = HARNESS, layout = 'workshop', init } = {}) {
+async function openPage({ width = 1440, height = 900, theme = 'dark', query = '', url = HARNESS, layout = 'workshop', init, dismissStartupSupport = true } = {}) {
   const context = await browser.newContext({ viewport: { width, height }, permissions: ['clipboard-read', 'clipboard-write'] });
   await context.addInitScript(POLYFILL);
   await context.addInitScript(([th, lay]) => localStorage.setItem('trace-settings', JSON.stringify({ language: 'en', theme: th, layout: lay, motion: false, showLabels: true, showConnections: true })), [theme, layout]);
@@ -68,6 +73,7 @@ async function openPage({ width = 1440, height = 900, theme = 'dark', query = ''
   page.on('console', message => { if (message.type() === 'error' && !/favicon|Failed to load resource/.test(message.text())) pageErrors.push(`[${scenario}] console: ${message.text().slice(0, 200)}`); });
   await page.goto(`${url}${url.includes('?') ? '&' : '?'}${query}`);
   await page.waitForSelector('[data-testid=app]', { timeout: 15000 });
+  if (dismissStartupSupport) await dismissStartupSupportNotice(page);
   return page;
 }
 const calls = (page, name) => page.evaluate(n => window.__mock.calls.filter(c => c.name === n).map(c => c.args), name);
@@ -86,6 +92,17 @@ const resultRefs = page => page.$$eval('[data-testid=search-row]', rows => rows.
 
 // ------------------------------------------------------------------------------------------------------------------------------ scenarios
 const scenarios = {
+  async support() {
+    const page = await openPage({ dismissStartupSupport: false });
+    const notice = page.locator('[data-testid="support-notice"]');
+    await notice.waitFor({ state: 'visible', timeout: 10000 });
+    check('startup support reminder is shown and can be skipped', await page.locator('[data-testid="support-not-now"]').isVisible());
+    await page.locator('[data-testid="support-not-now"]').click();
+    await notice.waitFor({ state: 'detached', timeout: 5000 });
+    check('skipping the optional reminder leaves the workspace usable', await page.locator('[data-testid=app]').isVisible());
+    await page.close();
+  },
+
   async tabs() {
     const page = await openPage();
     const tabs = await page.$$eval('[role=tab]', nodes => nodes.map(node => ({ name: node.textContent.replace(/\d+$/, '').trim(), selected: node.getAttribute('aria-selected'), tab: node.tabIndex })));
@@ -466,7 +483,7 @@ const scenarios = {
     const roundTrip = await same(await paneShot(page), changed);
     check('a tab round trip keeps the board view (no reset to fit)', roundTrip.ok, roundTrip.d);
     // "Quit and reopen": a reload with the persisted workspace.
-    await page.reload(); await page.waitForSelector('[data-testid=board-pane] canvas'); await sleep(900);
+    await page.reload(); await page.waitForSelector('[data-testid=board-pane] canvas'); await dismissStartupSupportNotice(page); await sleep(900);
     const reopened = await paneShot(page);
     const restart = await same(reopened, changed);
     check('after a restart the board shows the same view (zoom, centre, rotation, mirrored side; < 0.2% of pixels differ)', restart.ok, restart.d);
@@ -560,6 +577,7 @@ const scenarios = {
     check('Escape closes the panel and focus returns to the invoker', await page.evaluate(() => document.activeElement?.getAttribute('data-testid') === 'open-link-panel'));
     // persisted across a restart (the mock stands in for the manifest; the real store is covered by the Electron e2e)
     await page.reload(); await page.waitForSelector('[data-testid=app]');
+    await dismissStartupSupportNotice(page);
     await page.click('[data-testid=tab-schematic]'); await page.click('[data-testid=open-link-panel]'); await page.waitForSelector('[data-testid=link-dialog][open]');
     check('the remaining alias survives a restart', /\+1V8/.test(await page.textContent('[data-testid=alias-list]')) && !/R99/.test(await page.textContent('[data-testid=alias-list]')));
     await page.close();

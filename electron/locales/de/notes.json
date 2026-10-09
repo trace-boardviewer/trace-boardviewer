@@ -19,5 +19,6 @@
   "notes.fallbackUnnamedPart": "Die Datei gibt diesem Bauteil keinen Bezeichner, daher ist die Notiz an seine Position auf der Platine gebunden.",
   "notes.fallbackUnnamedPin": "Die Datei gibt diesem Pin keine Nummer, daher ist die Notiz an seine Position auf der Platine gebunden.",
   "notes.refusePart": "Für dieses Bauteil kann keine Notiz gespeichert werden: Ein anderes Bauteil mit demselben Bezeichner liegt genau an derselben Position, beide lassen sich nicht unterscheiden.",
-  "notes.refusePin": "Für diesen Pin kann keine Notiz gespeichert werden: Ein anderer Pin ohne Nummer liegt genau an derselben Position, beide lassen sich nicht unterscheiden."
+  "notes.refusePin": "Für diesen Pin kann keine Notiz gespeichert werden: Ein anderer Pin ohne Nummer liegt genau an derselben Position, beide lassen sich nicht unterscheiden.",
+  "notes.reasonLegacyOrderUnknown": "Diese ältere Notiz lässt sich nicht sicher zuordnen, weil der Leser die Datensätze anders sortiert haben könnte."
 }

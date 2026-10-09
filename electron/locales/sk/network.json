@@ -42,5 +42,9 @@
   "network.resultTooLarge": "Odpoveď je príliš veľká",
   "network.resultTimeout": "Časový limit vypršal",
   "network.resultNetwork": "Chyba siete",
-  "network.resultBadResponse": "Neočakávaná odpoveď"
+  "network.resultBadResponse": "Neočakávaná odpoveď",
+  "network.bugReport": "Hlásenie chyby",
+  "network.bugReportHint": "Hlásenie sa odošle iba po stlačení tlačidla Odoslať vo formulári.",
+  "network.resultCancelled": "Zrušené",
+  "network.resultHttpStatus": "Neprijatý stav HTTP: {status}"
 }

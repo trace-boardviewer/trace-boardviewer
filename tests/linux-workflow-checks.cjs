@@ -59,6 +59,8 @@ const smokeStep = (scenario) => {
   return steps[0];
 };
 const PACKAGES_EXIST = "!cancelled() && steps.locate.outcome == 'success'";
+const NATIVE_PACKAGES_EXIST = "!cancelled() && steps.locate.outcome == 'success' && steps.metadata.outputs.native_acceptance == 'true'";
+const NATIVE_ALWAYS = "always() && steps.metadata.outputs.native_acceptance == 'true'";
 const XVFB = "xvfb-run -a -s '-screen 0 1600x1000x24' node scripts/linux-smoke.cjs run ";
 
 // ---- the workflow ------------------------------------------------------------------------------------------
@@ -78,8 +80,9 @@ test('static: the linux job lives in the release workflow, pinned to ubuntu-24.0
   assert.equal(job.defaults.run.shell, 'bash');
   assert.equal(job.env.TRACE_ARCH, 'x64');
   assert.equal(job.env.TRACE_COMMIT, '${{ github.sha }}');
-  assert.deepEqual(Object.keys(job.outputs).sort(), ['artifact_name', 'version']);
+  assert.deepEqual(Object.keys(job.outputs).sort(), ['artifact_name', 'native_acceptance', 'version']);
   assert.equal(job.outputs.artifact_name, '${{ steps.metadata.outputs.artifact_name }}');
+  assert.equal(job.outputs.native_acceptance, '${{ steps.metadata.outputs.native_acceptance }}');
   const text = jobText('linux');
   assert.doesNotMatch(text, /secrets\.|GITHUB_TOKEN|GH_TOKEN/, 'the linux job uses no secret and no token');
   assert.doesNotMatch(text, /gh release|contents:\s*write|softprops|action-gh-release|download-artifact/, 'the linux job only builds, tests and uploads');
@@ -134,6 +137,98 @@ test('static: the steps run in order: tests, build, checksums, static package ch
   assert.equal(stepNamed('Build the renderer').run, 'pnpm run build');
 });
 
+test('static: packaged functional QA gates uploads on Windows, macOS ZIP, Linux DEB and sandboxed AppImage with mandatory evidence', () => {
+  const build = workflow.jobs.build;
+  const mac = workflow.jobs.mac;
+  const linuxSteps = linux().steps;
+  const find = (steps, prefix) => {
+    const index = steps.findIndex((step) => typeof step.name === 'string' && step.name.startsWith(prefix));
+    assert.ok(index >= 0, 'step "' + prefix + '..." exists');
+    return { index, step: steps[index] };
+  };
+  const windowsPayload = find(build.steps, 'Generate payload manifest');
+  const windowsQa = find(build.steps, 'Run packaged functional QA');
+  const windowsValidate = find(build.steps, 'Validate packaged functional QA evidence manifest');
+  const windowsQaUpload = find(build.steps, 'Upload packaged functional QA evidence');
+  const windowsArtifact = find(build.steps, 'Upload portable EXE and checksum');
+  assert.ok(windowsPayload.index < windowsQa.index && windowsQa.index < windowsValidate.index && windowsValidate.index < windowsQaUpload.index && windowsQaUpload.index < windowsArtifact.index);
+  assert.match(windowsValidate.step.run, /validate-packaged-functional-evidence\.cjs/);
+  assert.equal(windowsValidate.step.if, "always() && steps.metadata.outputs.native_acceptance == 'true'");
+  assert.match(windowsQa.step.run, /release\/win-unpacked\/TRACE Boardviewer\.exe/);
+  assert.match(windowsQa.step.run, /resources\/app\.asar/);
+  assert.match(windowsQa.step.run, /--manifest=/);
+  assert.match(windowsQa.step.run, /--os=win32 --arch=x64/);
+  assert.match(windowsQa.step.run, /--out=.*packaged-functional\/windows-x64\.json/);
+  assert.equal(windowsQaUpload.step.if, "always() && steps.metadata.outputs.native_acceptance == 'true'");
+  assert.equal(windowsQaUpload.step.with['if-no-files-found'], 'error');
+
+  const macExtract = find(mac.steps, 'Extract the checksummed macOS ZIP');
+  const macQa = find(mac.steps, 'Run packaged functional QA');
+  const macQaValidate = find(mac.steps, 'Validate macOS packaged functional QA evidence manifest');
+  const macQaUpload = find(mac.steps, 'Upload macOS packaged functional QA');
+  assert.ok(macExtract.index < macQa.index && macQa.index < macQaValidate.index && macQaValidate.index < macQaUpload.index);
+  assert.equal(macQaValidate.step.if, "always() && steps.metadata.outputs.native_acceptance == 'true'");
+  assert.match(macExtract.step.run, /ditto -x -k "\$TRACE_ZIP"/);
+  assert.match(macQa.step.run, /TRACE_FUNCTIONAL_APP\/Contents\/MacOS\/TRACE Boardviewer/);
+  assert.match(macQa.step.run, /TRACE_FUNCTIONAL_APP\/Contents\/Resources\/app\.asar/);
+  assert.match(macQa.step.run, /--os=darwin --arch=arm64/);
+  assert.equal(macQaUpload.step.if, "always() && steps.metadata.outputs.native_acceptance == 'true'");
+  assert.equal(macQaUpload.step.with['if-no-files-found'], 'error');
+
+  const s1 = find(linuxSteps, 'Smoke-test the .deb under the stock user-namespace restriction');
+  const linuxQa = find(linuxSteps, 'Run packaged functional QA against the installed DEB');
+  const relaxed = find(linuxSteps, 'Allow unprivileged user namespaces');
+  const linuxSummary = find(linuxSteps, 'Show packaged functional QA summary');
+  const linuxUpload = find(linuxSteps, 'Upload packaged functional QA evidence');
+  assert.ok(s1.index < linuxQa.index && linuxQa.index < relaxed.index, 'the functional run remains inside S1 with Chromium sandbox on');
+  assert.match(linuxQa.step.run, /xvfb-run/);
+  assert.match(linuxQa.step.run, /\/opt\/TRACE Boardviewer\/trace-boardviewer/);
+  assert.match(linuxQa.step.run, /deb="\$PWD\/\$TRACE_DEB"/);
+  assert.match(linuxQa.step.run, /"--checksum=\$deb\.sha256"/);
+  assert.match(linuxQa.step.run, /--os=linux --arch=x64/);
+  assert.equal(linuxQa.step.if, NATIVE_PACKAGES_EXIST);
+  assert.equal(linuxSummary.step.if, NATIVE_ALWAYS);
+  assert.match(linuxSummary.step.run, /evidence is missing/);
+  assert.equal(linuxUpload.step.if, NATIVE_ALWAYS);
+  assert.equal(linuxUpload.step.with['if-no-files-found'], 'error');
+  assert.match(fs.readFileSync(rel('scripts', 'linux-smoke.cjs'), 'utf8'), /the unpacked app, the AppImage and the \.deb carry the same app\.asar/);
+
+  const s3 = find(linuxSteps, 'Smoke-test the AppImage with user namespaces allowed (S3');
+  const appImageQa = find(linuxSteps, 'Run packaged functional QA against the AppImage');
+  const appImageVerify = find(linuxSteps, 'Verify and upload AppImage functional evidence');
+  const appImageUpload = find(linuxSteps, 'Upload AppImage packaged functional QA evidence');
+  const s4 = find(linuxSteps, 'Smoke-test the unpacked app with user namespaces allowed (S4');
+  assert.ok(s3.index < appImageQa.index && appImageQa.index < appImageVerify.index && appImageVerify.index < appImageUpload.index && appImageUpload.index < s4.index,
+    'full AppImage flow runs with the S3 sandbox-on policy and before S4');
+  assert.match(appImageQa.step.run, /--executable=\$image/);
+  assert.match(appImageQa.step.run, /--artifact=\$image/);
+  assert.match(appImageQa.step.run, /--checksum=\$image\.sha256/);
+  assert.match(appImageQa.step.run, /--asar=\$asar/);
+  assert.match(appImageVerify.step.run, /validate-packaged-functional-evidence\.cjs/);
+  assert.equal(appImageUpload.step.if, NATIVE_ALWAYS);
+  assert.equal(appImageUpload.step.with['if-no-files-found'], 'error');
+
+  const runner = fs.readFileSync(rel('scripts', 'packaged-functional-qa.cjs'), 'utf8');
+  const inspector = fs.readFileSync(rel('scripts', 'packaged-functional-inspector.cjs'), 'utf8');
+  assert.doesNotMatch(runner, /ELECTRON_DISABLE_SANDBOX|TRACE_ACCEPT_NO_SANDBOX/);
+  assert.doesNotMatch(runner, /args:\s*\[[^\]]*--no-sandbox/s, 'the packaged launcher never disables Chromium sandboxing');
+  assert.match(inspector, /session-created/);
+  assert.match(inspector, /request\.onBeforeRequest/);
+  assert.match(inspector, /labels\.set\(value,String\(partition\|\|'default'\)\)/);
+  assert.match(inspector, /globalThis\.__traceQaNetwork=\[\]/);
+  assert.match(inspector, /Electron webRequest pre-main observer/);
+  assert.doesNotMatch(runner + inspector, /egress\.fetch\s*=/, 'the runner observes native session.fetch requests without replacing fetch');
+  assert.match(runner, /validateEvidenceManifest/);
+  assert.match(runner, /networkObservation.*startup-through-exit/s, 'the startup-to-exit observation is fail-closed and recorded');
+  assert.match(inspector, /Debugger\.setBreakpointByUrl/);
+  assert.match(inspector, /Runtime\.runIfWaitingForDebugger/);
+  assert.match(inspector, /chromiumSandbox:\s*true/);
+  assert.match(runner, /processArgsNoSandbox/);
+  assert.match(runner, /assertArtifactPayloadLinkage/);
+  assert.match(runner, /injected-main-process-fs-open-EACCES/);
+  assert.match(inspector, /cancelledBeforeNetwork:true/);
+});
+
 test('static: contexts reach the scripts only through env (no ${{ inside any run script of the job)', () => {
   for (const step of linux().steps.filter((entry) => entry.run)) {
     assert.doesNotMatch(step.run, /\$\{\{/, `step "${step.name}"`);
@@ -175,7 +270,7 @@ test('static: the four smoke scenarios S1-S4 under Xvfb with the user-namespace 
   for (const [scenario, args] of Object.entries(expected)) {
     const step = smokeStep(scenario);
     assert.ok(step.run.includes(`${XVFB}${args}`), `${scenario} runs: ${args}`);
-    assert.equal(step.if, PACKAGES_EXIST, `${scenario} runs whenever the packages exist, even after an earlier scenario failed`);
+    assert.equal(step.if, NATIVE_PACKAGES_EXIST, `${scenario} runs whenever native acceptance is enabled and packages exist, even after an earlier scenario failed`);
     assert.ok(Number.isInteger(step['timeout-minutes']) && step['timeout-minutes'] <= 15, `${scenario} has its own timeout`);
     // Every scenario must be accepted by the script's own argument parser (the variables as the locate step sets them).
     const values = { '"$TRACE_ARCH"': 'x64', '"$TRACE_APPIMAGE"': 'release-linux/TRACE-Boardviewer-1.2.0-linux-x86_64.AppImage', '"$TRACE_UNPACKED"': 'release-linux/linux-unpacked' };
@@ -194,13 +289,13 @@ test('static: the four smoke scenarios S1-S4 under Xvfb with the user-namespace 
   assert.deepEqual(s2Lines.slice(0, 2), ['set -euo pipefail', 'sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=1'], 'S2 asserts the restriction itself');
   const relax = stepNamed('Allow unprivileged user namespaces');
   assert.equal(relax.run, 'sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0');
-  assert.equal(relax.if, PACKAGES_EXIST);
+  assert.equal(relax.if, NATIVE_PACKAGES_EXIST);
   for (const scenario of ['S3', 'S4']) assert.doesNotMatch(smokeStep(scenario).run, /sysctl/, `${scenario} relies on the step before it`);
   assert.equal(linux().steps.filter((step) => step.run && /--expect-gate yes/.test(step.run)).length, 1, 'only S2 expects the consent dialog');
   assert.equal(stepNamed('Check the packages statically (S0)').run, 'node scripts/linux-smoke.cjs static --appimage "$TRACE_APPIMAGE" --deb "$TRACE_DEB" --unpacked "$TRACE_UNPACKED" --arch "$TRACE_ARCH" --out test-results/linux/linux-static.json');
   assert.equal(stepNamed('Check the packages statically (S0)').if, PACKAGES_EXIST);
   const summary = stepNamed('Show Linux smoke summary');
-  assert.equal(summary.if, 'always()');
+  assert.equal(summary.if, NATIVE_ALWAYS);
   assert.match(summary.run, /node scripts\/linux-smoke\.cjs summary --dir test-results\/linux >> "\$GITHUB_STEP_SUMMARY"/);
   for (const step of linux().steps.filter((entry) => entry.env)) {
     for (const [name, value] of Object.entries(step.env)) {
@@ -233,14 +328,14 @@ test('static: the packages are uploaded only after every step passed; the eviden
   assert.equal(upload.with['compression-level'], 0);
   assert.equal(upload.with['retention-days'], 14);
   const evidence = stepNamed('Upload Linux smoke evidence');
-  assert.equal(evidence.if, 'always()');
+  assert.equal(evidence.if, NATIVE_ALWAYS);
   assert.equal(evidence.with.name, 'linux-smoke-evidence-${{ steps.metadata.outputs.version }}');
   assert.equal(evidence.with.path.trim(), 'test-results/linux/*.json\ntest-results/linux/*.png');
   assert.equal(evidence.with['if-no-files-found'], 'warn');
   assert.equal(evidence.with['retention-days'], 14);
   assert.equal(evidence.with.overwrite, true);
   const cleanup = stepNamed('Stop leftover app processes');
-  assert.equal(cleanup.if, 'always()');
+  assert.equal(cleanup.if, NATIVE_ALWAYS);
   assert.ok(cleanup.run.includes('pkill -KILL -f -- "$appProcesses" || true'));
   // The pattern (an extended regular expression for pkill) must hit the app and the AppImage runtime, never the checkout or the runner.
   const declared = /^appProcesses='([^']+)'$/m.exec(cleanup.run);
@@ -284,10 +379,11 @@ test('static: the draft release waits for the linux job, verifies the AppImage a
   assert.match(notes, /- TRACE-Boardviewer-\$\{env:TRACE_VERSION\}-linux-x86_64\.AppImage \(\+ \.sha256\): experimental portable Linux x86-64 build/);
   assert.match(notes, /Make it executable \(chmod \+x\) and run it/);
   assert.match(notes, /TRACE asks before it starts without it: use the \.deb there\./);
-  assert.match(notes, /\nThe Linux builds are tested automatically on Ubuntu 24\.04 only\.\n/, 'the honest limit of the Linux testing');
+  assert.match(create.run, /\$traceLinuxValidationNote = if \(\$env:TRACE_VERSION -eq '1\.3\.1'\) \{ 'Native validation for 1\.3\.1 is scheduled after publication\.' \} else \{ 'The Linux builds are tested automatically on Ubuntu 24\.04 only\.' \}/, 'the stable 1.3.1 draft states pending native validation while later releases retain their tested status');
+  assert.ok(notes.includes('$traceLinuxValidationNote'), 'the version-specific Linux validation note appears in the release notes');
   assert.ok(notes.indexOf('-mac-arm64.zip') < notes.indexOf('-linux-amd64.deb') && notes.indexOf('-linux-amd64.deb') < notes.indexOf('-linux-x86_64.AppImage') && notes.indexOf('-linux-x86_64.AppImage') < notes.indexOf('User board files are not included.'));
   assert.doesNotMatch(notes, /`/, 'no backticks: the notes are a double-quoted PowerShell here-string, where a backtick escapes');
-  assert.doesNotMatch(notes, /\$(?!\{env:TRACE_VERSION\})/, 'the only expansion in the notes is the version');
+  assert.doesNotMatch(notes, /\$(?!\{env:TRACE_VERSION\}|traceLinuxValidationNote)/, 'only the version and the version-specific validation note expand in the notes');
 });
 
 // ---- the smoke script --------------------------------------------------------------------------------------
@@ -640,15 +736,30 @@ test('simulated: evidence, summary and the honest list of what is not covered', 
   const rows = summary.split('\n').filter((line) => /^\| S\d/.test(line));
   assert.deepEqual(rows.map((line) => line.split('|')[1].trim()), ['S0', 'S1', 'S2'], 'one row per evidence file, in scenario order');
   assert.match(rows[2], /off \/ off/);
-  assert.match(rows[2], /shown 2x of 3 launches \(Quit \(Escape\); Start without sandbox \+ Do not ask again\)/);
-  assert.match(rows[2], /\$HOME\/\.config\/trace-boardviewer/);
-  assert.match(rows[1], /FAILED \(1 failed, 1 skipped\)/);
-  assert.match(summary, /- S1: b: x \\\| y/, 'cells and lines are escaped for Markdown');
+  assert.ok(rows[2].includes(String.raw`shown 2x of 3 launches \(Quit \(Escape\); Start without sandbox \+ Do not ask again\)`));
+  assert.ok(rows[2].includes(String.raw`$HOME/\.config/trace\-boardviewer`));
+  assert.ok(rows[1].includes(String.raw`FAILED \(1 failed, 1 skipped\)`));
+  assert.match(summary, /\\- S1&#58; b&#58; x \\\| y/, 'cells and lines are escaped for Markdown');
   assert.match(summary, /Observations \(informational\)/);
   assert.match(summary, /Not covered: /);
   assert.match(smoke.formatSummary([]), /No Linux smoke evidence was written/);
   assert.ok(smoke.NOT_COVERED.length >= 8);
   for (const needle of [/Wayland/, /GNOME/, /file chooser/, /arm64/, /HiDPI/, /upgrade/]) assert.ok(smoke.NOT_COVERED.some((item) => needle.test(item)), String(needle));
+});
+
+test('simulated: untrusted evidence stays inert and on one Markdown table row', () => {
+  const hostile = 'S1| <img src=x onerror=alert(1)> [open](https://evil.example) `code` ~~FAILED~~ &lt;\r\n|next';
+  const evidence = smoke.buildEvidence({ kind: 'run', scenario: hostile, target: 'installed',
+    defaultProfile: { ok: true, relative: hostile }, checks: [{ name: hostile, status: 'fail', detail: hostile }] });
+  const summary = smoke.formatSummary([evidence]);
+  const row = summary.split('\n').find((line) => line.startsWith('| S1'));
+  assert.ok(row);
+  assert.equal(summary.split('\n').filter((line) => line.startsWith('| S1')).length, 1, 'newlines and carriage returns cannot add rows');
+  assert.doesNotMatch(summary, /<img|\[open\]\(https:\/\/evil\.example\)|`code`|~~FAILED~~/, 'HTML, Markdown links, code and GFM strikethrough stay inert');
+  assert.match(row, /S1\\\| &lt;img/);
+  assert.ok(row.includes(String.raw`\[open\]\(https&#58;//evil\.example\)`));
+  assert.ok(row.includes(String.raw`\~\~FAILED\~\~`), 'tilde delimiters cannot format evidence as GFM strikethrough');
+  assert.match(row, /&amp;lt;/, 'ampersands are escaped so an input entity cannot be interpreted as markup');
 });
 
 test('simulated: the synthetic fixtures are original, consistent and distinct', () => {

@@ -193,6 +193,7 @@ test('static: drift guard - appId, productName, asar and files match package.jso
   const negations = linuxConfig.files.filter((pattern) => pattern.startsWith('!'));
   assert.deepEqual(negations.filter((pattern) => !ALLOWED_NEGATIONS.includes(pattern)), [], 'only documented negations are allowed');
   assert.deepEqual(linuxConfig.files.filter((pattern) => !pattern.startsWith('!')), build.files.filter((pattern) => !pattern.startsWith('!')), 'the positive patterns are identical, in order');
+  assert.ok(build.files.includes('shared/bug-report-contract.cjs'), 'the shared report contract is packaged');
   assert.deepEqual(build.files.filter((pattern) => pattern.startsWith('!') && !linuxConfig.files.includes(pattern)), [], 'a negation added to package.json must also be in the Linux list');
   assert.deepEqual(linuxConfig.files.slice(-negations.length), negations, 'negations come last');
   assert.ok(!('asarUnpack' in linuxConfig) && !('extraResources' in linuxConfig) && !('extraFiles' in linuxConfig), 'no extra payload beyond package.json build');

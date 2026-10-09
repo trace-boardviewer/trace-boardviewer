@@ -140,12 +140,12 @@ for (const job of ['mac', 'linux']) {
       fs.writeFileSync(path.join(folder, 'package.json'), JSON.stringify({ name: 'x', version: entry.version }));
       const output = path.join(folder, 'github-output');
       fs.writeFileSync(output, '');
-      const env = { ...withNodeOnPath(), ...JOB_FACTS[job].env, TRACE_REF: entry.ref, TRACE_TAG: entry.tag, GITHUB_OUTPUT: forward(output) };
+      const env = { ...withNodeOnPath(), ...JOB_FACTS[job].env, TRACE_REF: entry.ref, TRACE_TAG: entry.tag, TRACE_EVENT_NAME: 'workflow_dispatch', GITHUB_OUTPUT: forward(output) };
       const result = runBash(folder, step.run, env);
       const label = `${entry.version} on ${entry.ref}`;
       if (entry.ok) {
         assert.equal(result.status, 0, `${label}: ${result.stderr}`);
-        assert.deepEqual(readOutputs(output), { version: entry.version, artifact_name: JOB_FACTS[job].artifact(entry.version) }, label);
+        assert.deepEqual(readOutputs(output), { version: entry.version, artifact_name: JOB_FACTS[job].artifact(entry.version), native_acceptance: 'true' }, label);
       } else {
         assert.notEqual(result.status, 0, `${label} must fail`);
         assert.match(result.stderr, entry.message, label);
@@ -162,15 +162,62 @@ test('build job, step "Validate release metadata" (PowerShell): the same rules f
     fs.writeFileSync(path.join(folder, 'package.json'), JSON.stringify({ name: 'x', version: entry.version }));
     const output = path.join(folder, 'github-output');
     fs.writeFileSync(output, '');
-    const result = runPowerShell(folder, step.run, { ...withNodeOnPath(), TRACE_REF: entry.ref, TRACE_TAG: entry.tag, GITHUB_OUTPUT: output });
+    const result = runPowerShell(folder, step.run, { ...withNodeOnPath(), TRACE_REF: entry.ref, TRACE_TAG: entry.tag, TRACE_EVENT_NAME: 'workflow_dispatch', GITHUB_OUTPUT: output });
     const label = `${entry.version} on ${entry.ref}`;
     if (entry.ok) {
       assert.equal(result.status, 0, `${label}: ${result.stderr}`);
-      assert.deepEqual(readOutputs(output), { version: entry.version, artifact_name: `TRACE-Boardviewer-${entry.version}-windows-x64` }, label);
+      assert.deepEqual(readOutputs(output), { version: entry.version, artifact_name: `TRACE-Boardviewer-${entry.version}-windows-x64`, native_acceptance: 'true' }, label);
     } else {
       assert.notEqual(result.status, 0, `${label} must fail`);
       assert.match(`${result.stdout}${result.stderr}`, entry.message, label);
       assert.deepEqual(readOutputs(output), {}, `${label}: nothing is handed to the later steps`);
+    }
+  }
+});
+
+test('release metadata defers only the 1.3.1 automatic push and writes the private step summary', { skip: bashSkip || powershellSkip || false }, (t) => {
+  const scenarios = [
+    { version: '1.3.1', event: 'push', acceptance: 'false', summary: true },
+    { version: '1.3.1', event: 'workflow_dispatch', acceptance: 'true', summary: false },
+    { version: '1.3.2', event: 'push', acceptance: 'true', summary: false },
+  ];
+  for (const job of ['build', 'mac', 'linux']) {
+    const step = stepOf(job, METADATA_STEP);
+    for (const scenario of scenarios) {
+      const folder = temporaryFolder(t);
+      fs.writeFileSync(path.join(folder, 'package.json'), JSON.stringify({ name: 'x', version: scenario.version }));
+      const output = path.join(folder, 'github-output');
+      const summary = path.join(folder, 'github-step-summary');
+      fs.writeFileSync(output, '');
+      fs.writeFileSync(summary, '');
+      const env = {
+        ...withNodeOnPath(),
+        ...(JOB_FACTS[job]?.env || {}),
+        TRACE_REF: 'refs/heads/main',
+        TRACE_TAG: 'main',
+        TRACE_EVENT_NAME: scenario.event,
+        GITHUB_OUTPUT: job === 'build' ? output : forward(output),
+        GITHUB_STEP_SUMMARY: job === 'build' ? summary : forward(summary),
+      };
+      const result = job === 'build'
+        ? runPowerShell(folder, step.run, env)
+        : runBash(folder, step.run, env);
+      const label = `${job}: ${scenario.version} ${scenario.event}`;
+      assert.equal(result.status, 0, `${label}: ${result.stderr}`);
+      assert.deepEqual(readOutputs(output), {
+        version: scenario.version,
+        artifact_name: job === 'build'
+          ? `TRACE-Boardviewer-${scenario.version}-windows-x64`
+          : JOB_FACTS[job].artifact(scenario.version),
+        native_acceptance: scenario.acceptance,
+      }, label);
+      const summaryText = fs.readFileSync(summary, 'utf8');
+      if (scenario.summary) {
+        assert.match(summaryText, /Native runtime acceptance deferred/);
+        assert.match(summaryText, /scheduled after publication/);
+      } else {
+        assert.equal(summaryText, '', `${label}: no deferral note for accepted native validation`);
+      }
     }
   }
 });

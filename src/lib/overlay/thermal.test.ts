@@ -383,3 +383,4 @@ describe('resizeMatrix', () => {
     expect(() => resizeMatrix({ width: 0, height: 1 }, { width: 1, height: 1 })).toThrow(ThermalError);
   });
 });
+

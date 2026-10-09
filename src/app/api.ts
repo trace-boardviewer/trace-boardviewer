@@ -8,6 +8,7 @@ import type { Message } from '../lib/i18n';
 import type { Board, BoardNote, RecentFile } from '../lib/types';
 import type { NoteSubject } from '../lib/note-keys';
 import type { NotePatch } from '../lib/workspace';
+import type BugReportContract = require('../../shared/bug-report-contract.cjs');
 
 /**
  * Contract between the application core (src/app/**: `useWorkspace()` implements it, no JSX) and the UI
@@ -101,6 +102,8 @@ export interface ImportState {
   file: { name: string; path: string; key: string } | null;
   /** Set while `phase` is 'processing' (null otherwise). */
   progress: ImportProgress | null;
+  /** Content-free summary of the latest import attempt for an explicitly opened report form. */
+  reportContext?: BugReportContract.LastImport;
 }
 
 export interface WorkspaceState {

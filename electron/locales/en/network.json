@@ -42,5 +42,9 @@
   "network.resultTooLarge": "Answer too large",
   "network.resultTimeout": "Timed out",
   "network.resultNetwork": "Network error",
-  "network.resultBadResponse": "Unexpected answer"
+  "network.resultBadResponse": "Unexpected answer",
+  "network.bugReport": "Bug report",
+  "network.bugReportHint": "A report is sent only after you choose Send in the report form.",
+  "network.resultCancelled": "Cancelled",
+  "network.resultHttpStatus": "HTTP status not accepted: {status}"
 }

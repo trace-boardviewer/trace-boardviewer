@@ -6,6 +6,7 @@ import {
 } from '../lib/crossprobe';
 import type { BoardIndex, BoardSearchGroups, DocumentSearchSource, SchematicIndex, SchematicSource, SearchRow } from '../lib/crossprobe';
 import { MODEL_PROTOCOL } from '../lib/model-protocol';
+import { ERROR_CODES, EXTENSIONS, FORMAT_IDS } from '../lib/diagnostics/report';
 import type { DocumentAnnotation, DocumentBookmark, DocumentCalibration, DocumentKind, DocumentLocateResult, DocumentPayload, WorkspaceExportResult, WorkspaceManifest, WorkspaceTab } from '../lib/documents';
 import type { Message, MessageKey, MessageParam, ParseIssue } from '../lib/i18n';
 import { assertStorable, migrateNotes, noteKeyIndex, unresolvedNotes } from '../lib/note-keys';
@@ -110,9 +111,35 @@ export interface WorkspaceController {
 
 type ImportOutcome = 'loaded' | 'failed' | 'key-required';
 type AttachOutcome = 'added' | 'duplicate' | 'restored' | 'failed';
-type ParserReply = { board?: Board; model?: number; progress?: { fraction?: unknown }; issue?: ParseIssue; formatError?: FormatFailure; error?: string };
+type ParserReply = { board?: Board; model?: number; progress?: { fraction?: unknown }; reportContext?: { stage?: unknown; formatId?: unknown }; issue?: ParseIssue; formatError?: FormatFailure; error?: string };
 /** A parsed board and, when the worker speaks the model protocol, the client of the worker that now serves this board. */
-interface Parsed { board: Board; model: ModelClient | null }
+interface Parsed { board: Board; model: ModelClient | null; formatId: string | null }
+
+type SafeImportContext = NonNullable<NonNullable<WorkspaceState['import']['reportContext']>>;
+type ContextOutcome = SafeImportContext['outcome'];
+type ContextStage = SafeImportContext['stage'];
+const CONTEXT_STAGES: readonly ContextStage[] = ['read', 'detect', 'unpack', 'parse', 'done', 'unknown'];
+const CONTEXT_CODES = [...ERROR_CODES, 'READ_FAILED', 'WORKER_FAILED', 'TIMEOUT', 'CANCELLED', 'UNKNOWN'] as const;
+function extensionClassOf(name: string): string {
+  const base = name.split(/[\\/]/).pop() ?? '';
+  const dot = base.lastIndexOf('.');
+  if (dot <= 0 && !(dot === 0 && base.length > 1)) return 'none';
+  const extension = base.slice(dot).toLowerCase();
+  return /^\.[a-z0-9_]{1,10}$/.test(extension) && EXTENSIONS.has(extension) ? extension : 'other';
+}
+function safeFormatId(value: unknown): string | null {
+  return typeof value === 'string' && (FORMAT_IDS as readonly string[]).includes(value) ? value : null;
+}
+function safeErrorCode(value: unknown): string | null {
+  return typeof value === 'string' && (CONTEXT_CODES as readonly string[]).includes(value) ? value : null;
+}
+function safeStage(value: unknown): ContextStage { return CONTEXT_STAGES.includes(value as ContextStage) ? value as ContextStage : 'unknown'; }
+function importContext(name: string, outcome: ContextOutcome, stage: ContextStage, formatId: unknown = null, errorCode: unknown = null): SafeImportContext {
+  return { outcome, stage, formatId: safeFormatId(formatId), extensionClass: extensionClassOf(name), errorCode: safeErrorCode(errorCode) };
+}
+class ImportContextError extends UiError {
+  constructor(readonly outcome: 'timeout' | 'worker-failed', readonly code: 'TIMEOUT' | 'WORKER_FAILED', message: Message) { super(message); }
+}
 
 interface Entry {
   version: number;
@@ -245,7 +272,7 @@ class Controller {
     this.state = {
       board: null, boardIndex: null, boardKey: null, boardPath: '', manifest: null, activeTab: 'board', split: DEFAULT_SPLIT, documents: NO_DOCUMENTS, notes: NO_NOTES, notesBlocked: null,
       save: IDLE_SAVE, selection: EMPTY_SELECTION, probe: EMPTY_PROBE, search: EMPTY_SEARCH, link: null, pdfLinks: NO_LINKS, overlays: NO_OVERLAYS, notices: NO_NOTICES,
-      persistence: this.desktop ? 'native' : 'session-only', import: { phase: 'idle', keyRequest: null, recents: NO_RECENTS, file: null, progress: null },
+      persistence: this.desktop ? 'native' : 'session-only', import: { phase: 'idle', keyRequest: null, recents: NO_RECENTS, file: null, progress: null, reportContext: null },
     };
     this.actions = this.createActions();
   }
@@ -298,6 +325,10 @@ class Controller {
     if ((Object.keys(changes) as Array<keyof ImportState>).every(key => Object.is(changes[key], current[key]))) return;
     this.patch({ import: { ...current, ...changes } });
   }
+  private setReportContext(token: number, context: SafeImportContext | null): void {
+    if (token !== this.sequence) return;
+    this.patchImport({ reportContext: context });
+  }
   private setProbe(changes: Partial<ProbeState>): void {
     const current = this.state.probe;
     if ((Object.keys(changes) as Array<keyof ProbeState>).every(key => Object.is(changes[key], current[key]))) return;
@@ -335,7 +366,7 @@ class Controller {
     this.parser?.cancel();
     this.parser = null;
     this.waitingKey = null;
-    this.patchImport({ phase: 'idle', keyRequest: null, progress: null });
+    this.patchImport({ phase: 'idle', keyRequest: null, progress: null, reportContext: null });
     return token;
   }
 
@@ -369,12 +400,20 @@ class Controller {
         stop = this.timers.setTimeout(() => {
           stop = null;
           if (this.parser !== handle) return;
+          const current = this.state.import.reportContext;
+          if (current && token === this.sequence) this.setReportContext(token, { ...current, outcome: 'timeout', errorCode: 'TIMEOUT' });
           release();
-          reject(new UiError(say('toast.importStopped', { seconds: Math.round(this.watchdog.stopMs / 1000) })));
+          reject(new ImportContextError('timeout', 'TIMEOUT', say('toast.importStopped', { seconds: Math.round(this.watchdog.stopMs / 1000) })));
         }, this.watchdog.stopMs);
       };
       const onReply = (data: unknown) => {
         const reply = data as ParserReply;
+        const context = reply.reportContext;
+        if (context && CONTEXT_STAGES.includes(context.stage as ContextStage) && token === this.sequence && this.parser === handle) {
+          const current = this.state.import.reportContext;
+          if (current) this.setReportContext(token, { ...current, outcome: 'processing', stage: safeStage(context.stage) });
+        }
+        if (reply.reportContext && !reply.progress && !reply.board && !reply.issue && !reply.formatError && !reply.error) return;
         if (reply.progress) {
           const fraction = typeof reply.progress.fraction === 'number' && Number.isFinite(reply.progress.fraction) ? Math.min(1, Math.max(0, reply.progress.fraction)) : null;
           if (token === this.sequence && this.parser === handle) { this.patchImport({ progress: { fraction, stalled: false } satisfies ImportProgress }); arm(); }
@@ -387,11 +426,11 @@ class Controller {
           release();
           const client = createModelClient(kept);
           handover = client;
-          resolve({ board: reply.board, model: client });
+          resolve({ board: reply.board, model: client, formatId: safeFormatId(context?.formatId) });
           return;
         }
         release();
-        if (reply.board) resolve({ board: reply.board, model: null });
+        if (reply.board) resolve({ board: reply.board, model: null, formatId: safeFormatId(context?.formatId) });
         else if (reply.issue) reject(new UiError({ issue: reply.issue }));
         else if (reply.formatError) reject(new FormatFailureError(reply.formatError));
         else { if (reply.error) console.error('TRACE: unexpected parser failure:', reply.error); reject(new UiError(say('toast.parseFailed'))); }
@@ -399,7 +438,9 @@ class Controller {
       try {
         port = this.deps.createBoardWorker(data => { if (handover) handover.receive(data); else onReply(data); }, () => {
           if (handover) { handover.fail(); return; }
-          release(); reject(new UiError(say('toast.workerCrashed')));
+          const current = this.state.import.reportContext;
+          if (current && token === this.sequence) this.setReportContext(token, { ...current, outcome: 'worker-failed', errorCode: 'WORKER_FAILED' });
+          release(); reject(new ImportContextError('worker-failed', 'WORKER_FAILED', say('toast.workerCrashed')));
         });
         this.parser = handle;
         // Exactly sized copies are transferred (the payload keeps its bytes for a retry with a key).
@@ -425,12 +466,14 @@ class Controller {
   private async loadPayload(payload: FilePayload, token: number): Promise<ImportOutcome> {
     if (token !== this.sequence) return 'failed';
     this.patchImport({ phase: 'processing', progress: { fraction: null, stalled: false } });
+    this.setReportContext(token, importContext(payload.name, 'processing', 'detect'));
     // The model worker of the parsed board until the board is committed (or dropped, when a newer request won meanwhile).
     let model: ModelClient | null = null;
     try {
       const result = await this.parse(payload, token);
       const parsed = result.board;
       model = result.model;
+      this.setReportContext(token, importContext(payload.name, 'processing', 'done', result.formatId));
       if (token !== this.sequence) return 'failed';
       // The previous board's workspace is written before its state is replaced (and before a re-open of the same board reads it).
       await this.flushActive();
@@ -444,6 +487,7 @@ class Controller {
       if (token !== this.sequence) return 'failed';
       this.commitBoard(payload, parsed, saved, notesError, model);
       model = null;
+      this.setReportContext(token, importContext(payload.name, 'opened', 'done', result.formatId));
       if (notesError) { if (!quitting) this.notify(say('toast.loadedNotesLocked'), 'error'); }
       else {
         this.notify(say('toast.loaded', { components: say('unit.components', { count: parsed.components.length }), pins: say('unit.pins', { count: parsed.pins.length }) }), 'success');
@@ -466,8 +510,12 @@ class Controller {
         // The previous board stays on screen; a newer import (beginImport) dismisses this request.
         this.waitingKey = { payload, kind: error.failure.keyKind };
         this.patchImport({ keyRequest: { fileName: payload.name, kind: error.failure.keyKind, code: error.failure.code, message: error.failure.message } });
+        this.setReportContext(token, importContext(payload.name, 'key-required', this.state.import.reportContext?.stage ?? 'unknown', null, error.failure.code));
         return 'key-required';
       }
+      if (error instanceof ImportContextError) this.setReportContext(token, importContext(payload.name, error.outcome, this.state.import.reportContext?.stage ?? 'unknown', null, error.code));
+      else this.setReportContext(token, importContext(payload.name, 'failed', this.state.import.reportContext?.stage ?? 'unknown', null,
+        error instanceof FormatFailureError ? error.failure.code : 'UNKNOWN'));
       this.notifyFailure(error, say('toast.openFailed'));
       return 'failed';
     } finally {
@@ -480,9 +528,13 @@ class Controller {
   private async readBrowserFiles(list: File[], token = this.beginImport()): Promise<void> {
     const primary = list.find(value => companionNames(value.name).length > 0) ?? list[0];
     if (!primary) return;
+    this.setReportContext(token, importContext(primary.name, 'reading', 'read'));
     const wanted = new Set(companionNames(primary.name));
     const siblings = list.filter(value => value !== primary && wanted.has(value.name.toLowerCase()));
-    if (primary.size + siblings.reduce((sum, value) => sum + value.size, 0) > MAX_IMPORT_BYTES) { this.notify(say('toast.fileTooLarge', { max: 64 }), 'error'); return; }
+    if (primary.size + siblings.reduce((sum, value) => sum + value.size, 0) > MAX_IMPORT_BYTES) {
+      this.setReportContext(token, importContext(primary.name, 'failed', 'read', null, 'LIMIT_EXCEEDED'));
+      this.notify(say('toast.fileTooLarge', { max: 64 }), 'error'); return;
+    }
     this.patchImport({ phase: 'reading' });
     try {
       const data = new Uint8Array(await primary.arrayBuffer());
@@ -495,13 +547,13 @@ class Controller {
         total += companions[name].byteLength;
       }
       if (token !== this.sequence) return;
-      if (total > MAX_IMPORT_BYTES) { this.patchImport({ phase: 'idle' }); this.notify(say('toast.fileTooLarge', { max: 64 }), 'error'); return; }
+      if (total > MAX_IMPORT_BYTES) { this.patchImport({ phase: 'idle' }); this.setReportContext(token, importContext(primary.name, 'failed', 'read', null, 'LIMIT_EXCEEDED')); this.notify(say('toast.fileTooLarge', { max: 64 }), 'error'); return; }
       const withCompanions = Object.keys(companions).length > 0;
       const key = await boardIdentityKey([{ name: primary.name, data }, ...(withCompanions ? Object.entries(companions).map(([name, bytes]) => ({ name, data: bytes })) : [])]);
       if (token !== this.sequence) return;
       await this.loadPayload({ name: primary.name, path: '', data, ...(withCompanions ? { companions } : {}), key }, token);
     } catch {
-      if (token === this.sequence) { this.patchImport({ phase: 'idle' }); this.notify(say('toast.readFailed'), 'error'); }
+      if (token === this.sequence) { this.patchImport({ phase: 'idle' }); this.setReportContext(token, importContext(primary.name, 'failed', 'read', null, 'READ_FAILED')); this.notify(say('toast.readFailed'), 'error'); }
     }
   }
 
@@ -528,10 +580,16 @@ class Controller {
             const candidate = await desktop.readBoard(recent.path);
             if (!active || token !== this.sequence) return;
             if (await this.loadPayload(candidate, token) !== 'failed') return;
-          } catch { /* A missing legacy recent must not prevent trying the next one. */ }
+          } catch {
+            if (active && token === this.sequence) this.setReportContext(token, importContext(recent.path, 'failed', 'read', null, 'READ_FAILED'));
+            /* A missing legacy recent must not prevent trying the next one. */
+          }
         }
       }).catch(error => {
-        if (active && token === this.sequence) this.notifyFailure(error, say('toast.startupFailed'));
+        if (active && token === this.sequence) {
+          this.setReportContext(token, importContext('', 'failed', 'read', null, 'READ_FAILED'));
+          this.notifyFailure(error, say('toast.startupFailed'));
+        }
       }));
     }
     return () => {
@@ -1267,8 +1325,12 @@ class Controller {
     const publish = () => {
       if (run !== this.searchRun) return;
       const pending = boardGroups === null || documents === null;
-      // Until the board part arrives the previous result stays on screen (a list that empties on every keystroke would flicker).
-      if (boardGroups === null) { this.patch({ search: { query, result: this.state.search.result, pending } }); return; }
+      // Board-worker latency must not leave rows from the previous query selectable. Other current-query sources can still show partial results.
+      if (boardGroups === null) {
+        const result = searchAll({ query, boardGroups, schematic, documents: documents ?? [] });
+        this.patch({ search: { query, result, pending } });
+        return;
+      }
       this.patch({ search: { query, result: searchAll({ query, boardGroups, schematic, documents: documents ?? [] }), pending } });
     };
     publish();
@@ -1669,7 +1731,14 @@ class Controller {
         }
         await this.track((async () => {
           try { const payload = await desktop.openBoard(); if (payload) await this.loadPayload(payload, token); }
-          catch (error) { if (token === this.sequence) this.notifyFailure(error, say('toast.openFailed')); }
+          catch (error) {
+            if (token === this.sequence) {
+              // The native chooser resolves null on cancellation; a rejection after selection has no safe filename descriptor here.
+              this.setReportContext(token, importContext('', 'failed', 'read', null, 'READ_FAILED'));
+              this.patchImport({ phase: 'idle' });
+              this.notifyFailure(error, say('toast.openFailed'));
+            }
+          }
         })());
       },
       openRecent: async path => {
@@ -1677,9 +1746,10 @@ class Controller {
         if (!desktop) return;
         const token = this.beginImport();
         this.patchImport({ phase: 'reading' });
+        this.setReportContext(token, importContext(path, 'reading', 'read'));
         await this.track((async () => {
           try { await this.loadPayload(await desktop.readBoard(path), token); }
-          catch (error) { if (token === this.sequence) { this.patchImport({ phase: 'idle' }); this.notifyFailure(error, say('toast.fileUnavailable')); } }
+          catch (error) { if (token === this.sequence) { this.patchImport({ phase: 'idle' }); this.setReportContext(token, importContext(path, 'failed', 'read', null, 'READ_FAILED')); this.notifyFailure(error, say('toast.fileUnavailable')); } }
         })());
       },
       openDropped: async files => {
@@ -1689,11 +1759,15 @@ class Controller {
         if (!primary) return;
         const token = this.beginImport();
         const path = desktop.droppedFilePath(primary);
-        if (!path) { this.notify(say('toast.pathUnavailable'), 'error'); return; }
+        if (!path) {
+          this.setReportContext(token, importContext(primary.name, 'failed', 'read', null, 'READ_FAILED'));
+          this.notify(say('toast.pathUnavailable'), 'error'); return;
+        }
         this.patchImport({ phase: 'reading' });
+        this.setReportContext(token, importContext(primary.name, 'reading', 'read'));
         await this.track((async () => {
           try { await this.loadPayload(await desktop.readBoard(path), token); }
-          catch (error) { if (token === this.sequence) { this.patchImport({ phase: 'idle' }); this.notifyFailure(error, say('toast.fileUnavailable')); } }
+          catch (error) { if (token === this.sequence) { this.patchImport({ phase: 'idle' }); this.setReportContext(token, importContext(primary.name, 'failed', 'read', null, 'READ_FAILED')); this.notifyFailure(error, say('toast.fileUnavailable')); } }
         })());
       },
       submitKey: input => {
@@ -1709,12 +1783,16 @@ class Controller {
       cancelImport: () => {
         if (this.state.import.phase === 'idle') return;
         // The worker is terminated and whatever the read or the parse still returns is dropped (a new import token).
+        const previous = this.state.import.reportContext;
         this.beginImport();
+        if (previous) this.patchImport({ reportContext: { ...previous, outcome: 'cancelled', errorCode: 'CANCELLED' } });
         this.notify(say('toast.importCancelled'));
       },
       cancelKeyRequest: () => {
         if (!this.state.import.keyRequest) return;
-        this.waitingKey = null; this.patchImport({ keyRequest: null });
+        this.waitingKey = null;
+        const context = this.state.import.reportContext;
+        this.patchImport({ keyRequest: null, ...(context ? { reportContext: { ...context, outcome: 'cancelled', errorCode: 'CANCELLED' } } : {}) });
         // Closing the key dialog leaves the file unopened; without a word the vanished dialog reads as a silent failure (H3-03).
         this.notify(say('toast.openFailed'));
       },

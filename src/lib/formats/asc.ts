@@ -120,5 +120,7 @@ export function parseAsc(input: ParseInput): Board | null {
   const pins = file('pins');
   if (!pins.rows.length) reject(pins.source, undefined, 'the file contains no component records.');
   const model: Model = { outline: readFormat(file('format').rows, file('format').source, tally), parts: readPins(pins.rows, pins.source, tally, true), nails: readNails(file('nails').rows, file('nails').source, tally) };
-  return assemble({ ...input, name: boardName(input.name) }, { label: 'ASC', format: ASC_FORMAT }, model, tally);
+  const board = assemble({ ...input, name: boardName(input.name) }, { label: 'ASC', format: ASC_FORMAT }, model, tally);
+  if (pins.headerLines! < HEADER.pins || prepared.get('nails')!.headerLines! < HEADER.nails) board.legacyPositionalNotesUnsafe = true;
+  return board;
 }

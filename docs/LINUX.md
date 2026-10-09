@@ -34,7 +34,7 @@ Chromium's sandbox keeps the processes that read board, PDF and image files apar
 
 - **The `.deb` keeps the sandbox on.** On systems with AppArmor 4, such as Ubuntu 24.04, it installs the profile `/etc/apparmor.d/trace-boardviewer`, which allows user namespaces (`userns,`) for TRACE only. On systems with an older AppArmor, such as Ubuntu 22.04 and Debian 12, the profile is not needed and is skipped. On systems that have no user namespaces at all, the package marks Chromium's setuid helper instead. Removing the package removes the profile.
 - **An AppImage cannot carry such a profile.** It is a file in your home folder, mounted without setuid. Its launcher checks whether user namespaces work. If they do (Fedora, Debian, Arch and openSUSE by default), Chromium's sandbox works as usual. If they do not (Ubuntu 23.10 and newer), the launcher starts TRACE with `--no-sandbox`.
-- **TRACE never turns the sandbox off by itself, and it asks first.** When it finds that it was started without the sandbox, it shows a warning before any window opens: "The Chromium sandbox is not available on this system." **Quit** is the default button (Esc does the same). **Start without sandbox** continues. The checkbox **Do not ask again** remembers your choice in a small file named `linux-no-sandbox-accepted` in the profile folder; delete that file to be asked again. A warning line is always written to the standard error output: `TRACE: running without the Chromium sandbox (--no-sandbox).`
+- **TRACE asks before it starts without the sandbox.** When it finds that it was started without the sandbox, it shows a warning before any window opens: "The Chromium sandbox is not available on this system." **Quit** is the default button (Esc does the same). **Start without sandbox** continues. The checkbox **Do not ask again** saves `"noSandboxAccepted": true` in `config.json` in the profile folder. To see the question again, quit TRACE, make a backup of `config.json`, then open it in a text editor and remove only the `noSandboxAccepted` property (and the comma next to it if needed to keep valid JSON). Leave the other settings in the file in place. For the default profile, the file is `~/.config/trace-boardviewer/config.json`, or `$XDG_CONFIG_HOME/trace-boardviewer/config.json` when `XDG_CONFIG_HOME` is set. If TRACE was started with `--user-data-dir PATH` or `--user-data-dir=PATH`, use `PATH/config.json` instead. A warning line is always written to the standard error output: `TRACE: running without the Chromium sandbox (--no-sandbox).`
 - **Scripts.** Setting `TRACE_ACCEPT_NO_SANDBOX=1` in the environment skips the question for scripted use, such as automated tests. The warning line is still written. Do not set it in a launcher you use every day on a restricted system; use the `.deb` there instead.
 
 Without the sandbox, a malicious board, PDF or image file that exploits a bug in the viewer has a better chance of reaching the rest of your system. On Ubuntu 23.10 and newer, install the `.deb` instead of using the AppImage. Ubuntu documents the system setting `kernel.apparmor_restrict_unprivileged_userns` that controls the restriction. We do not recommend switching the restriction off for the whole machine just to run an AppImage.
@@ -68,11 +68,11 @@ Every run of the release workflow includes the `linux` job on a GitHub Actions r
 | Scenario | User namespaces | Expected |
 | --- | --- | --- |
 | `.deb` installed | Restricted (Ubuntu 24.04 default) | Sandbox on, through the AppArmor profile |
-| AppImage | Restricted | Sandbox off, warning written, started only because the consent was given through `TRACE_ACCEPT_NO_SANDBOX=1` |
+| AppImage | Restricted | Sandbox off; the smoke checks the consent dialog by choosing Quit, then Start with **Do not ask again**, then confirming the saved choice suppresses the next question. Other routine smoke launches use `TRACE_ACCEPT_NO_SANDBOX=1`. |
 | AppImage | Allowed | Sandbox on |
 | Unpacked app | Allowed | Sandbox on |
 
-The question TRACE asks before it starts without the sandbox is covered by the desktop shell's own unit tests, not by a click in the packaged app.
+The S2 smoke exercises the question in the packaged AppImage: it checks that **Quit** exits before opening a window, **Start without sandbox** opens the app, **Do not ask again** is saved, and the next launch skips the question. Other routine S2 launches use `TRACE_ACCEPT_NO_SANDBOX=1` so the consent check is isolated from the rest of the smoke flow.
 
 ## Not tested
 

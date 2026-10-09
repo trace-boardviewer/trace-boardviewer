@@ -1297,7 +1297,7 @@ test('native workspace, documents and shutdown gate through the IPC handlers', a
     const converted = [
       { id: 'n1', target: { ref: 'U1' }, text: 'old part note', updatedAt: NOW },
       { id: 'n2', target: { ref: 'U1', pin: '3' }, text: 'old pin note', measurements: { voltage: '0.4 V' }, updatedAt: NOW },
-      { id: 'n3', componentId: 'part:2', text: 'second save, still positional', updatedAt: NOW, unresolved: { reason: 'legacy-id-missing', at: NOW } },
+      { id: 'n3', componentId: 'part:2', text: 'second save, still positional', updatedAt: NOW, unresolved: { reason: 'legacy-order-unknown', at: NOW } },
     ];
     await harness.invoke('trace:save-notes', KEY, converted);
     assert.deepEqual(plain(await harness.invoke('trace:get-notes', KEY)), converted, 'keys, positional leftovers and their record survive a round trip');
@@ -1572,8 +1572,8 @@ test('native workspace, documents and shutdown gate through the IPC handlers', a
     vm.runInNewContext(source, { require: (name) => (name === 'electron' ? electron : require(name)) }, { filename: 'preload.cjs' });
     assert.deepEqual(Object.keys(api).sort(), [
       'acceptBoard', 'appendReadings', 'checkForUpdates', 'clearNetworkActivity', 'close', 'droppedFilePath', 'exportReadings', 'exportWorkspace', 'getNetworkActivity', 'getNotes', 'getSettings', 'importReadings', 'initialBoard', 'isMaximized',
-      'checkSupport', 'getSupportStatus', 'prepareSupport', 'listReadingFamilies', 'loadWorkspace', 'locateDocuments', 'maximize', 'minimize', 'onFlushRequest', 'onMaximized', 'onOpenBoard', 'openBoard', 'openSupportLink', 'openUpdatePage', 'pickDiagnosticFile', 'pickDocuments', 'readBoard', 'readDocument', 'readReadings',
-      'recentBoards', 'saveDiagnosticReport', 'saveNotes', 'saveSettings', 'saveWorkspace',
+      'cancelBugReport', 'checkSupport', 'discardBugReportDraft', 'getBugReportDraft', 'getSupportStatus', 'listReadingFamilies', 'loadWorkspace', 'locateDocuments', 'maximize', 'minimize', 'onFlushRequest', 'onMaximized', 'onOpenBoard', 'openBoard', 'openSupportLink', 'openUpdatePage', 'pickDiagnosticFile', 'pickDocuments', 'prepareBugReport', 'prepareSupport', 'readBoard', 'readDocument', 'readReadings',
+      'recentBoards', 'saveBugReportDraft', 'saveDiagnosticReport', 'saveNotes', 'saveSettings', 'saveWorkspace', 'sendBugReport',
     ].sort(), 'the preload exposes exactly the TraceDesktop members; support status, preparation and verification accept no argument');
     harness.app.emit('before-quit', { preventDefault() {} });
     for (const call of [() => api.saveNotes(KEY, []), () => api.saveWorkspace(KEY, manifest()), async () => api.saveSettings(await api.getSettings())]) {
@@ -1921,9 +1921,9 @@ test('native workspace, documents and shutdown gate through the IPC handlers', a
 });
 
 // Support notice (shown on every start, easy to skip). The links are constants of the MAIN process only: the
-// renderer sends an id over 'trace:open-support-link', main maps it and calls shell.openExternal for exactly these four URLs (Stripe, Ko-fi, the GitHub bug report form,
-// and the support page of the project website that the heart button of the top bar opens).
-test('support notice: trace:open-support-link opens only the four fixed links by id; any other value is rejected and shell.openExternal is never called', async (t) => {
+// renderer sends an id over 'trace:open-support-link', main maps it and calls shell.openExternal for exactly three URLs (Stripe, Ko-fi,
+// and the support page). Bug reports now stay inside the app.
+test('support notice: trace:open-support-link opens only the three fixed links by id; bug and any other value are rejected', async (t) => {
   const root = await makeTempDir('trace-support-link-test-');
   t.after(async () => {
     const absolute = path.resolve(root);
@@ -1931,7 +1931,7 @@ test('support notice: trace:open-support-link opens only the four fixed links by
     await fs.rm(absolute, { recursive: true, force: true });
   });
   const URLS = {
-    stripe: 'https://donate.stripe.com/7sYaEZeET2op8PxaGE5EY00', kofi: 'https://ko-fi.com/tracerboardview', bug: 'https://github.com/trace-boardviewer/trace-boardviewer/issues/new?template=bug_report.yml',
+    stripe: 'https://donate.stripe.com/7sYaEZeET2op8PxaGE5EY00', kofi: 'https://ko-fi.com/tracerboardview',
     support: 'https://trace-boardviewer.github.io/support.html',
   };
   const stripeLink = async harness => {
@@ -1956,28 +1956,26 @@ test('support notice: trace:open-support-link opens only the four fixed links by
     assert.deepEqual(harness.shell.opened, []);
   });
 
-  await t.test('stripe, kofi, bug and support open exactly their constant URLs, once per request, with no extra arguments', async () => {
+  await t.test('stripe, kofi and support open exactly their constant URLs, once per request, with no extra arguments', async () => {
     const harness = await desktopHarness(profile());
     const stripe = await stripeLink(harness);
     assert.equal(await harness.invoke('trace:open-support-link', 'stripe'), undefined);
     assert.deepEqual(harness.shell.opened, [stripe]);
     assert.equal(await harness.invoke('trace:open-support-link', 'kofi'), undefined);
     assert.deepEqual(harness.shell.opened, [stripe, URLS.kofi]);
-    assert.equal(await harness.invoke('trace:open-support-link', 'bug'), undefined);
-    assert.deepEqual(harness.shell.opened, [stripe, URLS.kofi, URLS.bug]);
     assert.equal(await harness.invoke('trace:open-support-link', 'support'), undefined);
-    assert.deepEqual(harness.shell.opened, [stripe, URLS.kofi, URLS.bug, URLS.support]);
-    assert.deepEqual(harness.shell.extraArguments, [[], [], [], []], 'openExternal gets the URL only');
+    assert.deepEqual(harness.shell.opened, [stripe, URLS.kofi, URLS.support]);
+    assert.deepEqual(harness.shell.extraArguments, [[], [], []], 'openExternal gets the URL only');
     for (const url of harness.shell.opened) assert.equal(new URL(url).protocol, 'https:');
   });
 
   await t.test('unknown ids, URLs, look-alikes, prototype names and non-strings are rejected with an error and nothing opens', async () => {
     const harness = await desktopHarness(profile());
     const invalid = [
-      'paypal', 'Stripe', 'KOFI', ' stripe', 'kofi ', 'stripe\n', 'stripe\0', '', 'ko-fi', 'donate', 'Bug', 'BUG', 'bug ', 'bug\n', 'bugs', 'issue', 'issues', 'report', 'github',
+      'paypal', 'Stripe', 'KOFI', ' stripe', 'kofi ', 'stripe\n', 'stripe\0', '', 'ko-fi', 'donate', 'Bug', 'BUG', 'bug', 'bug ', 'bug\n', 'bugs', 'issue', 'issues', 'report', 'github',
       'Support', 'SUPPORT', ' support', 'support ', 'support\n', 'support\0', 'supports', 'support.html', 'website', 'site', 'home', 'trace-boardviewer',
       'constructor', 'toString', '__proto__', 'hasOwnProperty', 'valueOf', 'prototype',
-      URLS.stripe, URLS.kofi, URLS.bug, URLS.support, 'https://trace-boardviewer.github.io/', 'https://trace-boardviewer.github.io/support.html?next=https://evil.example/', 'http://trace-boardviewer.github.io/support.html',
+      URLS.stripe, URLS.kofi, URLS.support, 'https://trace-boardviewer.github.io/', 'https://trace-boardviewer.github.io/support.html?next=https://evil.example/', 'http://trace-boardviewer.github.io/support.html',
       'https://github.com/trace-boardviewer/trace-boardviewer/issues', 'https://evil.example/', 'http://ko-fi.com/tracerboardview', 'file:///C:/Windows/System32/calc.exe', 'javascript:alert(1)', 'ms-settings:', 'C:\\Windows\\System32\\calc.exe',
       undefined, null, 0, 1, true, false, NaN, 10n, Symbol.for('stripe'), ['stripe'], ['kofi', 'stripe'], { id: 'stripe' }, { toString: () => 'stripe' }, () => 'stripe', new String('stripe'),
       Symbol.for('support'), ['support'], ['support', 'stripe'], { id: 'support' }, { toString: () => 'support' }, () => 'support', new String('support'),
@@ -2022,17 +2020,15 @@ test('support notice: trace:open-support-link opens only the four fixed links by
     assert.deepEqual(harness.shell.opened, []);
   });
 
-  await t.test('the main-process source holds the three fixed support URLs exactly once each and builds the bug form from the repository slug; the preload source holds none (the renderer never sends a URL)', async () => {
+  await t.test('the main-process source holds three fixed support URLs; there is no external bug report route', async () => {
     const main = await fs.readFile(path.resolve(__dirname, '..', 'electron', 'main.cjs'), 'utf8');
     const preload = await fs.readFile(path.resolve(__dirname, '..', 'electron', 'preload.cjs'), 'utf8');
     for (const url of [URLS.stripe, URLS.kofi, URLS.support]) assert.equal(main.split(url).length - 1, 1, `${url} appears once in main.cjs`);
     const table = /const SUPPORT_LINKS = Object\.freeze\(\{([\s\S]*?)\n\}\);/.exec(main);
     assert.ok(table, 'main.cjs has the frozen SUPPORT_LINKS table');
-    assert.deepEqual([...table[1].matchAll(/^\s+([a-z]+):/gm)].map((match) => match[1]), ['stripe', 'kofi', 'bug', 'support'], 'the table has exactly the four ids, in this order');
-    assert.equal(main.split('bug: `https://github.com/${updates.REPOSITORY}/issues/new?template=bug_report.yml`').length - 1, 1, 'the bug form is built from the slug of updates.cjs (electron/repository.json), once');
-    assert.doesNotMatch(main, /github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9._-]+/, 'main.cjs names no repository of its own');
+    assert.deepEqual([...table[1].matchAll(/^\s+([a-z]+):/gm)].map((match) => match[1]), ['stripe', 'kofi', 'support'], 'the table has exactly the three ids, in this order');
+    assert.doesNotMatch(main, /issues\/new|bug_report\.yml/, 'main.cjs has no external bug report URL');
     for (const url of Object.values(URLS)) assert.equal(preload.includes(url), false, `${url} is not in preload.cjs`);
-    assert.doesNotMatch(preload, /github\.com/, 'the preload holds no GitHub address');
     assert.equal(/openExternal/.test(preload), false, 'the preload never calls shell.openExternal');
     assert.equal((main.match(/shell\.openExternal\(/g) ?? []).length, 1, 'exactly one openExternal call site in main.cjs (the openExternalUrl helper, which the support links and the update page both go through)');
   });
@@ -2050,9 +2046,8 @@ test('support notice: trace:open-support-link opens only the four fixed links by
     assert.equal(typeof api.openSupportLink, 'function');
     await api.openSupportLink('stripe');
     await api.openSupportLink('kofi');
-    await api.openSupportLink('bug');
     await api.openSupportLink('support');
-    assert.deepEqual(calls, [['trace:open-support-link', 'stripe'], ['trace:open-support-link', 'kofi'], ['trace:open-support-link', 'bug'], ['trace:open-support-link', 'support']]);
+    assert.deepEqual(calls, [['trace:open-support-link', 'stripe'], ['trace:open-support-link', 'kofi'], ['trace:open-support-link', 'support']]);
   });
 });
 
@@ -2822,12 +2817,16 @@ test('egress request shape: fixed headers, no credentials, no referrer, no redir
       headers: { Cookie: 'a=b', Authorization: 'Bearer x', 'X-Evil': '1' }, credentials: 'include', redirect: 'follow', referrer: 'https://evil.example/', referrerPolicy: 'unsafe-url', body: 'x', signal: new AbortController().signal,
       url: 'https://evil.example/', keepalive: true, cache: 'default', mode: 'no-cors', proxy: 'http://evil.example', session: {}, useSessionCookies: true,
     };
-    await layer.request(SAMPLE_ID, SAMPLE_URL, hostile);
+    assert.deepEqual(await layer.request(SAMPLE_ID, SAMPLE_URL, hostile), { ok: false, error: 'not-allowed' });
+    assert.equal(calls.length, 1, 'a supplied GET body is refused before fetch');
+    const bodylessHostile = { ...hostile };
+    delete bodylessHostile.body;
+    await layer.request(SAMPLE_ID, SAMPLE_URL, bodylessHostile);
     const init = calls[1].init;
     assert.deepEqual(Object.keys(init).sort(), BASE_KEYS);
     assert.deepEqual({ ...init.headers }, { ...baseline.headers });
     for (const key of ['method', 'credentials', 'redirect', 'referrer', 'referrerPolicy']) assert.equal(init[key], baseline[key], key);
-    assert.notEqual(init.signal, hostile.signal);
+    assert.notEqual(init.signal, bodylessHostile.signal);
     assert.equal(calls[1].url, SAMPLE_URL);
     for (const junk of [null, 'x', 42, [], () => {}]) assert.equal((await layer.request(SAMPLE_ID, SAMPLE_URL, junk)).ok, true);
   });
@@ -3463,7 +3462,7 @@ test('network activity in the main process: the update check runs through egress
     const harness = await networking(release('v9.9.9'));
     assert.deepEqual(harness.partitions, [], 'no partition at start-up');
     const first = await activity(harness);
-    assert.deepEqual(first.features, [{ id: 'update-check', hosts: ['api.github.com'], methods: ['GET'], optIn: 'updateCheck', enabled: true }, { id: 'support-verification', hosts: [require('../electron/support.cjs').FEATURE.hosts[0]], methods: ['GET'], optIn: 'supportVerification', enabled: false }]);
+    assert.deepEqual(first.features, [{ id: 'update-check', hosts: ['api.github.com'], methods: ['GET'], optIn: 'updateCheck', enabled: true }, { id: 'support-verification', hosts: [require('../electron/support.cjs').FEATURE.hosts[0]], methods: ['GET'], optIn: 'supportVerification', enabled: false }, { id: 'bug-report', hosts: ['trace-bug-report.trace-boardviewer.workers.dev'], methods: ['POST'], optIn: null, enabled: true }]);
     assert.deepEqual(first.entries, []);
     assert.equal(first.dropped, 0);
     assert.equal(first.limit, 200);
@@ -3566,7 +3565,7 @@ test('network activity in the main process: the update check runs through egress
     const read = plain(await harness.invoke('trace:get-network-activity', ...evil));
     assert.equal(read.entries.length, 1);
     assert.equal(read.limit, 200);
-    assert.deepEqual(read.features.map((feature) => feature.hosts), [['api.github.com'], require('../electron/support.cjs').FEATURE.hosts]);
+    assert.deepEqual(read.features.map((feature) => feature.hosts), [['api.github.com'], require('../electron/support.cjs').FEATURE.hosts, ['trace-bug-report.trace-boardviewer.workers.dev']]);
     assert.equal(await harness.invoke('trace:clear-network-activity', ...evil), undefined);
     assert.deepEqual(plain(await harness.invoke('trace:get-network-activity')), { features: read.features, limit: 200, dropped: 0, entries: [] });
     assert.equal(harness.net.requests.length, 1, 'reading and clearing start no request');

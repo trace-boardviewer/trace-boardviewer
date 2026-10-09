@@ -1,0 +1,4 @@
+{
+  "enabled": true,
+  "endpoint": "https://trace-bug-report.trace-boardviewer.workers.dev/v1/reports"
+}

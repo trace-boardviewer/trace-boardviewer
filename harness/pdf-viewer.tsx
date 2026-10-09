@@ -112,17 +112,27 @@ function instrument(handle: PdfHandle): PdfHandle {
   return wrapped;
 }
 function instrumentSession(session: PdfSession): PdfSession {
-  return {
-    id: session.id,
-    getSnapshot: () => session.getSnapshot(),
-    subscribe: listener => session.subscribe(listener),
-    submitPassword: password => session.submitPassword(password),
-    getHandle: () => { const handle = session.getHandle(); return handle ? instrument(handle) : null; },
-    ensureIndex: () => session.ensureIndex(),
-    find: (query, options) => session.find(query, options),
-    refCandidates: (refs, nets, options) => session.refCandidates(refs, nets, options),
-    dispose: () => session.dispose(),
+  const boundMethods = new Map<PropertyKey, { original: Function; bound: Function }>();
+  const getHandle = session.getHandle.bind(session);
+  const instrumentedGetHandle = () => {
+    const handle = getHandle();
+    return handle ? instrument(handle) : null;
   };
+  return new Proxy(session, {
+    get(target, property) {
+      if (property === 'getHandle') return instrumentedGetHandle;
+
+      const value = Reflect.get(target, property, target);
+      if (typeof value !== 'function') return value;
+
+      // Preserve the session as `this` and keep method identities stable for React subscriptions.
+      const cached = boundMethods.get(property);
+      if (cached?.original === value) return cached.bound;
+      const bound = value.bind(target);
+      boundMethods.set(property, { original: value, bound });
+      return bound;
+    },
+  });
 }
 function liveCanvasStats() {
   let live = 0, pixels = 0, maxPixels = 0;

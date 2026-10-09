@@ -308,7 +308,7 @@ test('workspace.cjs: manifest aliases, board mismatch and notes validation', asy
       assert.throws(() => workspace.validateNotes([{ ...marked, unresolved }]), { code: 'NOTES_INVALID' }, JSON.stringify(unresolved));
     }
     for (const reason of workspace.NOTE_PROBLEMS) assert.doesNotThrow(() => workspace.validateNotes([{ ...marked, unresolved: { reason, at: NOW } }]), reason);
-    assert.equal(workspace.NOTE_PROBLEMS.length, 7);
+    assert.equal(workspace.NOTE_PROBLEMS.length, 8);
     assert.equal(workspace.LIMITS.anchor, 1e9);
   });
 

@@ -459,6 +459,28 @@ describe('migrating positional notes', () => {
     expect(JSON.stringify(result.notes)).not.toMatch(/part:|pin:/);
   });
 
+  it('keeps historical component and pin ids unresolved when the reader recovered a shortened BDV header', () => {
+    const board1 = b();
+    board1.legacyPositionalNotesUnsafe = true;
+    const original: BoardNote[] = [
+      legacy('old-part', 'part:0', undefined, { text: 'note about U2', measurements: { voltage: '1.8 V' }, updatedAt: T0 }),
+      legacy('old-pin', 'part:0', 'pin:0', { text: 'U2 pin note', measurements: { resistance: '0.4 Ω' }, updatedAt: T1 }),
+      keyed('stable-part', { ref: 'R1' }),
+      keyed('stable-pin', { ref: 'U1', pin: '2' }),
+    ];
+    const result = migrateNotes(board1, original, T1);
+    expect(result).toMatchObject({ changed: true, migrated: 0, unresolved: 2 });
+    expect(result.notes).toEqual([
+      { ...original[0], unresolved: { reason: 'legacy-order-unknown', at: T1 } },
+      { ...original[1], unresolved: { reason: 'legacy-order-unknown', at: T1 } },
+      original[2], original[3],
+    ]);
+    expect(unresolvedNotes(board1, result.notes).map(item => [item.note.id, item.problem])).toEqual([['old-part', 'legacy-order-unknown'], ['old-pin', 'legacy-order-unknown']]);
+    const roundTrip = validateNotes(JSON.parse(JSON.stringify(result.notes)));
+    expect(roundTrip).toEqual(result.notes);
+    expect(migrateNotes(board1, roundTrip, '2030-01-01T00:00:00.000Z')).toEqual({ notes: roundTrip, changed: false, migrated: 0, unresolved: 0 });
+  });
+
   it('is idempotent: a second run changes nothing, and the same input always gives the same result', () => {
     const board1 = b();
     const notes: BoardNote[] = [legacy('a', 'part:1'), legacy('b', 'part:99'), legacy('c', 'part:0', pinOf(board1, 'R1', '1')), keyed('k', { ref: 'D1' })];

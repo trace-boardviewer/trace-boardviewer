@@ -19,5 +19,6 @@
   "notes.fallbackUnnamedPart": "The file gives this component no reference, so the note is bound to its position on the board.",
   "notes.fallbackUnnamedPin": "The file gives this pin no number, so the note is bound to its position on the board.",
   "notes.refusePart": "No note can be saved for this component: another component with the same reference lies at exactly the same position, so the two cannot be told apart.",
-  "notes.refusePin": "No note can be saved for this pin: another pin without a number lies at exactly the same position, so the two cannot be told apart."
+  "notes.refusePin": "No note can be saved for this pin: another pin without a number lies at exactly the same position, so the two cannot be told apart.",
+  "notes.reasonLegacyOrderUnknown": "This older note cannot be safely matched because the reader's record order may have changed."
 }

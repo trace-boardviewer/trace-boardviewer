@@ -18,7 +18,7 @@ import type { SupportStatus } from '../lib/types';
  * Opening a link sends an id ('stripe' | 'kofi') to the main process (window.traceDesktop.openSupportLink); the URLs are constants
  * in electron/main.cjs. The pure logic (allow-list, hourly claim, request flow) is in src/lib/support-notice.ts.
  */
-export default function SupportNotice({ ready, blocked = false, suppressed = false, requested = 0, t, open, onShown, onSettled, onVerified }: { ready: boolean; blocked?: boolean; suppressed?: boolean; requested?: number; t: Translator; open?: SupportLinkOpener; onShown?: () => void; onSettled?: () => void; onVerified?: (value: SupportStatus) => void }) {
+export default function SupportNotice({ ready, blocked = false, suppressed = false, requested = 0, t, open, onShown, onSettled, onVerified, onReportBug }: { ready: boolean; blocked?: boolean; suppressed?: boolean; requested?: number; t: Translator; open?: SupportLinkOpener; onShown?: () => void; onSettled?: () => void; onVerified?: (value: SupportStatus) => void; onReportBug?: () => void }) {
   const [visible, setVisible] = useState(false);
   const settled = useRef(onSettled);
   settled.current = onSettled;
@@ -42,11 +42,11 @@ export default function SupportNotice({ ready, blocked = false, suppressed = fal
   }, [ready, blocked, visible, suppressed]);
   // `onSettled` tells the shell that the notice is out of the way (closed, or never shown): the update strip waits for it, so the two never compete.
   const close = () => { postponeSupportNotice(); setVisible(false); settled.current?.(); };
-  return visible && !suppressed ? <SupportDialog t={t} open={open} onVerified={value => { onVerified?.(value); close(); }} onClose={close} /> : null;
+  return visible && !suppressed ? <SupportDialog t={t} open={open} onVerified={value => { onVerified?.(value); close(); }} onReportBug={onReportBug} onClose={close} /> : null;
 }
 
 /** The dialog itself (exported for the markup test). */
-export function SupportDialog({ t, open, onClose, onVerified }: { t: Translator; open?: SupportLinkOpener; onClose: () => void; onVerified?: (value: SupportStatus) => void }) {
+export function SupportDialog({ t, open, onClose, onVerified, onReportBug }: { t: Translator; open?: SupportLinkOpener; onClose: () => void; onVerified?: (value: SupportStatus) => void; onReportBug?: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const notNow = useRef<HTMLButtonElement>(null);
   const pressTarget = useRef<EventTarget | null>(null);
@@ -72,8 +72,10 @@ export function SupportDialog({ t, open, onClose, onVerified }: { t: Translator;
     const opened = await requester.request(id);
     if (!alive.current) return;
     setBusy(false);
-    if (opened && (id === 'bug' || !window.traceDesktop?.checkSupport)) onClose();
+    if (opened && !window.traceDesktop?.checkSupport) onClose();
   };
+
+  const reportBug = () => { onClose(); window.setTimeout(() => onReportBug?.(), 0); };
 
   return <dialog ref={dialog} className="support-notice" role="dialog" aria-labelledby={titleId} aria-describedby={bodyId} data-testid="support-notice"
     onCancel={event => { event.preventDefault(); onClose(); }}
@@ -89,7 +91,7 @@ export function SupportDialog({ t, open, onClose, onVerified }: { t: Translator;
       <div className="support-notice-actions">
         <button type="button" className="primary-button" data-testid="support-stripe" data-support-link="stripe" disabled={busy} onClick={() => void activate('stripe')}>{t(SUPPORT_NOTICE_KEYS.stripe)}</button>
         <button type="button" className="outline-button" data-testid="support-kofi" data-support-link="kofi" disabled={busy} onClick={() => void activate('kofi')}>{t(SUPPORT_NOTICE_KEYS.kofi)}</button>
-        <button type="button" className="outline-button" data-testid="support-bug" data-support-link="bug" disabled={busy} onClick={() => void activate('bug')}><Bug size={14} />{t(SUPPORT_NOTICE_KEYS.bug)}</button>
+        <button type="button" className="outline-button" data-testid="support-bug" onClick={reportBug}><Bug size={14} />{t(SUPPORT_NOTICE_KEYS.bug)}</button>
         <button type="button" className="outline-button support-notice-skip" ref={notNow} data-testid="support-not-now" onClick={onClose}>{t(SUPPORT_NOTICE_KEYS.notNow)}</button>
       </div>
       <SupportVerification t={t} onVerified={onVerified} />

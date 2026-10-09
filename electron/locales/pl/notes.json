@@ -19,5 +19,6 @@
   "notes.fallbackUnnamedPart": "Plik nie nadaje temu elementowi oznaczenia, więc notatka jest powiązana z jego pozycją na płytce.",
   "notes.fallbackUnnamedPin": "Plik nie nadaje temu pinowi numeru, więc notatka jest powiązana z jego pozycją na płytce.",
   "notes.refusePart": "Dla tego elementu nie można zapisać notatki: inny element o tym samym oznaczeniu leży dokładnie w tym samym miejscu, więc nie da się ich odróżnić.",
-  "notes.refusePin": "Dla tego pinu nie można zapisać notatki: inny pin bez numeru leży dokładnie w tym samym miejscu, więc nie da się ich odróżnić."
+  "notes.refusePin": "Dla tego pinu nie można zapisać notatki: inny pin bez numeru leży dokładnie w tym samym miejscu, więc nie da się ich odróżnić.",
+  "notes.reasonLegacyOrderUnknown": "Tej starszej notatki nie można bezpiecznie przypisać, bo czytnik mógł zmienić kolejność rekordów."
 }

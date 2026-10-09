@@ -19,5 +19,6 @@
   "notes.fallbackUnnamedPart": "Súbor tejto súčiastke nepriraďuje žiadne označenie, preto je poznámka viazaná na jej polohu na doske.",
   "notes.fallbackUnnamedPin": "Súbor tomuto pinu nepriraďuje žiadne číslo, preto je poznámka viazaná na jeho polohu na doske.",
   "notes.refusePart": "Pre túto súčiastku sa nedá uložiť poznámka: iná súčiastka s rovnakým označením leží presne na tej istej polohe, takže ich nemožno odlíšiť.",
-  "notes.refusePin": "Pre tento pin sa nedá uložiť poznámka: iný pin bez čísla leží presne na tej istej polohe, takže ich nemožno odlíšiť."
+  "notes.refusePin": "Pre tento pin sa nedá uložiť poznámka: iný pin bez čísla leží presne na tej istej polohe, takže ich nemožno odlíšiť.",
+  "notes.reasonLegacyOrderUnknown": "Túto staršiu poznámku nemožno bezpečne priradiť, pretože čítač mohol zmeniť poradie záznamov."
 }

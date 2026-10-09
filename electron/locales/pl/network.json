@@ -42,5 +42,9 @@
   "network.resultTooLarge": "Odpowiedź zbyt duża",
   "network.resultTimeout": "Przekroczono limit czasu",
   "network.resultNetwork": "Błąd sieci",
-  "network.resultBadResponse": "Nieoczekiwana odpowiedź"
+  "network.resultBadResponse": "Nieoczekiwana odpowiedź",
+  "network.bugReport": "Zgłoszenie błędu",
+  "network.bugReportHint": "Zgłoszenie zostanie wysłane dopiero po wybraniu opcji Wyślij w formularzu.",
+  "network.resultCancelled": "Anulowano",
+  "network.resultHttpStatus": "Nieakceptowany status HTTP: {status}"
 }

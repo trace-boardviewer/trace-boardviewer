@@ -2,11 +2,14 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const fsp = require('node:fs/promises');
+const os = require('node:os');
 const { DatabaseSync } = require('node:sqlite');
 const { generateKeyPairSync, sign, verify, createHmac } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
 const path = require('node:path');
-const { validateReceipt, createSupportService, FEATURE } = require('../electron/support.cjs');
+const { createJsonStore } = require('../electron/store.cjs');
+const { validateReceipt, createSupportService, FEATURE, yearAfter } = require('../electron/support.cjs');
 const { createEgress } = require('../electron/net/egress.cjs');
 const now = Date.UTC(2026, 9, 8), claim = 'a'.repeat(32);
 const keys = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
@@ -26,6 +29,7 @@ test('offline receipt: signature, app reference, exact year and expiry are requi
   const leap = Date.UTC(2024, 1, 29, 12);
   assert.equal(validateReceipt(receipt(leap), claim, leap, publicKey).expiresAt, Date.UTC(2025, 1, 28, 12));
   assert.equal(validateReceipt(receipt(now + 600_000), claim, now, publicKey), null);
+  for (const malformed of [[], [claim], {}, null, 5]) assert.equal(validateReceipt(receipt(), malformed, now, publicKey), null);
 });
 test('status is local; only an explicit check uses egress, stores a signed receipt and hides the code in the activity log', async () => {
   let value = { claim }, requests = 0;
@@ -48,6 +52,65 @@ test('network failure, pending payment, forged receipt and failed local save nev
   }
   const service = createSupportService({ store: { read: async () => ({ claim }), write: async () => { throw new Error('disk'); } }, egress: () => ({ request: async () => ({ ok: true, status: 200, body: Buffer.from(JSON.stringify(receipt())) }) }), now: () => now, config: { enabled: true, endpoint: 'https://example.invalid', publicKey } });
   assert.equal((await service.check()).status, 'unavailable');
+});
+test('corrupt storage stays byte-for-byte intact and preparation, status and check report unavailable without network access', async t => {
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), 'trace-support-corrupt-'));
+  t.after(() => fsp.rm(directory, { recursive: true, force: true }));
+  const filename = path.join(directory, 'support-receipt.json'), original = Buffer.from('{"claim": [broken');
+  await fsp.writeFile(filename, original);
+  const store = createJsonStore({ directory, maxBytes: 8192 });
+  let requests = 0, updates = 0;
+  const service = createSupportService({ store: { ...store, update: (...args) => { updates++; return store.update(...args); } }, egress: () => ({ request: async () => { requests++; return { ok: true, status: 404 }; } }), now: () => now, config: { enabled: true, endpoint: 'https://' + FEATURE.hosts[0], publicKey } });
+  assert.deepEqual(await service.prepare(), { status: 'unavailable', expiresAt: null, available: true, code: '' });
+  assert.equal((await service.status()).status, 'unavailable');
+  assert.equal((await service.check()).status, 'unavailable');
+  assert.equal(updates, 0);
+  assert.equal(requests, 0);
+  assert.deepEqual(await fsp.readFile(filename), original);
+  for (const malformedClaim of [[], [claim], {}, null, 5]) {
+    const damaged = Buffer.from(JSON.stringify({ claim: malformedClaim }));
+    await fsp.writeFile(filename, damaged);
+    assert.equal((await service.prepare()).status, 'unavailable');
+    assert.deepEqual(await fsp.readFile(filename), damaged);
+  }
+});
+test('unreadable storage returns a bounded unavailable result and never attempts a write or provider request', async () => {
+  let writes = 0, requests = 0;
+  const store = { read: async () => { const error = new Error('permission denied'); error.code = 'EACCES'; throw error; }, update: async () => { writes++; }, write: async () => { writes++; } };
+  const service = createSupportService({ store, egress: () => ({ request: async () => { requests++; return { ok: true, status: 404 }; } }), now: () => now, config: { enabled: true, endpoint: 'https://' + FEATURE.hosts[0], publicKey } });
+  assert.deepEqual(await service.prepare(), { status: 'unavailable', expiresAt: null, available: true, code: '' });
+  assert.equal((await service.status()).status, 'unavailable');
+  assert.equal((await service.check()).status, 'unavailable');
+  assert.equal(writes, 0);
+  assert.equal(requests, 0);
+});
+test('a failed preparation can be explicitly retried after storage becomes writable', async () => {
+  let writes = 0;
+  const store = {
+    read: async (_name, options) => options.missing,
+    update: async () => { if (++writes === 1) throw Object.assign(new Error('disk unavailable'), { code: 'EACCES' }); return { claim }; },
+  };
+  const service = createSupportService({ store, egress: () => { throw new Error('no provider request expected'); }, now: () => now, config: { enabled: true, publicKey } });
+  assert.deepEqual(await service.prepare(), { status: 'unavailable', expiresAt: null, available: true, code: '' });
+  assert.deepEqual(await service.prepare(), { status: 'inactive', expiresAt: null, available: true, code: claim });
+  assert.equal(writes, 2);
+});
+test('a receipt save failure can be explicitly retried and the signed receipt survives a service restart', async t => {
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), 'trace-support-retry-'));
+  t.after(() => fsp.rm(directory, { recursive: true, force: true }));
+  const store = createJsonStore({ directory, maxBytes: 8192 });
+  await store.write('support-receipt.json', { claim });
+  const signed = receipt();
+  let requests = 0, failSave = true;
+  const originalWrite = store.write.bind(store);
+  const flakyStore = { ...store, write: async (...args) => { if (failSave) { failSave = false; throw new Error('disk unavailable'); } return originalWrite(...args); } };
+  const egress = () => ({ request: async () => { requests++; return { ok: true, status: 200, body: Buffer.from(JSON.stringify(signed)) }; } });
+  const service = createSupportService({ store: flakyStore, egress, now: () => now, config: { enabled: true, endpoint: 'https://' + FEATURE.hosts[0], publicKey } });
+  assert.equal((await service.check()).status, 'unavailable');
+  assert.equal((await service.check()).status, 'verified');
+  assert.equal(requests, 2);
+  const restarted = createSupportService({ store, egress: () => { throw new Error('the saved receipt is local'); }, now: () => now, config: { enabled: true, publicKey } });
+  assert.deepEqual(await restarted.status(), { status: 'verified', expiresAt: yearAfter(now), available: true });
 });
 test('Worker: real database deduplicates paid sessions; auth, live mode, matching link and positive paid amount are mandatory', async t => {
   const worker = (await import(pathToFileURL(path.resolve(__dirname, '../services/support-worker/worker.mjs')))).default;

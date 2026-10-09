@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { zipSync } from 'fflate';
 import { parseBoard } from './formats';
 import { MODEL_PROTOCOL } from './model-protocol';
 import { reportParseProgress, withParseProgress } from './parse-progress';
@@ -92,6 +93,7 @@ describe('board worker: progress while parsing, then the board model on the same
     const progress = posted.filter(message => 'progress' in message).map(message => (message.progress as { fraction: number }).fraction);
     const final = posted.find(message => 'board' in message)!;
     expect(final.model).toBe(MODEL_PROTOCOL);
+    expect(final.reportContext).toEqual({ stage: 'done', formatId: 'gencad' });
     expect((final.board as { components: unknown[] }).components).toHaveLength(3000);
     expect(posted.indexOf(final)).toBe(posted.length - 1);
     expect(progress.length).toBeGreaterThan(0);
@@ -110,9 +112,25 @@ describe('board worker: progress while parsing, then the board model on the same
   it('reports a parse failure structured and does not become a model worker', async () => {
     const { posted, send } = await startWorker();
     send({ name: 'broken.cad', data: enc('$HEADER\nGENCAD 1.4\n$ENDHEADER\n$COMPONENTS\nCOMPONENT R1\n$ENDCOMPONENTS\n') });
-    expect(posted).toHaveLength(1);
-    expect(Object.keys(posted[0]).some(key => key === 'issue' || key === 'formatError' || key === 'error')).toBe(true);
+    const failure = posted.find(message => 'issue' in message || 'formatError' in message || 'error' in message);
+    expect(failure).toBeDefined();
+    const contexts = posted.filter(message => 'reportContext' in message).map(message => message.reportContext as { stage: string });
+    expect(contexts.map(context => context.stage)).toEqual(['detect', 'parse']);
+    expect(contexts.every(context => Object.keys(context).every(key => key === 'stage'))).toBe(true);
     send({ name: 'invalid' });
     expect(posted.at(-1)).toEqual({ error: 'Invalid import message.' });
+  });
+
+  it('reports only safe stage values for unknown formats and keeps archive member names out of context', async () => {
+    const unknownWorker = await startWorker();
+    unknownWorker.send({ name: 'unknown.cad', data: enc('not a board file') });
+    const unknownFailure = unknownWorker.posted.find(message => 'formatError' in message)!;
+    expect(unknownFailure).toBeDefined();
+    expect(unknownWorker.posted.filter(message => 'reportContext' in message).map(message => message.reportContext)).toEqual([{ stage: 'detect' }]);
+
+    unknownWorker.send({ name: 'package.zip', data: zipSync({ 'private-folder/board.cad': enc(genCad(1)) }) });
+    const final = unknownWorker.posted.find(message => 'board' in message)!;
+    expect(final.reportContext).toEqual({ stage: 'done', formatId: 'gencad' });
+    expect(JSON.stringify(unknownWorker.posted.filter(message => 'reportContext' in message).map(message => message.reportContext))).not.toMatch(/private-folder|board\.cad|package\.zip|entry|container/i);
   });
 });

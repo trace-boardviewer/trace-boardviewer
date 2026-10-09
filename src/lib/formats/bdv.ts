@@ -46,6 +46,7 @@ const plural = (count: number, one: string, many: string) => `${count} ${count =
 export class Tally {
   unconnected = 0; unknownSides = 0; defaultedSides = 0; emptyParts = 0; strayLines = 0; repeatedRefs = 0; abbreviatedProbes = 0; markedProbes = 0; unlocatedPins = 0;
   readonly ignoredSections: string[] = [];
+  readonly shortenedHeaders: string[] = [];
   readonly extra: string[] = [];
   /** B06: UNCONNECTED<n> is the exporter's "no net" placeholder, never an electrical net. */
   net(name: string): string {
@@ -110,6 +111,7 @@ export function scanSections(lines: string[], source: Source, headers: ReadonlyM
         // Some Honhan exports omit their banner or shorten it. Stop only at a complete record of the current section:
         // this cannot swallow a marker, and preserves the fixed-header behavior for ASC/BVR callers.
         if (firstRecords?.get(text)?.(lines[index + 1].trim())) {
+          tally.shortenedHeaders.push(text);
           tally.extra.push(`${text}: read a shortened section header (${skipped} of the usual ${header} lines).`);
           break;
         }
@@ -353,5 +355,7 @@ export function parseBdv(input: ParseInput): Board | null {
   if (!formatRows) tally.extra.push('The encoded nails-first BDV export has no format.asc section; its board outline is estimated from its component and test-point coordinates.');
   const model: Model = { outline: readFormat(formatRows ?? [], source, tally), parts: readPins(pinRows, source, tally, true), nails: readNails(sections.get(NAILS_MARKER) ?? [], source, tally) };
   nameNailNets(model, tally);
-  return assemble(input, source, model, tally);
+  const board = assemble(input, source, model, tally);
+  if (tally.shortenedHeaders.some(section => section === PINS_MARKER || section === NAILS_MARKER)) board.legacyPositionalNotesUnsafe = true;
+  return board;
 }

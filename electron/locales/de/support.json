@@ -14,5 +14,7 @@
   "support.referenceHint": "Bei Ko-fi diesen Code in die Zahlungsnachricht kopieren. Stripe erhält ihn automatisch. Nach der Zahlung hier bestätigen, um die Hinweise für ein Jahr auszublenden.",
   "support.verify": "Zahlung prüfen",
   "support.pending": "Die Zahlungsbestätigung ist noch nicht eingetroffen. Du kannst überspringen und später erneut prüfen.",
-  "support.unavailable": "Die Zahlungsprüfung ist derzeit nicht verfügbar. Du kannst überspringen und es später erneut versuchen."
+  "support.unavailable": "Die Zahlungsprüfung ist derzeit nicht verfügbar. Du kannst überspringen und es später erneut versuchen.",
+  "support.retry": "Erneut versuchen",
+  "support.retrying": "Zahlungsprüfung wird erneut versucht…"
 }

@@ -53,6 +53,8 @@ export interface Board {
   bounds: Bounds;
   /** Structured, so the info dialog is rendered in the language active at that moment. */
   warnings: ParseIssue[];
+  /** Present only when shortened BDV or ASC component/pin headers can change the earlier reader's positional component/pin ids. */
+  legacyPositionalNotesUnsafe?: true;
 }
 /** Original bytes of the chosen file; the parser (never the transport) decides the format. */
 export interface FilePayload {
@@ -82,7 +84,7 @@ export interface NoteKey { ref?: string; at?: NoteAnchor; pin?: string; pinAt?: 
 /** Why a note is not attached to a part or pin of the open board. The notes themselves are always kept. */
 export type NoteProblem =
   | 'component-missing' | 'component-ambiguous' | 'pin-missing' | 'pin-ambiguous'
-  | 'legacy-id-missing' | 'legacy-indistinguishable' | 'duplicate-target';
+  | 'legacy-id-missing' | 'legacy-indistinguishable' | 'legacy-order-unknown' | 'duplicate-target';
 interface NoteBase {
   id: string;
   text: string;
@@ -182,8 +184,20 @@ export interface TraceDesktop {
   pickDiagnosticFile?(): Promise<DiagnosticFilePayload | null>;
   /** Format diagnostic report: main validates the report against the closed schema again, opens the save dialog and writes the canonical text. Cancel resolves null; rejects with a DIAGNOSTIC_* code. Optional: an older preload lacks it. */
   saveDiagnosticReport?(report: DiagnosticReport): Promise<{ bytes: number } | null>;
-  /** Support notice and top bar: asks the main process to open one of its four fixed links (Stripe, Ko-fi, the GitHub bug report form, the support page of the project website) in the system browser. The renderer sends an id, never a URL; any other id is rejected. Optional: an older preload lacks it. */
-  openSupportLink?(id: 'stripe' | 'kofi' | 'bug' | 'support'): Promise<void>;
+  /** Prepare an immutable local report preview. No network request is made. Optional for older or browser bridges. */
+  prepareBugReport?(request: BugReportInput): Promise<BugReportPrepareResult>;
+  /** Explicitly send only the report identified by a current main-process preview handle. Optional for older bridges. */
+  sendBugReport?(request: { prepareId: string }): Promise<BugReportSendResult>;
+  /** Cancel the current send for this preview. A cancellation after transmission is uncertain. Optional for older bridges. */
+  cancelBugReport?(request: { prepareId: string }): Promise<BugReportCancelResult>;
+  /** Read the optional local draft and exact pending retry payload. Never sends. Optional for older bridges. */
+  getBugReportDraft?(): Promise<BugReportDraftResult>;
+  /** Save a bounded local draft. Never sends. Optional for older bridges. */
+  saveBugReportDraft?(request: BugReportInput): Promise<{ status: 'saved' } | BugReportErrorResult>;
+  /** Discard the local draft and pending retry journal, including an uncertain attempted report. This only removes local data; it does not delete a report remotely. Optional for older bridges. */
+  discardBugReportDraft?(): Promise<{ status: 'discarded' } | BugReportErrorResult>;
+  /** Support notice and top bar: asks the main process to open one of three fixed links (Stripe, Ko-fi, or the support page) in the system browser. The renderer sends an id, never a URL; any other id is rejected. Optional: an older preload lacks it. */
+  openSupportLink?(id: 'stripe' | 'kofi' | 'support'): Promise<void>;
   getSupportStatus?(): Promise<SupportStatus>;
   prepareSupport?(): Promise<SupportStatus & { code: string }>;
   checkSupport?(): Promise<SupportStatus>;
@@ -206,4 +220,23 @@ export interface TraceDesktop {
   /** Native save dialog, then writes the pack (validated natively) as a pack file or CSV. Cancel resolves null. */
   exportReadings?(request: ReadingsExportRequest): Promise<ReadingsExportResult | null>;
 }
+
+export type BugReportLastImport = {
+  outcome: 'reading' | 'processing' | 'opened' | 'failed' | 'cancelled' | 'key-required' | 'timeout' | 'worker-failed';
+  stage: 'read' | 'detect' | 'unpack' | 'parse' | 'done' | 'unknown';
+  formatId: string | null; extensionClass: string; errorCode: string | null;
+} | null;
+export type BugReportDiagnostics = {
+  app: { version: string; platform: 'windows' | 'macos' | 'linux' | 'other'; arch: 'x64' | 'arm64' | 'other' };
+  locale: 'hu' | 'en' | 'de' | 'fr' | 'it' | 'sk' | 'pl' | 'uk';
+  surface: 'welcome' | 'board' | 'documents' | 'schematic' | 'settings' | 'other'; lastImport: BugReportLastImport;
+} | null;
+export type BugReport = { schema: 'trace-bug-report/1'; reportId: string; description: string; diagnostics: BugReportDiagnostics };
+export type BugReportInput = { description: string; includeDiagnostics: boolean; context: { surface: 'welcome' | 'board' | 'documents' | 'schematic' | 'settings' | 'other'; lastImport: BugReportLastImport } | null };
+export type BugReportError = 'offline' | 'timeout' | 'cancelled' | 'invalid' | 'too-large' | 'rate-limited' | 'unavailable' | 'storage' | 'conflict' | 'busy' | 'stale-preview' | 'unknown';
+export type BugReportErrorResult = { status: 'error'; error: BugReportError; retryAfterSeconds?: number };
+export type BugReportPrepareResult = { status: 'prepared'; prepareId: string; report: BugReport; canonicalText: string; payloadHash: string } | BugReportErrorResult;
+export type BugReportSendResult = { status: 'received'; reportId: string; payloadHash: string } | BugReportErrorResult;
+export type BugReportCancelResult = { status: 'cancelled'; uncertain: boolean } | BugReportErrorResult;
+export type BugReportDraftResult = { status: 'empty' } | { status: 'available'; draft: BugReportInput | null; pending: { report: BugReport; canonicalText: string; payloadHash: string } | null } | BugReportErrorResult;
 declare global { interface Window { traceDesktop?: TraceDesktop } }

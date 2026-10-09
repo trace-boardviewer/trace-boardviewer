@@ -14,5 +14,7 @@
   "support.referenceHint": "Su Ko-fi, copia questo codice nel messaggio del pagamento. Stripe lo riceve automaticamente. Dopo il pagamento, torna qui per verificare e nascondere i promemoria per un anno.",
   "support.verify": "Verifica pagamento",
   "support.pending": "La conferma del pagamento non è ancora arrivata. Puoi saltare questo passaggio e riprovare più tardi.",
-  "support.unavailable": "La verifica del pagamento non è disponibile. Puoi saltare questo passaggio e riprovare più tardi."
+  "support.unavailable": "La verifica del pagamento non è disponibile. Puoi saltare questo passaggio e riprovare più tardi.",
+  "support.retry": "Riprova",
+  "support.retrying": "Nuovo tentativo di verifica del pagamento…"
 }
